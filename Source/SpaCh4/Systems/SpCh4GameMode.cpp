@@ -1,4 +1,4 @@
-#include "Systems/SpCh4GameMode.h"
+#include "SpCh4GameMode.h"
 
 ASpCh4GameMode::ASpCh4GameMode()
 {

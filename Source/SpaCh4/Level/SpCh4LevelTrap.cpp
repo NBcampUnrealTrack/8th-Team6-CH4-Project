@@ -1,4 +1,4 @@
-#include "Level/SpCh4LevelTrap.h"
+#include "SpCh4LevelTrap.h"
 
 ASpCh4LevelTrap::ASpCh4LevelTrap()
 {

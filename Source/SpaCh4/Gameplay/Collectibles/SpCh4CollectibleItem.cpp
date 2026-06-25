@@ -1,4 +1,4 @@
-#include "Gameplay/Collectibles/SpCh4CollectibleItem.h"
+#include "SpCh4CollectibleItem.h"
 
 ASpCh4CollectibleItem::ASpCh4CollectibleItem()
 {

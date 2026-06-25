@@ -1,4 +1,4 @@
-#include "Gameplay/Escape/SpCh4EscapeGate.h"
+#include "SpCh4EscapeGate.h"
 
 ASpCh4EscapeGate::ASpCh4EscapeGate()
 {

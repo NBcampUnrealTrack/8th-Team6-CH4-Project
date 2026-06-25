@@ -1,4 +1,4 @@
-#include "Characters/Survivor/SpCh4SurvivorCharacter.h"
+#include "SpCh4SurvivorCharacter.h"
 
 ASpCh4SurvivorCharacter::ASpCh4SurvivorCharacter()
 {

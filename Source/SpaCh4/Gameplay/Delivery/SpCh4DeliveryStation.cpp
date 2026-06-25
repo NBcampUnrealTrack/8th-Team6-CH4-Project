@@ -1,4 +1,4 @@
-#include "Gameplay/Delivery/SpCh4DeliveryStation.h"
+#include "SpCh4DeliveryStation.h"
 
 ASpCh4DeliveryStation::ASpCh4DeliveryStation()
 {

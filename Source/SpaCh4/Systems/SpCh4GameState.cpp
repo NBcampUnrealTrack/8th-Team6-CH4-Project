@@ -1,4 +1,4 @@
-#include "Systems/SpCh4GameState.h"
+#include "SpCh4GameState.h"
 
 ASpCh4GameState::ASpCh4GameState()
 {

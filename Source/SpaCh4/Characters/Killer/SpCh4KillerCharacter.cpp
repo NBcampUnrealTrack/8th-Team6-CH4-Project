@@ -1,4 +1,4 @@
-#include "Characters/Killer/SpCh4KillerCharacter.h"
+#include "SpCh4KillerCharacter.h"
 
 ASpCh4KillerCharacter::ASpCh4KillerCharacter()
 {
