@@ -50,6 +50,7 @@ Plugins/*/Saved/
 *.vcxproj.user
 *.ipch
 .vs/
+.vsconfig
 
 # Xcode
 *.xcodeproj
