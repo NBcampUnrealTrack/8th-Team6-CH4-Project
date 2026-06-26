@@ -58,6 +58,11 @@ Plugins/*/Saved/
 .vs/
 .vsconfig
 
+# Unreal-generated CMake project files contain local absolute paths.
+/CMakeLists.txt
+CMakeFiles/
+cmake-build-*/
+
 # Xcode
 *.xcodeproj
 *.xcworkspace
@@ -81,6 +86,10 @@ CLAUDE.local.md
 # Other agents' local caches
 .cursor/
 .aider*
+
+# Local UEBridgeMCP additions used only for personal editor automation.
+Plugins/UEBridgeMCP/Source/UEBridgeMCPEditor/Private/Tools/Build/
+Plugins/UEBridgeMCP/Source/UEBridgeMCPEditor/Public/Tools/Build/
 
 # =============================================================
 #  OS / Misc
