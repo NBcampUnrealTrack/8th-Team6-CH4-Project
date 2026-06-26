@@ -12,7 +12,8 @@ public class SpaCh4 : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
-			"UMG"
+			"UMG",
+			"EnhancedInput"
 		});
 	}
 }
