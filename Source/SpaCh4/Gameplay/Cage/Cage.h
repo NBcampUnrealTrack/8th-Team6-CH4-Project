@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "SpCh4Cage.generated.h"
+#include "Cage.generated.h"
 
 UENUM(BlueprintType)
-enum class ESpCh4CageStage : uint8
+enum class ECageStage : uint8
 {
 	Empty,
 	StageOne,
@@ -14,12 +14,12 @@ enum class ESpCh4CageStage : uint8
 };
 
 UCLASS()
-class SPACH4_API ASpCh4Cage : public AActor
+class SPACH4_API ACage : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4Cage();
+	ACage();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cage")
@@ -32,5 +32,5 @@ protected:
 	float RescueDuration = 4.0f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cage")
-	ESpCh4CageStage CageStage = ESpCh4CageStage::Empty;
+	ECageStage CageStage = ECageStage::Empty;
 };

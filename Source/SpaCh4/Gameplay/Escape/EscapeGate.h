@@ -1,16 +1,16 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "SpCh4EscapeGate.generated.h"
+#include "EscapeGate.generated.h"
 
 UCLASS()
-class SPACH4_API ASpCh4EscapeGate : public AActor
+class SPACH4_API AEscapeGate : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4EscapeGate();
+	AEscapeGate();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Escape")

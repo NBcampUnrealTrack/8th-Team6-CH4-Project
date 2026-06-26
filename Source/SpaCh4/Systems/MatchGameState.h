@@ -1,16 +1,16 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
-#include "SpCh4GameState.generated.h"
+#include "MatchGameState.generated.h"
 
 UCLASS()
-class SPACH4_API ASpCh4GameState : public AGameStateBase
+class SPACH4_API AMatchGameState : public AGameStateBase
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4GameState();
+	AMatchGameState();
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Delivery")

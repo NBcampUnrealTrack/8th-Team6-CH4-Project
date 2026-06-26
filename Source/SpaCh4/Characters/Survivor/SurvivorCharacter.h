@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "SpCh4SurvivorCharacter.generated.h"
+#include "SurvivorCharacter.generated.h"
 
 UENUM(BlueprintType)
-enum class ESpCh4SurvivorState : uint8
+enum class ESurvivorState : uint8
 {
 	Healthy,
 	Injured,
@@ -17,12 +17,12 @@ enum class ESpCh4SurvivorState : uint8
 };
 
 UCLASS()
-class SPACH4_API ASpCh4SurvivorCharacter : public ACharacter
+class SPACH4_API ASurvivorCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4SurvivorCharacter();
+	ASurvivorCharacter();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Survivor")
@@ -32,5 +32,5 @@ protected:
 	float CrouchMoveSpeed = 220.0f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Survivor")
-	ESpCh4SurvivorState SurvivorState = ESpCh4SurvivorState::Healthy;
+	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 };

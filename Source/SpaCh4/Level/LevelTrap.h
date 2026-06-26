@@ -1,16 +1,16 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "SpCh4LevelTrap.generated.h"
+#include "LevelTrap.generated.h"
 
 UCLASS()
-class SPACH4_API ASpCh4LevelTrap : public AActor
+class SPACH4_API ALevelTrap : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4LevelTrap();
+	ALevelTrap();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Level Trap")

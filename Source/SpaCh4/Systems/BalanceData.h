@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
-#include "SpCh4BalanceData.generated.h"
+#include "BalanceData.generated.h"
 
 UCLASS(BlueprintType)
-class SPACH4_API USpCh4BalanceData : public UDataAsset
+class SPACH4_API UBalanceData : public UDataAsset
 {
 	GENERATED_BODY()
 

@@ -1,16 +1,16 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "SpCh4KillerCharacter.generated.h"
+#include "KillerCharacter.generated.h"
 
 UCLASS()
-class SPACH4_API ASpCh4KillerCharacter : public ACharacter
+class SPACH4_API AKillerCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4KillerCharacter();
+	AKillerCharacter();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Killer")

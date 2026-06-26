@@ -1,16 +1,16 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "SpCh4DeliveryStation.generated.h"
+#include "DeliveryStation.generated.h"
 
 UCLASS()
-class SPACH4_API ASpCh4DeliveryStation : public AActor
+class SPACH4_API ADeliveryStation : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	ASpCh4DeliveryStation();
+	ADeliveryStation();
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Delivery")
