@@ -18,6 +18,8 @@ Plugins/*/Binaries/
 Plugins/*/Build/
 Plugins/*/Intermediate/
 Plugins/*/Saved/
+Content/Developers/
+Source/SpaCh4/Developers/
 
 # Keep build resources that must be versioned (icons, etc.)
 !/Build/**/*.ico
