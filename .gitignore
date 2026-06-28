@@ -82,6 +82,7 @@ _ReSharper*/
 # Claude Code — commit .claude/settings.json, ignore local overrides
 .claude/settings.local.json
 CLAUDE.local.md
+.claude/
 
 # Other agents' local caches
 .cursor/
