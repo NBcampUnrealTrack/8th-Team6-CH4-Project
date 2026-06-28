@@ -1,11 +1,11 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "Characters/Base/CharacterBase.h"
 #include "KillerCharacter.generated.h"
 
 UCLASS()
-class SPACH4_API AKillerCharacter : public ACharacter
+class SPACH4_API AKillerCharacter : public ACharacterBase
 {
 	GENERATED_BODY()
 
