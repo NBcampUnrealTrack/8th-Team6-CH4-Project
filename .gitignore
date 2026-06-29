@@ -101,3 +101,6 @@ Thumbs.db
 desktop.ini
 *.log
 *.tmp
+
+# Local source art (authoring PNGs; imported assets live under Content/)
+/SourceArt/
