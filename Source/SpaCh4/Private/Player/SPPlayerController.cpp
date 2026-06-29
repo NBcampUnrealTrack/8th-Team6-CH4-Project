@@ -1,7 +1,7 @@
 #include "Player/SPPlayerController.h"
 
 #include "EnhancedInputSubsystems.h"
-#include "Input/InputConfigData.h"
+#include "Data/InputConfigData.h"
 
 void ASPPlayerController::BeginPlay()
 {
