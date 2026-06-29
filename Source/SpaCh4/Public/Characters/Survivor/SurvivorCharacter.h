@@ -28,6 +28,12 @@ public:
 	void SetSurvivorState(ESurvivorState NewState);
 	bool CanMove() const;
 	bool CanInteract() const;
+
+protected:
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_Interact();
+	virtual void Interact() override;	
+	
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState();
@@ -36,5 +42,10 @@ private:
 	
 	UPROPERTY(ReplicatedUsing="OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
-	  
+	
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
+	float InteractReach = 200.f;
+	
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
+	float InteractRadius = 20.f;
 };

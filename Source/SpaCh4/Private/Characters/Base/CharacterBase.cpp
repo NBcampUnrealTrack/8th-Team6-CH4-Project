@@ -2,8 +2,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "EnhancedInputComponent.h"
+#include "Data/InputConfigData.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "Input/InputConfigData.h"
 
 ACharacterBase::ACharacterBase()
 {
@@ -31,16 +31,14 @@ void ACharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 
 	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		if (InputConfig->MoveAction)
-		{
-			EnhancedInput->BindAction(InputConfig->MoveAction, ETriggerEvent::Triggered, this, &ACharacterBase::Move);
-		}
-
-		if (InputConfig->LookAction)
-		{
-			EnhancedInput->BindAction(InputConfig->LookAction, ETriggerEvent::Triggered, this, &ACharacterBase::Look);
-		}
+		EnhancedInput->BindAction(InputConfig->MoveAction, ETriggerEvent::Triggered, this, &ACharacterBase::Move);
+		EnhancedInput->BindAction(InputConfig->LookAction, ETriggerEvent::Triggered, this, &ACharacterBase::Look);
+		EnhancedInput->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 	}
+}
+
+void ACharacterBase::Interact()
+{
 }
 
 void ACharacterBase::Move(const FInputActionValue& Value)

@@ -18,4 +18,6 @@ class SPACH4_API IInteractable
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
+	void Interact(AActor* Instigator);
 };
