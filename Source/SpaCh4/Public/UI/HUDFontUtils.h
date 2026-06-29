@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Styling/SlateBrush.h"
 
 class UFontFace;
 class UTextBlock;
@@ -15,4 +16,10 @@ namespace SpaCh4HUD
 
 	UFontFace* LoadFontFace(const TCHAR* AssetPath);
 	void ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size);
+
+	inline void SetBrushImageSize(FSlateBrush& Brush, const FVector2D& Size)
+	{
+		Brush.ImageSize = Size;
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+	}
 }

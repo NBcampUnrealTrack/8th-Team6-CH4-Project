@@ -7,6 +7,7 @@
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Systems/MatchGameState.h"
+#include "UI/HUDFontUtils.h"
 #include "UI/TeammateEntryWidget.h"
 
 void UGameHUDWidget::NativePreConstruct()
@@ -55,11 +56,7 @@ namespace
 		}
 	}
 
-	static void SetBrushImageSize(FSlateBrush& Brush, const FVector2D& Size)
-	{
-		Brush.ImageSize = Size;
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-	}
+	using SpaCh4HUD::SetBrushImageSize;
 
 	static const TCHAR* DeliveryProgressFrameTexturePathA =
 		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Station_A.T_HUD_Delivery_Station_A");

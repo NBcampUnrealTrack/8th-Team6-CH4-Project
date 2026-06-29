@@ -23,7 +23,7 @@
                                                 "Editor"
                                             ],
                         "Name":  "UEBridgeMCP",
-                        "Enabled":  true
+                        "Enabled":  false
                     },
                     {
                         "TargetAllowList":  [

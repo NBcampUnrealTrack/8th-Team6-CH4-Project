@@ -4,6 +4,7 @@
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "UI/HUDFontUtils.h"
 
 namespace
 {
@@ -34,12 +35,6 @@ namespace
 			return FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		}
 	}
-
-	static void SetBrushImageSize(FSlateBrush& Brush, const FVector2D& Size)
-	{
-		Brush.ImageSize = Size;
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-	}
 }
 
 void UTeammateEntryWidget::NativeConstruct()
@@ -68,7 +63,7 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 		{
 			DownedHealthBarBG->SetBrushFromTexture(BgTexture, true);
 			FSlateBrush BgBrush = DownedHealthBarBG->GetBrush();
-			SetBrushImageSize(BgBrush, BarSize);
+			SpaCh4HUD::SetBrushImageSize(BgBrush, BarSize);
 			DownedHealthBarBG->SetBrush(BgBrush);
 		}
 		DownedHealthBarBG->SetColorAndOpacity(FLinearColor::White);
@@ -99,7 +94,7 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 
 			DownedHealthBarFill->SetBrushFromMaterial(DownedHealthBarFillMID);
 			FSlateBrush FillBrush = DownedHealthBarFill->GetBrush();
-			SetBrushImageSize(FillBrush, BarSize);
+			SpaCh4HUD::SetBrushImageSize(FillBrush, BarSize);
 			DownedHealthBarFill->SetBrush(FillBrush);
 			return;
 		}
@@ -109,7 +104,7 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 	{
 		DownedHealthBarFill->SetBrushFromTexture(FillTexture, true);
 		FSlateBrush FillBrush = DownedHealthBarFill->GetBrush();
-		SetBrushImageSize(FillBrush, BarSize);
+		SpaCh4HUD::SetBrushImageSize(FillBrush, BarSize);
 		DownedHealthBarFill->SetBrush(FillBrush);
 	}
 }
