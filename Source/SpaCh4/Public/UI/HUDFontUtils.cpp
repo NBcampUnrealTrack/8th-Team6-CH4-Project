@@ -2,6 +2,7 @@
 
 #include "Components/TextBlock.h"
 #include "Engine/FontFace.h"
+#include "Fonts/SlateFontInfo.h"
 
 UFontFace* SpaCh4HUD::LoadFontFace(const TCHAR* AssetPath)
 {
