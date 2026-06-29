@@ -2,8 +2,8 @@
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EnhancedInputComponent.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/OverlapResult.h"
+#include "EnhancedInputSubsystems.h"
+#include "Data/InputConfigData.h"
 
 AKillerCharacter::AKillerCharacter() { bReplicates = true; }
 
@@ -17,89 +17,32 @@ void AKillerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();
-    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    if (APlayerController* PC = Cast<APlayerController>(GetController()))
+    {
+        if (auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+        {
+            if (InputConfig)
+            {
+                for (const FInputMappingContextEntry& Entry : InputConfig->MappingContexts)
+                {
+                    if (Entry.MappingContext) Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
+                }
+            }
+        }
+    }
 }
 
 void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-    // 부모 클래스의 Move/Look 바인딩 수행
     Super::SetupPlayerInputComponent(PlayerInputComponent);
-    
     if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent))
     {
         if (AttackAction) EIC->BindAction(AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::HandleAttack);
         if (InteractAction) EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::HandleInteract);
-        
-        UE_LOG(LogTemp, Warning, TEXT("[DEBUG] 총 바인드된 액션 수: %d"), EIC->GetNumActionBindings());
     }
 }
 
-void AKillerCharacter::UpdateMovementSpeed()
-{
-    float Multiplier = (CurrentState == EKillerState::Carrying) ? 0.9f : (CurrentState == EKillerState::Groggy ? 0.7f : 1.0f);
-    if (GetCharacterMovement()) 
-    {
-        GetCharacterMovement()->MaxWalkSpeed = BaseSpeed * Multiplier;
-        if (GetCharacterMovement()->MovementMode == MOVE_None) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-    }
-}
-
-void AKillerCharacter::OnRep_KillerState() { UpdateMovementSpeed(); }
-
-AActor* AKillerCharacter::FindInteractableActor(float Radius)
-{
-    TArray<FOverlapResult> Overlaps;
-    FCollisionShape Sphere = FCollisionShape::MakeSphere(Radius);
-    if (GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_WorldDynamic, Sphere, FCollisionQueryParams(NAME_None, false, this)))
-    {
-        for (const auto& Result : Overlaps)
-            if (Result.GetActor()->ActorHasTag("DownedSurvivor") || Result.GetActor()->ActorHasTag("Cage"))
-                return Result.GetActor();
-    }
-    return nullptr;
-}
-
-void AKillerCharacter::HandleAttack(const FInputActionValue& Value) { if (CurrentState == EKillerState::Idle) Server_Attack(); }
-void AKillerCharacter::HandleInteract(const FInputActionValue& Value) { Server_Interact(); }
-
-void AKillerCharacter::Server_Interact_Implementation()
-{
-    if (CurrentState == EKillerState::Idle)
-    {
-        if (AActor* Target = FindInteractableActor(200.f))
-            if (Target->ActorHasTag("DownedSurvivor")) Server_PickupSurvivor(Target);
-    }
-    else if (CurrentState == EKillerState::Carrying)
-    {
-        AActor* Target = FindInteractableActor(200.f);
-        if (Target && Target->ActorHasTag("Cage")) Server_HookSurvivor();
-        else Server_DropSurvivor();
-    }
-}
-
-void AKillerCharacter::Server_PickupSurvivor_Implementation(AActor* TargetSurvivor)
-{
-    if (TargetSurvivor)
-    {
-        CarriedSurvivor = TargetSurvivor;
-        Cast<UPrimitiveComponent>(CarriedSurvivor->GetRootComponent())->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        CarriedSurvivor->AttachToActor(this, FAttachmentTransformRules::SnapToTargetIncludingScale);
-        SetKillerState(EKillerState::Carrying);
-    }
-}
-
-void AKillerCharacter::Server_DropSurvivor_Implementation()
-{
-    if (CarriedSurvivor)
-    {
-        Cast<UPrimitiveComponent>(CarriedSurvivor->GetRootComponent())->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        CarriedSurvivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-        CarriedSurvivor = nullptr;
-    }
-    SetKillerState(EKillerState::Idle);
-}
-
-void AKillerCharacter::Server_HookSurvivor_Implementation() { Server_DropSurvivor(); }
+void AKillerCharacter::HandleAttack() { if (CurrentState == EKillerState::Idle) Server_Attack(); }
 
 void AKillerCharacter::Server_Attack_Implementation()
 {
@@ -108,15 +51,53 @@ void AKillerCharacter::Server_Attack_Implementation()
     GetWorldTimerManager().SetTimer(TimerHandle, [this]() {
         bool bHit = PerformAttackTrace();
         SetKillerState(bHit ? EKillerState::Idle : EKillerState::Groggy);
+        if (!bHit) {
+            FTimerHandle GroggyTimer;
+            GetWorldTimerManager().SetTimer(GroggyTimer, [this]() { SetKillerState(EKillerState::Idle); }, 1.0f, false);
+        }
     }, 0.35f, false);
+}
+
+void AKillerCharacter::HandleInteract() { Server_Interact(); }
+
+void AKillerCharacter::Server_Interact_Implementation()
+{
+    // 생존자를 들거나 케이지에 거는 로직 시작점
+    if (CurrentState == EKillerState::Idle) SetKillerState(EKillerState::PickingUp);
+    else if (CurrentState == EKillerState::Carrying) SetKillerState(EKillerState::Interacting);
+}
+
+void AKillerCharacter::Server_PickupSurvivor_Implementation(AActor* TargetSurvivor)
+{
+    if (TargetSurvivor)
+    {
+        CarriedSurvivor = TargetSurvivor;
+        SetKillerState(EKillerState::Carrying);
+    }
 }
 
 bool AKillerCharacter::PerformAttackTrace()
 {
+    // 1. 설정
+    FVector Forward = GetActorForwardVector();
+    float TraceRange = 250.f; // 사거리
+    FVector Start = GetActorLocation() + (Forward * 20.f) + FVector(0, 0, 80.f);
+    FVector End = Start + (Forward * TraceRange);
+    
+    // 공격 판정 크기 (기획에 맞게 조절)
+    FVector BoxExtent = FVector(TraceRange / 2.0f, 100.f, 75.f); 
+    FCollisionShape Box = FCollisionShape::MakeBox(BoxExtent);
+    FQuat Rotation = GetActorRotation().Quaternion();
+
+    // 2. 공격 범위 시각화 (캐릭터 앞부터 사거리 끝까지의 박스)
+    // 박스의 중심점은 Start와 End의 중간 위치입니다.
+    FVector Center = (Start + End) / 2.0f;
+    
+    // DrawDebugBox(World, Center, Extent, Rotation, Color, Persistent, LifeTime, DepthPriority, Thickness)
+    DrawDebugBox(GetWorld(), Center, BoxExtent, Rotation, FColor::Red, false, 1.0f, 0, 5.0f);
+
     FHitResult Hit;
-    FVector Start = GetActorLocation() + (GetActorForwardVector() * 50.f);
-    FVector End = Start + (GetActorForwardVector() * 200.f);
-    return GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeBox(FVector(100.f, 50.f, 50.f)));
+    return GetWorld()->SweepSingleByChannel(Hit, Start, End, Rotation, ECC_Pawn, Box);
 }
 
 void AKillerCharacter::SetKillerState(EKillerState NewState)
@@ -128,3 +109,11 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
         OnRep_KillerState();
     }
 }
+
+void AKillerCharacter::UpdateMovementSpeed()
+{
+    float Multiplier = (CurrentState == EKillerState::Carrying) ? 0.9f : ((CurrentState == EKillerState::Groggy) ? 0.7f : 1.0f);
+    GetCharacterMovement()->MaxWalkSpeed = BaseSpeed * Multiplier;
+}
+
+void AKillerCharacter::OnRep_KillerState() { /* 애니메이션 몽타주 재생 로직 작성 위치 */ }

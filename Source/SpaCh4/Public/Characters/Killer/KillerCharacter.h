@@ -2,11 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Characters/Base/CharacterBase.h"
-#include "InputActionValue.h" // 추가 필수
 #include "KillerCharacter.generated.h"
 
 UENUM(BlueprintType)
 enum class EKillerState : uint8 { Idle, Attacking, Groggy, PickingUp, Carrying, Interacting };
+
+class UInputAction;
 
 UCLASS()
 class SPACH4_API AKillerCharacter : public ACharacterBase
@@ -19,11 +20,11 @@ public:
     virtual void BeginPlay() override;
 
 protected:
+    // 경고 해결: protected로 수정
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-    // EnhancedInput 요구 사양에 맞게 FInputActionValue 인자 추가
-    void HandleAttack(const FInputActionValue& Value);
-    void HandleInteract(const FInputActionValue& Value);
+    void HandleAttack();
+    void HandleInteract();
 
     UPROPERTY(ReplicatedUsing = OnRep_KillerState, VisibleAnywhere, Category = "Killer Character|State")
     EKillerState CurrentState = EKillerState::Idle;
@@ -36,27 +37,23 @@ protected:
 
     UFUNCTION(Server, Reliable)
     void Server_Attack();
+
     UFUNCTION(Server, Reliable)
     void Server_Interact();
+
     UFUNCTION(Server, Reliable)
     void Server_PickupSurvivor(AActor* TargetSurvivor);
-    UFUNCTION(Server, Reliable)
-    void Server_DropSurvivor();
-    UFUNCTION(Server, Reliable)
-    void Server_HookSurvivor();
 
-    AActor* FindInteractableActor(float Radius);
     bool PerformAttackTrace();
     
     UPROPERTY(Replicated)
     TObjectPtr<AActor> CarriedSurvivor;
 
-    // 블루프린트에서 직접 에셋 할당
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Killer Character|Input")
-    TObjectPtr<class UInputAction> AttackAction;
+    TObjectPtr<UInputAction> AttackAction;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Killer Character|Input")
-    TObjectPtr<class UInputAction> InteractAction;
+    TObjectPtr<UInputAction> InteractAction;
 
     const float BaseSpeed = 748.f;
 };
