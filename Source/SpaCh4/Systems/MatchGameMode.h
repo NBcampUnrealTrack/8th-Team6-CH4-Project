@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
-#include "BalanceData.h"
+#include "Data/BalanceData.h"
 #include "MatchGameState.h"
 #include "MatchGameMode.generated.h"
 
