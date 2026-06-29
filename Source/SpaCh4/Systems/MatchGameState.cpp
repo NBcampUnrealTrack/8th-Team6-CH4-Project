@@ -148,6 +148,8 @@ void AMatchGameState::ApplyBalanceSettings(float NewTimeLimit, int32 NewStationA
 	KilledSurvivorCount = 0;
 
 	SurvivorStates.Reset();
+	// 임시로 Survivor_1, 2, 3이 등록되도록 함.
+	// 닉네임이나 고유 아이디 지정 및 등록한다면 이 부분을 분리해야함.
 	for (int32 SurvivorIndex = 0; SurvivorIndex < AliveSurvivorCount; ++SurvivorIndex)
 	{
 		FSurvivorMatchState SurvivorMatchState;
