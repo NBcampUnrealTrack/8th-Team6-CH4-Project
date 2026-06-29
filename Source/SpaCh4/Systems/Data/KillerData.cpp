@@ -2,3 +2,7 @@
 
 
 #include "KillerData.h"
+
+UKillerData::UKillerData()
+{
+}

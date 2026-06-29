@@ -2,3 +2,7 @@
 
 
 #include "SurvivorData.h"
+
+USurvivorData::USurvivorData()
+{
+}
