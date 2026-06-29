@@ -23,17 +23,18 @@ class SPACH4_API ASurvivorCharacter : public ACharacterBase
 
 public:
 	ASurvivorCharacter();
-
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+	
+	void SetSurvivorState(ESurvivorState NewState);
+	bool CanMove() const;
+	bool CanInteract() const;
 private:
-	// 추후 구현
-	/*
-	UPROPERTY(EditAnywhere, Category = "Survivor")
-	float SprintSpeed = 650.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Survivor")
-	float CrouchMoveSpeed = 220.0f;
-
-	UPROPERTY(VisibleAnywhere, Category = "Survivor")
+	UFUNCTION()
+	void OnRep_SurvivorState();
+	
+	void ApplyStateEffects();
+	
+	UPROPERTY(ReplicatedUsing="OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
-	*/
+	  
 };
