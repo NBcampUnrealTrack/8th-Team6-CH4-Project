@@ -11,6 +11,7 @@
 # change them to "**" or a source "Build/" folder would be swallowed again.
 /Binaries/
 /Build/
+/_build/
 /DerivedDataCache/
 /Intermediate/
 /Saved/

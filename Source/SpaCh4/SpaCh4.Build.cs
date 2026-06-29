@@ -15,5 +15,11 @@ public class SpaCh4 : ModuleRules
 			"UMG",
 			"EnhancedInput"
 		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"Slate",
+			"SlateCore"
+		});
 	}
 }
