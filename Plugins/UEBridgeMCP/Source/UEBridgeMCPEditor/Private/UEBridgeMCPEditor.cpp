@@ -19,6 +19,7 @@
 #include "Tools/Analysis/ClassHierarchyTool.h"
 #include "Tools/References/FindReferencesTool.h"
 #include "Tools/Widget/WidgetBlueprintTool.h"
+#include "Tools/Widget/EditWidgetBlueprintTool.h"
 #include "Tools/Debug/GetLogsTool.h"
 
 // Utility write tools
@@ -114,6 +115,7 @@ void FUEBridgeMCPEditorModule::RegisterBuiltInTools()
 	Registry.RegisterToolClass(UClassHierarchyTool::StaticClass());
 	Registry.RegisterToolClass(UFindReferencesTool::StaticClass());
 	Registry.RegisterToolClass(UWidgetBlueprintTool::StaticClass());
+	Registry.RegisterToolClass(UEditWidgetBlueprintTool::StaticClass());
 	Registry.RegisterToolClass(UGetLogsTool::StaticClass());
 
 	// Utility creation tools

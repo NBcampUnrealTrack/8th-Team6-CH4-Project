@@ -9,6 +9,8 @@ class UImage;
 class UProgressBar;
 class UTextBlock;
 class UTeammateEntryWidget;
+class UWidget;
+class UMaterialInstanceDynamic;
 class AMatchGameState;
 
 UCLASS(Abstract, Blueprintable)
@@ -61,12 +63,30 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TObjectPtr<UImage> DeliveryIconB;
 
-	/** Single composite progress bar (preferred — no segment stretch) */
+	/** Single composite progress bar (legacy — used when overlay fill is absent) */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TObjectPtr<UImage> DeliveryProgressBarA;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TObjectPtr<UImage> DeliveryProgressBarB;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UWidget> DeliveryProgressRootA;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UWidget> DeliveryProgressRootB;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UImage> DeliveryProgressBGA;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UImage> DeliveryProgressBGB;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UImage> DeliveryProgressFillA;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TObjectPtr<UImage> DeliveryProgressFillB;
 
 	/** Legacy 10-segment stack — used when progress bar widget is absent */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
@@ -107,16 +127,30 @@ protected:
 	UFUNCTION(BlueprintNativeEvent, Category = "HUD")
 	TArray<FTeammateHUDData> BuildTeammateDataFromGameplay() const;
 
+	virtual void NativePreConstruct() override;
 	virtual void NativeConstruct() override;
 
 private:
-	void ApplyHUDFonts();
 	void ApplyDeliveryRowLabels();
 	void RefreshTeammateEntries();
 	void RefreshDeliveryPanel();
 	void RefreshInventoryPanel();
 	void RefreshPerkPanel();
 	void EnsurePreviewDefaults();
-	void UpdateDeliveryProgress(UImage* ProgressBar, const TArray<TObjectPtr<UImage>>& StackWidgets, int32 CurrentValue, int32 TargetValue);
+	void SetupDeliveryProgressBars();
+	void UpdateDeliveryProgress(
+		UWidget* Root,
+		UImage* FrameImage,
+		UImage* FillImage,
+		UImage* LegacyBar,
+		const TArray<TObjectPtr<UImage>>& StackWidgets,
+		int32 CurrentValue,
+		int32 TargetValue);
 	AMatchGameState* GetMatchGameState() const;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> DeliveryProgressFillMIDA;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> DeliveryProgressFillMIDB;
 };

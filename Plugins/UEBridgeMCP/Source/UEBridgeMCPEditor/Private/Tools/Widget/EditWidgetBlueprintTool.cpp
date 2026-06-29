@@ -13,8 +13,13 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Components/OverlaySlot.h"
+#include "Components/SizeBox.h"
+#include "Components/SizeBoxSlot.h"
+#include "Components/Overlay.h"
+#include "Components/PanelWidget.h"
 #include "Engine/Texture2D.h"
 #include "Engine/FontFace.h"
+#include "Materials/MaterialInterface.h"
 #include "Styling/SlateTypes.h"
 #include "ScopedTransaction.h"
 
@@ -90,6 +95,64 @@ bool UEditWidgetBlueprintTool::RemoveWidget(UWidgetBlueprint* WidgetBP, UWidget*
 	}
 
 	WidgetBP->WidgetTree->RemoveWidget(Widget);
+	return true;
+}
+
+static bool ReorderOverlayChildren(
+	UWidgetBlueprint* WidgetBP,
+	UOverlay* Overlay,
+	const TArray<FString>& ChildOrder,
+	FString& OutError)
+{
+	if (!WidgetBP || !Overlay)
+	{
+		OutError = TEXT("Invalid overlay for reorder");
+		return false;
+	}
+
+	TMap<FString, UWidget*> WidgetByName;
+	for (int32 Index = 0; Index < Overlay->GetChildrenCount(); ++Index)
+	{
+		if (UWidget* Child = Overlay->GetChildAt(Index))
+		{
+			WidgetByName.Add(Child->GetName(), Child);
+		}
+	}
+
+	TArray<UWidget*> OrderedChildren;
+	OrderedChildren.Reserve(ChildOrder.Num());
+	for (const FString& ChildName : ChildOrder)
+	{
+		UWidget** Found = WidgetByName.Find(ChildName);
+		if (!Found || !*Found)
+		{
+			OutError = FString::Printf(TEXT("Overlay child not found: %s"), *ChildName);
+			return false;
+		}
+		OrderedChildren.Add(*Found);
+	}
+
+	if (OrderedChildren.Num() != Overlay->GetChildrenCount())
+	{
+		OutError = TEXT("child_order must include every overlay child exactly once");
+		return false;
+	}
+
+	TArray<UWidget*> DetachedChildren;
+	while (Overlay->GetChildrenCount() > 0)
+	{
+		if (UWidget* Child = Overlay->GetChildAt(0))
+		{
+			Overlay->RemoveChild(Child);
+			DetachedChildren.Add(Child);
+		}
+	}
+
+	for (UWidget* Child : OrderedChildren)
+	{
+		Overlay->AddChild(Child);
+	}
+
 	return true;
 }
 
@@ -367,6 +430,23 @@ static UTexture2D* LoadTexture(const FString& TexturePath)
 	return LoadObject<UTexture2D>(nullptr, *Path);
 }
 
+static UMaterialInterface* LoadMaterialInterface(const FString& MaterialPath)
+{
+	if (MaterialPath.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	FString Path = MaterialPath;
+	if (!Path.Contains(TEXT(".")))
+	{
+		const FString AssetName = FPackageName::GetLongPackageAssetName(MaterialPath);
+		Path = FString::Printf(TEXT("%s.%s"), *MaterialPath, *AssetName);
+	}
+
+	return LoadObject<UMaterialInterface>(nullptr, *Path);
+}
+
 static UFontFace* LoadFontFace(const FString& FontPath)
 {
 	if (FontPath.IsEmpty())
@@ -396,13 +476,37 @@ bool UEditWidgetBlueprintTool::ApplyProperties(UWidget* Widget, const TSharedPtr
 	{
 		if (UImage* Image = Cast<UImage>(Widget))
 		{
-			if (UTexture2D* Tex = LoadTexture(ImageTexture))
+			if (!ImageTexture.IsEmpty())
 			{
-				Image->SetBrushFromTexture(Tex, true);
+				if (UTexture2D* Tex = LoadTexture(ImageTexture))
+				{
+					Image->SetBrushFromTexture(Tex, true);
+				}
+				else
+				{
+					OutError = FString::Printf(TEXT("Texture not found: %s"), *ImageTexture);
+					return false;
+				}
+			}
+		}
+	}
+
+	FString ImageMaterial;
+	if (PropsObj->TryGetStringField(TEXT("image_material"), ImageMaterial))
+	{
+		if (UImage* Image = Cast<UImage>(Widget))
+		{
+			if (ImageMaterial.IsEmpty())
+			{
+				// Explicit clear request — leave brush unchanged.
+			}
+			else if (UMaterialInterface* Mat = LoadMaterialInterface(ImageMaterial))
+			{
+				Image->SetBrushFromMaterial(Mat);
 			}
 			else
 			{
-				OutError = FString::Printf(TEXT("Texture not found: %s"), *ImageTexture);
+				OutError = FString::Printf(TEXT("Material not found: %s"), *ImageMaterial);
 				return false;
 			}
 		}
@@ -414,11 +518,38 @@ bool UEditWidgetBlueprintTool::ApplyProperties(UWidget* Widget, const TSharedPtr
 		FVector2D Size;
 		if (ParseVector2(DesiredSizeArr, Size))
 		{
-		if (UImage* Image = Cast<UImage>(Widget))
+			if (UImage* Image = Cast<UImage>(Widget))
+			{
+				Image->SetDesiredSizeOverride(Size);
+				FSlateBrush Brush = Image->GetBrush();
+				Brush.ImageSize = Size;
+				Image->SetBrush(Brush);
+			}
+		}
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* RenderTranslationArr = nullptr;
+	if (PropsObj->TryGetArrayField(TEXT("render_translation"), RenderTranslationArr))
+	{
+		FVector2D Translation;
+		if (ParseVector2(RenderTranslationArr, Translation))
 		{
-			FSlateBrush Brush = Image->GetBrush();
-			Brush.ImageSize = Size;
-			Image->SetBrush(Brush);
+			Widget->SetRenderTransformPivot(FVector2D(0.f, 0.f));
+			Widget->SetRenderTranslation(Translation);
+		}
+	}
+
+	if (USizeBox* SizeBox = Cast<USizeBox>(Widget))
+	{
+		double WidthOverride = -1.0;
+		double HeightOverride = -1.0;
+		if (PropsObj->TryGetNumberField(TEXT("width_override"), WidthOverride) && WidthOverride >= 0.0)
+		{
+			SizeBox->SetWidthOverride(static_cast<float>(WidthOverride));
+		}
+		if (PropsObj->TryGetNumberField(TEXT("height_override"), HeightOverride) && HeightOverride >= 0.0)
+		{
+			SizeBox->SetHeightOverride(static_cast<float>(HeightOverride));
 		}
 	}
 
@@ -433,7 +564,6 @@ bool UEditWidgetBlueprintTool::ApplyProperties(UWidget* Widget, const TSharedPtr
 			const float A = ColorArr->Num() >= 4 ? static_cast<float>((*ColorArr)[3]->AsNumber()) : 1.0f;
 			Image->SetColorAndOpacity(FLinearColor(R, G, B, A));
 		}
-	}
 	}
 
 	if (UTextBlock* Text = Cast<UTextBlock>(Widget))
@@ -493,6 +623,24 @@ bool UEditWidgetBlueprintTool::ApplyProperties(UWidget* Widget, const TSharedPtr
 				FProgressBarStyle Style = Progress->GetWidgetStyle();
 				Style.FillImage.SetResourceObject(Tex);
 				Progress->SetWidgetStyle(Style);
+			}
+		}
+
+		FString FillMaterial;
+		if (PropsObj->TryGetStringField(TEXT("fill_material"), FillMaterial))
+		{
+			if (UMaterialInterface* Mat = LoadMaterialInterface(FillMaterial))
+			{
+				FProgressBarStyle Style = Progress->GetWidgetStyle();
+				Style.FillImage.SetResourceObject(Mat);
+				Style.FillImage.DrawAs = ESlateBrushDrawType::Image;
+				Progress->SetWidgetStyle(Style);
+				Progress->SetFillColorAndOpacity(FLinearColor::White);
+			}
+			else
+			{
+				OutError = FString::Printf(TEXT("Material not found: %s"), *FillMaterial);
+				return false;
 			}
 		}
 
@@ -560,6 +708,15 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 		FText::Format(NSLOCTEXT("MCP", "EditWidgetBP", "Edit widgets in {0}"), FText::FromString(AssetPath)));
 	FMcpAssetModifier::MarkModified(WidgetBP);
 
+	auto ReturnError = [&Transaction](const FString& Message) -> FMcpToolResult
+	{
+		if (Transaction.IsValid())
+		{
+			Transaction->Cancel();
+		}
+		return FMcpToolResult::Error(Message);
+	};
+
 	TArray<TSharedPtr<FJsonValue>> Results;
 	int32 Applied = 0;
 
@@ -582,6 +739,42 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 
 		FString Action;
 		EditObj->TryGetStringField(TEXT("action"), Action);
+		if (Action.Equals(TEXT("reorder_overlay"), ESearchCase::IgnoreCase))
+		{
+			UWidget* OverlayWidget = FindWidgetByName(WidgetBP, WidgetName, Occurrence);
+			UOverlay* Overlay = Cast<UOverlay>(OverlayWidget);
+			if (!Overlay)
+			{
+				return ReturnError(FString::Printf(TEXT("Widget is not an Overlay: %s"), *WidgetName));
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* ChildOrderArr = nullptr;
+			if (!EditObj->TryGetArrayField(TEXT("child_order"), ChildOrderArr) || !ChildOrderArr)
+			{
+				return ReturnError(TEXT("reorder_overlay requires child_order array"));
+			}
+
+			TArray<FString> ChildOrder;
+			for (const TSharedPtr<FJsonValue>& Value : *ChildOrderArr)
+			{
+				ChildOrder.Add(Value->AsString());
+			}
+
+			FString ReorderError;
+			if (!ReorderOverlayChildren(WidgetBP, Overlay, ChildOrder, ReorderError))
+			{
+				return ReturnError(ReorderError);
+			}
+
+			TSharedPtr<FJsonObject> ResultObj = MakeShareable(new FJsonObject);
+			ResultObj->SetStringField(TEXT("widget_name"), WidgetName);
+			ResultObj->SetStringField(TEXT("action"), TEXT("reorder_overlay"));
+			ResultObj->SetBoolField(TEXT("success"), true);
+			Results.Add(MakeShareable(new FJsonValueObject(ResultObj)));
+			++Applied;
+			continue;
+		}
+
 		if (Action.Equals(TEXT("remove"), ESearchCase::IgnoreCase))
 		{
 			UWidget* Widget = FindWidgetByName(WidgetBP, WidgetName, Occurrence);
@@ -592,7 +785,7 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 
 			if (!RemoveWidget(WidgetBP, Widget))
 			{
-				return FMcpToolResult::Error(FString::Printf(TEXT("Failed to remove widget: %s"), *WidgetName));
+				return ReturnError(FString::Printf(TEXT("Failed to remove widget: %s"), *WidgetName));
 			}
 
 			TSharedPtr<FJsonObject> ResultObj = MakeShareable(new FJsonObject);
@@ -604,10 +797,40 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 			continue;
 		}
 
+		if (Action.Equals(TEXT("reparent"), ESearchCase::IgnoreCase))
+		{
+			const FString ParentName = GetStringArgOrDefault(EditObj, TEXT("parent_widget"));
+			UWidget* Widget = FindWidgetByName(WidgetBP, WidgetName, Occurrence);
+			UPanelWidget* NewParent = Cast<UPanelWidget>(FindWidgetByName(WidgetBP, ParentName, 0));
+			if (!Widget)
+			{
+				return ReturnError(FString::Printf(TEXT("Widget not found: %s"), *WidgetName));
+			}
+			if (!NewParent)
+			{
+				return ReturnError(FString::Printf(TEXT("Parent widget not found or not a panel: %s"), *ParentName));
+			}
+
+			if (UPanelWidget* OldParent = Widget->GetParent())
+			{
+				OldParent->RemoveChild(Widget);
+			}
+			NewParent->AddChild(Widget);
+
+			TSharedPtr<FJsonObject> ResultObj = MakeShareable(new FJsonObject);
+			ResultObj->SetStringField(TEXT("widget_name"), WidgetName);
+			ResultObj->SetStringField(TEXT("action"), TEXT("reparent"));
+			ResultObj->SetStringField(TEXT("parent_widget"), ParentName);
+			ResultObj->SetBoolField(TEXT("success"), true);
+			Results.Add(MakeShareable(new FJsonValueObject(ResultObj)));
+			++Applied;
+			continue;
+		}
+
 		UWidget* Widget = FindWidgetByName(WidgetBP, WidgetName, Occurrence);
 		if (!Widget)
 		{
-			return FMcpToolResult::Error(FString::Printf(TEXT("Widget not found: %s"), *WidgetName));
+			return ReturnError(FString::Printf(TEXT("Widget not found: %s"), *WidgetName));
 		}
 
 		const TSharedPtr<FJsonObject>* SlotObj = nullptr;
@@ -616,7 +839,7 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 			FString SlotError;
 			if (!ApplyCanvasSlot(Widget, *SlotObj, SlotError))
 			{
-				return FMcpToolResult::Error(SlotError);
+				return ReturnError(SlotError);
 			}
 		}
 
@@ -626,7 +849,7 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 			FString PanelSlotError;
 			if (!ApplyPanelSlot(Widget, *PanelSlotObj, PanelSlotError))
 			{
-				return FMcpToolResult::Error(PanelSlotError);
+				return ReturnError(PanelSlotError);
 			}
 		}
 
@@ -636,7 +859,7 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 			FString OverlaySlotError;
 			if (!ApplyOverlaySlot(Widget, *OverlaySlotObj, OverlaySlotError))
 			{
-				return FMcpToolResult::Error(OverlaySlotError);
+				return ReturnError(OverlaySlotError);
 			}
 		}
 
@@ -646,7 +869,7 @@ FMcpToolResult UEditWidgetBlueprintTool::Execute(
 			FString PropError;
 			if (!ApplyProperties(Widget, *PropsObj, PropError))
 			{
-				return FMcpToolResult::Error(PropError);
+				return ReturnError(PropError);
 			}
 		}
 

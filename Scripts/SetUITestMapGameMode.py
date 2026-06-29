@@ -1,7 +1,7 @@
 import unreal
 
 MAP = "/Game/Maps/L_UI_Test"
-GM_CLASS = "/Game/Blueprints/BP_MatchGameMode.BP_MatchGameMode_C"
+GM_CLASS = "/Script/SpaCh4.UITestGameMode"
 
 unreal.EditorLoadingAndSavingUtils.load_map(MAP)
 editor_subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
@@ -18,7 +18,6 @@ for actor in actor_subsystem.get_all_level_actors():
         break
 
 if not world_settings:
-    # Fallback: class query
     for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.WorldSettings.static_class()):
         world_settings = actor
         break

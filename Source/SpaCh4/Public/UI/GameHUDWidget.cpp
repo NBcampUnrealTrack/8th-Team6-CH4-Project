@@ -1,24 +1,28 @@
 #include "UI/GameHUDWidget.h"
 
 #include "Components/Image.h"
+#include "Components/OverlaySlot.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
-#include "UI/HUDFontUtils.h"
+#include "Engine/Texture2D.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Systems/MatchGameState.h"
 #include "UI/TeammateEntryWidget.h"
+
+void UGameHUDWidget::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+	ApplyDeliveryRowLabels();
+	SetupDeliveryProgressBars();
+	RefreshDeliveryPanel();
+}
 
 void UGameHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	ApplyHUDFonts();
 	ApplyDeliveryRowLabels();
-}
-
-void UGameHUDWidget::ApplyHUDFonts()
-{
-	static UFontFace* SemiBold = SpaCh4HUD::LoadFontFace(SpaCh4HUD::FontSemiBoldPath);
-	SpaCh4HUD::ApplyTextFont(DeliveryLabelA, SemiBold, 30);
-	SpaCh4HUD::ApplyTextFont(DeliveryLabelB, SemiBold, 30);
+	SetupDeliveryProgressBars();
+	RefreshAll();
 }
 
 namespace
@@ -50,15 +54,202 @@ namespace
 			Label->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
+
+	static void SetBrushImageSize(FSlateBrush& Brush, const FVector2D& Size)
+	{
+		Brush.ImageSize = Size;
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+	}
+
+	static const TCHAR* DeliveryProgressFrameTexturePathA =
+		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Station_A.T_HUD_Delivery_Station_A");
+	static const TCHAR* DeliveryProgressFrameTexturePathB =
+		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Station_B.T_HUD_Delivery_Station_B");
+	static const TCHAR* DeliveryProgressFillMIPath =
+		TEXT("/Game/UI/HUD/Materials/MI_HUD_DeliveryProgressFill.MI_HUD_DeliveryProgressFill");
+	static const TCHAR* DeliveryProgressFillMaterialPath =
+		TEXT("/Game/UI/HUD/Materials/M_HUD_HealthBarFill.M_HUD_HealthBarFill");
+	static const TCHAR* DeliveryProgressFillTexturePath =
+		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Bar_Fill_Delivery.T_HUD_Bar_Fill_Delivery");
+	static const TCHAR* DeliveryProgressFillTextureFallbackPath =
+		TEXT("/Game/UI/HUD/Textures/Common/T_HUD_Bar_Fill.T_HUD_Bar_Fill");
+
+	/** Design reference size for SourceArt-trimmed station frames (420x76). */
+	static constexpr float DeliveryCompositeWidth = 420.0f;
+	static constexpr float DeliveryCompositeHeight = 76.0f;
+	static constexpr float DeliveryProgressFillInsetLeft = 64.0f;
+	static constexpr float DeliveryProgressFillInsetRight = 100.0f;
+	static constexpr float DeliveryProgressFillInsetTop = 15.0f;
+	static constexpr float DeliveryProgressFillInsetBottom = 14.0f;
+	static constexpr float DeliveryProgressFillMaxWidth = 256.0f;
+	static constexpr float DeliveryProgressFillHeight = 47.0f;
+
+	struct FDeliveryProgressLayout
+	{
+		FVector2D FrameSize = FVector2D(DeliveryCompositeWidth, DeliveryCompositeHeight);
+		FVector2D FillTranslation = FVector2D::ZeroVector;
+		float FillMaxWidth = DeliveryProgressFillMaxWidth;
+		float FillHeight = DeliveryProgressFillHeight;
+	};
+
+	static FVector2D GetDeliveryFrameSize(UImage* FrameImage)
+	{
+		if (!FrameImage)
+		{
+			return FVector2D(DeliveryCompositeWidth, DeliveryCompositeHeight);
+		}
+
+		const FSlateBrush& Brush = FrameImage->GetBrush();
+		if (Brush.ImageSize.X > KINDA_SMALL_NUMBER && Brush.ImageSize.Y > KINDA_SMALL_NUMBER)
+		{
+			return Brush.ImageSize;
+		}
+
+		return FVector2D(DeliveryCompositeWidth, DeliveryCompositeHeight);
+	}
+
+	static FDeliveryProgressLayout BuildDeliveryProgressLayout(UImage* FrameImage)
+	{
+		FDeliveryProgressLayout Layout;
+		Layout.FrameSize = GetDeliveryFrameSize(FrameImage);
+
+		const float ScaleX = Layout.FrameSize.X / DeliveryCompositeWidth;
+		const float ScaleY = Layout.FrameSize.Y / DeliveryCompositeHeight;
+		Layout.FillTranslation = FVector2D(
+			DeliveryProgressFillInsetLeft * ScaleX,
+			DeliveryProgressFillInsetTop * ScaleY);
+		Layout.FillMaxWidth = DeliveryProgressFillMaxWidth * ScaleX;
+		Layout.FillHeight = DeliveryProgressFillHeight * ScaleY;
+		return Layout;
+	}
+
+	static void SyncDeliveryFillBrushSize(UImage* FillImage, const FDeliveryProgressLayout& Layout)
+	{
+		if (!FillImage)
+		{
+			return;
+		}
+
+		FSlateBrush FillBrush = FillImage->GetBrush();
+		SetBrushImageSize(
+			FillBrush,
+			FVector2D(Layout.FillMaxWidth, Layout.FillHeight));
+		FillImage->SetBrush(FillBrush);
+	}
+
+	static void ApplyDeliveryFillOverlaySlot(UImage* FillImage, const FDeliveryProgressLayout& Layout)
+	{
+		if (!FillImage)
+		{
+			return;
+		}
+
+		FillImage->SetRenderTransformPivot(FVector2D(0.f, 0.f));
+		FillImage->SetRenderTranslation(Layout.FillTranslation);
+
+		if (UOverlaySlot* FillSlot = Cast<UOverlaySlot>(FillImage->Slot))
+		{
+			FillSlot->SetHorizontalAlignment(HAlign_Left);
+			FillSlot->SetVerticalAlignment(VAlign_Top);
+			FillSlot->SetPadding(FMargin(0.f));
+		}
+	}
+
+	void SetupDeliveryProgressFillImage(
+		UImage* FillImage,
+		TObjectPtr<UMaterialInstanceDynamic>& FillMID,
+		UObject* Outer,
+		const FDeliveryProgressLayout& Layout)
+	{
+		if (!FillImage)
+		{
+			return;
+		}
+
+		FillImage->SetColorAndOpacity(FLinearColor::White);
+
+		const FVector2D FillBrushSize(Layout.FillMaxWidth, Layout.FillHeight);
+
+		if (FillMID)
+		{
+			FillImage->SetBrushFromMaterial(FillMID);
+			SyncDeliveryFillBrushSize(FillImage, Layout);
+			return;
+		}
+
+		UMaterialInterface* FillParent = LoadObject<UMaterialInterface>(nullptr, DeliveryProgressFillMIPath);
+		if (!FillParent)
+		{
+			FillParent = LoadObject<UMaterialInterface>(nullptr, DeliveryProgressFillMaterialPath);
+		}
+
+		if (FillParent)
+		{
+			FillMID = UMaterialInstanceDynamic::Create(FillParent, Outer);
+			if (FillMID)
+			{
+				if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTexturePath))
+				{
+					FillMID->SetTextureParameterValue(TEXT("FillTexture"), FillTexture);
+				}
+				else if (UTexture2D* FallbackTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTextureFallbackPath))
+				{
+					FillMID->SetTextureParameterValue(TEXT("FillTexture"), FallbackTexture);
+				}
+
+				FillImage->SetBrushFromMaterial(FillMID);
+				FSlateBrush FillBrush = FillImage->GetBrush();
+				SetBrushImageSize(FillBrush, FillBrushSize);
+				FillImage->SetBrush(FillBrush);
+				return;
+			}
+		}
+
+		if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTexturePath))
+		{
+			FillImage->SetBrushFromTexture(FillTexture, true);
+			FSlateBrush FillBrush = FillImage->GetBrush();
+			SetBrushImageSize(FillBrush, FillBrushSize);
+			FillImage->SetBrush(FillBrush);
+		}
+	}
+
+	void UpdateDeliveryPercentLabel(UTextBlock* Label, int32 CurrentValue, int32 TargetValue)
+	{
+		if (!Label || TargetValue <= 0)
+		{
+			return;
+		}
+
+		const int32 Percent = FMath::Clamp(
+			FMath::RoundToInt(static_cast<float>(CurrentValue) / static_cast<float>(TargetValue) * 100.0f),
+			0,
+			100);
+		Label->SetText(FText::Format(
+			NSLOCTEXT("SpaCh4", "DeliveryPercentFormat", "{0}%"),
+			FText::AsNumber(Percent)));
+		Label->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
 }
 
 void UGameHUDWidget::ApplyDeliveryRowLabels()
 {
-	UTexture2D* LabelA = LoadDeliveryLabelTexture(TEXT("T_HUD_Delivery_Label_A"));
-	UTexture2D* LabelB = LoadDeliveryLabelTexture(TEXT("T_HUD_Delivery_Label_B"));
-
-	ApplyDeliveryRowLabel(DeliveryIconA, DeliveryLabelA, LabelA);
-	ApplyDeliveryRowLabel(DeliveryIconB, DeliveryLabelB, LabelB);
+	if (DeliveryIconA)
+	{
+		DeliveryIconA->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (DeliveryIconB)
+	{
+		DeliveryIconB->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (DeliveryLabelA)
+	{
+		DeliveryLabelA->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (DeliveryLabelB)
+	{
+		DeliveryLabelB->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void UGameHUDWidget::RefreshAll()
@@ -95,6 +286,20 @@ TArray<FDeliveryHUDData> UGameHUDWidget::GatherDeliveryData() const
 	const AMatchGameState* MatchGS = GetMatchGameState();
 	if (!MatchGS)
 	{
+		if (bUsePreviewData)
+		{
+			FDeliveryHUDData StationA;
+			StationA.StationId = FName(TEXT("A"));
+			StationA.CurrentValue = 0;
+			StationA.TargetValue = 200;
+			Result.Add(StationA);
+
+			FDeliveryHUDData StationB;
+			StationB.StationId = FName(TEXT("B"));
+			StationB.CurrentValue = 0;
+			StationB.TargetValue = 200;
+			Result.Add(StationB);
+		}
 		return Result;
 	}
 
@@ -141,21 +346,44 @@ void UGameHUDWidget::RefreshTeammateEntries()
 {
 	const TArray<FTeammateHUDData> TeammateData = GatherTeammateData();
 
-	for (int32 Index = 0; Index < TeammateEntries.Num(); ++Index)
+	TArray<UTeammateEntryWidget*> Entries;
+	Entries.Reserve(SpaCh4HUD::TeammateSlotCount);
+	for (UTeammateEntryWidget* Entry : TeammateEntries)
 	{
-		if (!TeammateEntries[Index])
+		if (Entry)
+		{
+			Entries.Add(Entry);
+		}
+	}
+
+	if (Entries.Num() == 0)
+	{
+		for (int32 Index = 0; Index < SpaCh4HUD::TeammateSlotCount; ++Index)
+		{
+			const FName WidgetName(*FString::Printf(TEXT("TeammateEntries_%d"), Index));
+			if (UTeammateEntryWidget* Entry = Cast<UTeammateEntryWidget>(GetWidgetFromName(WidgetName)))
+			{
+				Entries.Add(Entry);
+			}
+		}
+	}
+
+	for (int32 Index = 0; Index < Entries.Num(); ++Index)
+	{
+		UTeammateEntryWidget* Entry = Entries[Index];
+		if (!Entry)
 		{
 			continue;
 		}
 
 		if (TeammateData.IsValidIndex(Index))
 		{
-			TeammateEntries[Index]->SetVisibility(ESlateVisibility::HitTestInvisible);
-			TeammateEntries[Index]->UpdateFromData(TeammateData[Index]);
+			Entry->SetVisibility(ESlateVisibility::HitTestInvisible);
+			Entry->UpdateFromData(TeammateData[Index]);
 		}
 		else
 		{
-			TeammateEntries[Index]->SetVisibility(ESlateVisibility::Collapsed);
+			Entry->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
 }
@@ -215,8 +443,76 @@ namespace
 	}
 }
 
+void UGameHUDWidget::SetupDeliveryProgressBars()
+{
+	auto SetupRow = [](
+		UImage* FrameImage,
+		UImage* FillImage,
+		const TCHAR* FrameTexturePath,
+		TObjectPtr<UMaterialInstanceDynamic>& FillMID,
+		UGameHUDWidget* Outer)
+	{
+		if (FrameImage)
+		{
+			FrameImage->SetColorAndOpacity(FLinearColor::White);
+			if (FrameImage->GetBrush().GetResourceObject() == nullptr)
+			{
+				if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, FrameTexturePath))
+				{
+					FrameImage->SetBrushFromTexture(FrameTexture, true);
+				}
+			}
+		}
+
+		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
+		SetupDeliveryProgressFillImage(FillImage, FillMID, Outer, Layout);
+		ApplyDeliveryFillOverlaySlot(FillImage, Layout);
+	};
+
+	// Legacy single image: use as frame only when overlay fill exists separately.
+	if (!DeliveryProgressFillA && DeliveryProgressBarA && DeliveryProgressFillMIDA)
+	{
+		DeliveryProgressFillMIDA = nullptr;
+	}
+	if (!DeliveryProgressFillB && DeliveryProgressBarB && DeliveryProgressFillMIDB)
+	{
+		DeliveryProgressFillMIDB = nullptr;
+	}
+
+	if (!DeliveryProgressFillA && DeliveryProgressBarA)
+	{
+		if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFrameTexturePathA))
+		{
+			DeliveryProgressBarA->SetBrushFromTexture(FrameTexture, true);
+		}
+	}
+	if (!DeliveryProgressFillB && DeliveryProgressBarB)
+	{
+		if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFrameTexturePathB))
+		{
+			DeliveryProgressBarB->SetBrushFromTexture(FrameTexture, true);
+		}
+	}
+
+	SetupRow(
+		DeliveryProgressBGA,
+		DeliveryProgressFillA,
+		DeliveryProgressFrameTexturePathA,
+		DeliveryProgressFillMIDA,
+		this);
+	SetupRow(
+		DeliveryProgressBGB,
+		DeliveryProgressFillB,
+		DeliveryProgressFrameTexturePathB,
+		DeliveryProgressFillMIDB,
+		this);
+}
+
 void UGameHUDWidget::UpdateDeliveryProgress(
-	UImage* ProgressBar,
+	UWidget* Root,
+	UImage* FrameImage,
+	UImage* FillImage,
+	UImage* LegacyBar,
 	const TArray<TObjectPtr<UImage>>& StackWidgets,
 	int32 CurrentValue,
 	int32 TargetValue)
@@ -230,18 +526,102 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		? StackWidgets.Num()
 		: SpaCh4HUD::DeliveryProgressSegmentCount;
 
+	const float ProgressPercent = FMath::Clamp(
+		static_cast<float>(CurrentValue) / static_cast<float>(TargetValue),
+		0.0f,
+		1.0f);
+
 	const int32 FilledSegments = FMath::Clamp(
-		FMath::RoundToInt(static_cast<float>(CurrentValue) / static_cast<float>(TargetValue) * SegmentCount),
+		FMath::RoundToInt(ProgressPercent * SegmentCount),
 		0,
 		SegmentCount);
 
-	if (ProgressBar)
+	if (FillImage && FrameImage)
 	{
-		if (UTexture2D* ProgressTexture = LoadDeliveryProgressTexture(FilledSegments))
+		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
+
+		if (FillImage == DeliveryProgressFillA)
 		{
-			ProgressBar->SetBrushFromTexture(ProgressTexture, true);
-			ProgressBar->SetOpacity(1.0f);
-			ProgressBar->SetVisibility(ESlateVisibility::HitTestInvisible);
+			if (!DeliveryProgressFillMIDA)
+			{
+				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDA, this, Layout);
+			}
+			else
+			{
+				FillImage->SetBrushFromMaterial(DeliveryProgressFillMIDA);
+				SyncDeliveryFillBrushSize(FillImage, Layout);
+			}
+		}
+		else if (FillImage == DeliveryProgressFillB)
+		{
+			if (!DeliveryProgressFillMIDB)
+			{
+				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDB, this, Layout);
+			}
+			else
+			{
+				FillImage->SetBrushFromMaterial(DeliveryProgressFillMIDB);
+				SyncDeliveryFillBrushSize(FillImage, Layout);
+			}
+		}
+
+		if (Root)
+		{
+			Root->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+			FillImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+
+		if (LegacyBar)
+		{
+			LegacyBar->SetVisibility(ESlateVisibility::Collapsed);
+		}
+
+		ApplyDeliveryFillOverlaySlot(FillImage, Layout);
+
+		const float FillWidth = Layout.FillMaxWidth * ProgressPercent;
+		FillImage->SetDesiredSizeOverride(FVector2D(FillWidth, Layout.FillHeight));
+		FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+		for (UImage* SegmentImage : StackWidgets)
+		{
+			if (SegmentImage)
+			{
+				SegmentImage->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+		return;
+	}
+
+	if (LegacyBar)
+	{
+		const bool bLegacyUsesMaterial =
+			(LegacyBar == DeliveryProgressBarA && DeliveryProgressFillMIDA)
+			|| (LegacyBar == DeliveryProgressBarB && DeliveryProgressFillMIDB);
+
+		if (bLegacyUsesMaterial)
+		{
+			const TCHAR* FrameTexturePath =
+				(LegacyBar == DeliveryProgressBarA)
+					? DeliveryProgressFrameTexturePathA
+					: DeliveryProgressFrameTexturePathB;
+			if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, FrameTexturePath))
+			{
+				LegacyBar->SetBrushFromTexture(FrameTexture, true);
+			}
+			LegacyBar->SetDesiredSizeOverride(
+				FVector2D(DeliveryCompositeWidth, DeliveryCompositeHeight));
+			LegacyBar->SetOpacity(1.0f);
+			LegacyBar->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else if (UTexture2D* ProgressTexture = LoadDeliveryProgressTexture(FilledSegments))
+		{
+			LegacyBar->SetBrushFromTexture(ProgressTexture, true);
+			LegacyBar->SetOpacity(1.0f);
+			LegacyBar->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 
 		for (UImage* SegmentImage : StackWidgets)
@@ -306,14 +686,6 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 
 	const TArray<FDeliveryHUDData> DeliveryData = GatherDeliveryData();
 
-	if (DeliveryValueA)
-	{
-		DeliveryValueA->SetVisibility(ESlateVisibility::Collapsed);
-	}
-	if (DeliveryValueB)
-	{
-		DeliveryValueB->SetVisibility(ESlateVisibility::Collapsed);
-	}
 	if (DeliveryProgressA)
 	{
 		DeliveryProgressA->SetVisibility(ESlateVisibility::Collapsed);
@@ -334,7 +706,15 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 			CurrentA = TargetA / 3;
 		}
 
-		UpdateDeliveryProgress(DeliveryProgressBarA, DeliveryStackA, CurrentA, TargetA);
+		UpdateDeliveryProgress(
+			DeliveryProgressRootA,
+			DeliveryProgressBGA,
+			DeliveryProgressFillA,
+			DeliveryProgressBarA,
+			DeliveryStackA,
+			CurrentA,
+			TargetA);
+		UpdateDeliveryPercentLabel(DeliveryValueA, CurrentA, TargetA);
 	}
 
 	if (DeliveryData.IsValidIndex(1))
@@ -348,7 +728,15 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 			CurrentB = (TargetB * 2) / 3;
 		}
 
-		UpdateDeliveryProgress(DeliveryProgressBarB, DeliveryStackB, CurrentB, TargetB);
+		UpdateDeliveryProgress(
+			DeliveryProgressRootB,
+			DeliveryProgressBGB,
+			DeliveryProgressFillB,
+			DeliveryProgressBarB,
+			DeliveryStackB,
+			CurrentB,
+			TargetB);
+		UpdateDeliveryPercentLabel(DeliveryValueB, CurrentB, TargetB);
 	}
 }
 

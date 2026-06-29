@@ -2,7 +2,7 @@
 param([string]$BaseUrl = "http://127.0.0.1:8080/mcp")
 
 $ErrorActionPreference = "Stop"
-$FontDir = "E:\Unreal\git\SpaCh4_Copy\Content\UI\HUD\Fonts"
+$FontDir = Join-Path (Split-Path $PSScriptRoot -Parent) "Content\UI\HUD\Fonts"
 $SemiBold = "/Game/UI/HUD/Fonts/Rajdhani-SemiBold"
 $Medium = "/Game/UI/HUD/Fonts/Rajdhani-Medium"
 
@@ -61,6 +61,7 @@ catch {
 }
 
 function Edit-Wbp([string]$AssetPath, [array]$Edits) {
+    if ($Edits.Count -eq 0) { return }
     $resp = Invoke-McpRaw -Method "tools/call" -Params @{
         name = "edit-widget-blueprint"
         arguments = @{ asset_path = $AssetPath; edits = $Edits }
@@ -70,6 +71,14 @@ function Edit-Wbp([string]$AssetPath, [array]$Edits) {
         throw "edit-widget-blueprint failed for $AssetPath"
     }
     Write-Host "[edit] $AssetPath ($($Edits.Count) ops)"
+}
+
+function Get-WbpWidgetNames([string]$AssetPath) {
+    $resp = Invoke-McpRaw -Method "tools/call" -Params @{
+        name = "inspect-widget-blueprint"
+        arguments = @{ asset_path = $AssetPath; depth_limit = 1 }
+    } -SessionId $session
+    return @(($resp.Content | ConvertFrom-Json).result.structuredContent.all_widgets)
 }
 
 $entryEdits = @(
@@ -92,25 +101,24 @@ $entryEdits = @(
 )
 Edit-Wbp "/Game/Blueprints/UI/WBP_TeammateEntry" $entryEdits
 
-$gameEdits = @(
-    @{
-        widget_name = "DeliveryLabelA"
-        properties  = @{
-            font_path  = $SemiBold
-            font_size  = 30
-            text_color = @(0.97, 0.98, 0.99, 1.0)
-        }
-    },
-    @{
-        widget_name = "DeliveryLabelB"
-        properties  = @{
-            font_path  = $SemiBold
-            font_size  = 30
-            text_color = @(0.97, 0.98, 0.99, 1.0)
-        }
+$gameNames = Get-WbpWidgetNames "/Game/Blueprints/UI/WBP_GameHUD"
+$gameEdits = [System.Collections.Generic.List[object]]::new()
+foreach ($pair in @(
+        @{ Name = "DeliveryLabelA"; Size = 30 },
+        @{ Name = "DeliveryLabelB"; Size = 30 }
+    )) {
+    if ($gameNames -contains $pair.Name) {
+        $gameEdits.Add(@{
+            widget_name = $pair.Name
+            properties  = @{
+                font_path  = $SemiBold
+                font_size  = $pair.Size
+                text_color = @(0.97, 0.98, 0.99, 1.0)
+            }
+        })
     }
-)
-Edit-Wbp "/Game/Blueprints/UI/WBP_GameHUD" $gameEdits
+}
+Edit-Wbp "/Game/Blueprints/UI/WBP_GameHUD" @($gameEdits)
 
 Invoke-McpTool "manage-assets" @{
     actions = @(
