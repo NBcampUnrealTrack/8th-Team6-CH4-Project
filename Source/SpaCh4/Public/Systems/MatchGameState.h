@@ -198,12 +198,14 @@ protected:
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Timer")
 	float TimeLimit = 900.0f;
 
+	// 현재 각 납품소의 점수
 	UPROPERTY(ReplicatedUsing = OnRep_DeliveryProgress, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Delivery")
 	int32 DeliveryStationAValue = 0;
 
 	UPROPERTY(ReplicatedUsing = OnRep_DeliveryProgress, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Delivery")
 	int32 DeliveryStationBValue = 0;
 
+	// 두개의 납품소는 구분되고, 둘다 납품 완료되어야 함.(200+200->400일때 탈출구 작동가능)
 	UPROPERTY(ReplicatedUsing = OnRep_DeliveryProgress, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Delivery")
 	int32 DeliveryStationATargetValue = 200;
 
@@ -216,6 +218,7 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_EscapeGateAvailability, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Escape")
 	bool bCanActivateEscapeGates = false;
 
+	// 개구멍
 	UPROPERTY(ReplicatedUsing = OnRep_HatchAvailability, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Escape")
 	bool bCanSpawnHatch = false;
 
@@ -228,6 +231,7 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_SurvivorCounts, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
 	int32 KilledSurvivorCount = 0;
 
+	// 생존자 리스트, 상태 관리
 	UPROPERTY(ReplicatedUsing = OnRep_SurvivorStates, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
 	TArray<FSurvivorMatchState> SurvivorStates;
 };

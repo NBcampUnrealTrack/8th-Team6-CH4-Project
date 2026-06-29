@@ -69,9 +69,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cage")
 	float CageRescueDuration = 4.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Killer")
-	float KillerSpeedRatio = 1.15f;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Survivor")
 	int32 InitialSurvivorCount = 3;
 };
