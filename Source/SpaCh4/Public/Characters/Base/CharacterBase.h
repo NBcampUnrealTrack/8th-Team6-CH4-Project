@@ -21,6 +21,7 @@ public:
 protected:
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void Interact();
+	virtual void JumpOver();
 	
 	void Move(const FInputActionValue& Value);
 
