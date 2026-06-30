@@ -69,7 +69,17 @@ int32 AMatchGameState::GetDeliveryStationValue(FName StationId) const
 	return 0;
 }
 
-int32 AMatchGameState::GetDeliveryStationTargetValue(FName StationId) const
+int32 AMatchGameState::GetDeliveryStationAValue() const
+{
+		return DeliveryStationAValue;
+}
+
+int32 AMatchGameState::GetDeliveryStationBValue() const
+{
+		return DeliveryStationBValue;
+}
+
+int32 AMatchGameState::GetDeliveryStationTargetValueByID(FName StationId) const
 {
 	if (StationId == MatchGameStateStationIds::StationA)
 	{
@@ -82,6 +92,11 @@ int32 AMatchGameState::GetDeliveryStationTargetValue(FName StationId) const
 	}
 
 	return 0;
+}
+
+int32 AMatchGameState::GetDeliveryStationTargetValue() const
+{
+	return DeliveryStationAValue;
 }
 
 int32 AMatchGameState::GetTotalDeliveredValue() const

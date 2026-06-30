@@ -93,9 +93,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
 	int32 GetDeliveryStationValue(FName StationId) const;
+	
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
+	int32 GetDeliveryStationAValue() const;
+	
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
+	int32 GetDeliveryStationBValue() const;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
-	int32 GetDeliveryStationTargetValue(FName StationId) const;
+	int32 GetDeliveryStationTargetValueByID(FName StationId) const;
+	
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
+	int32 GetDeliveryStationTargetValue() const;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
 	int32 GetTotalDeliveredValue() const;
