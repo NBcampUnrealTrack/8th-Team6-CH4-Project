@@ -6,16 +6,14 @@
 #include "EnhancedInputComponent.h"
 #include "Data/InputConfigData.h"
 #include "EnhancedInputSubsystems.h"
+#include "Characters/Survivor/SurvivorCharacter.h"
 
 AKillerCharacter::AKillerCharacter() { PrimaryActorTick.bCanEverTick = false; }
 
 void AKillerCharacter::PostInitializeComponents()
 {
     Super::PostInitializeComponents();
-    if (GetCharacterMovement())
-    {
-        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-    }
+    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 }
 
 void AKillerCharacter::BeginPlay()
@@ -30,46 +28,25 @@ void AKillerCharacter::BeginPlay()
             {
                 for (const FInputMappingContextEntry& Entry : InputConfig->MappingContexts)
                 {
-                    if (Entry.MappingContext)
-                    {
-                        Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
-                    }
+                    if (Entry.MappingContext) Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
                 }
             }
         }
     }
     
-    // 3. 이동 모드 강제 설정
-    if (GetCharacterMovement())
-    {
-        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-    }
+    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 }
 
 void AKillerCharacter::Interact()
 {
-    if (!KillerData) 
-    {
-        UE_LOG(LogTemp, Error, TEXT("Interact 실패: KillerData가 없습니다!"));
-        return;
-    }
-    
-    if (bIsBusy)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Interact 실패: 현재 bIsBusy 상태입니다."));
-        return;
-    }
+    if (!KillerData || bIsBusy) return;
 
-    // 1. Idle 상태일 때: 생존자 들기 (PickingUp)
     if (CurrentState == EKillerState::Idle)
     {
-        AActor* Target = FindInteractableActor(KillerData->PickupRange);
-        if (Target)
+        if (AActor* Target = FindInteractableActor(KillerData->PickupRange)) 
         {
             bIsBusy = true;
             SetKillerState(EKillerState::PickingUp);
-            UE_LOG(LogTemp, Warning, TEXT("PickingUp 상태 진입, 시전 시간: %f초"), KillerData->PickupDuration);
-            
             GetCharacterMovement()->DisableMovement();
 
             FTimerHandle TimerHandle;
@@ -77,21 +54,13 @@ void AKillerCharacter::Interact()
                 PickupSurvivor(Target);
                 GetCharacterMovement()->SetMovementMode(MOVE_Walking);
                 bIsBusy = false;
-                UE_LOG(LogTemp, Warning, TEXT("Pickup 완료: 상태 Carrying으로 변경"));
             }, KillerData->PickupDuration, false);
         }
-        else
-        {
-            UE_LOG(LogTemp, Warning, TEXT("Interact 실패: 주변에 들 수 있는 생존자가 없습니다."));
-        }
     }
-    // 2. Carrying 상태일 때: 내려놓기/수감 (Interacting)
     else if (CurrentState == EKillerState::Carrying)
     {
         bIsBusy = true;
         SetKillerState(EKillerState::Interacting);
-        UE_LOG(LogTemp, Warning, TEXT("Interacting 상태 진입, 시전 시간: %f초"), KillerData->CageDepositDuration);
-        
         GetCharacterMovement()->DisableMovement();
 
         FTimerHandle TimerHandle;
@@ -99,27 +68,13 @@ void AKillerCharacter::Interact()
             DropSurvivor();
             GetCharacterMovement()->SetMovementMode(MOVE_Walking);
             bIsBusy = false;
-            UE_LOG(LogTemp, Warning, TEXT("Drop 완료: 상태 Idle로 복귀"));
         }, KillerData->CageDepositDuration, false);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Interact 실패: 현재 상태가 Idle이나 Carrying이 아닙니다. (상태: %d)"), (int32)CurrentState);
     }
 }
 
 void AKillerCharacter::Attack()
 {
-    UE_LOG(LogTemp, Warning, TEXT("공격 키 입력됨! 현재 상태: %d"), (int32)CurrentState);
-    
-    if (CurrentState == EKillerState::Idle) 
-    {
-        PerformAttack();
-    }
-    else
-    {
-        UE_LOG(LogTemp, Error, TEXT("공격 실패: Idle 상태가 아님!"));
-    }
+    if (CurrentState == EKillerState::Idle) PerformAttack();
 }
 
 void AKillerCharacter::PerformAttack()
@@ -128,27 +83,68 @@ void AKillerCharacter::PerformAttack()
 
     SetKillerState(EKillerState::Attacking);
     
-    // 1. 박스 위치를 확실하게 캐릭터 바로 앞 50cm 지점으로 고정
-    FVector Start = GetActorLocation(); 
-    FVector Forward = GetActorForwardVector();
-    FVector BoxCenter = Start + (Forward * 100.0f); // 캐릭터 앞 100cm에 생성
-    
-    FVector BoxExtent = FVector(100.f, 50.f, 50.f);
-    FQuat Rotation = GetActorRotation().Quaternion();
-
-    // 2. 디버그 박스 색상을 녹색(성공)으로 하고, 5초 동안 유지되게 해서 확실히 확인
-    DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, Rotation, FColor::Green, false, 5.0f, 0, 5.0f);
-
-    FTimerHandle TimerHandle;
-    GetWorldTimerManager().SetTimer(TimerHandle, [this, BoxCenter, BoxExtent, Rotation]() {
-        FHitResult Hit;
-        // Sweep으로 실제 충돌 검사
-        bool bHit = GetWorld()->SweepSingleByChannel(Hit, GetActorLocation(), GetActorLocation() + (GetActorForwardVector() * 200.f), Rotation, ECC_Pawn, FCollisionShape::MakeBox(BoxExtent));
+    // 1. Windup (0.35s)
+    FTimerHandle WindupTimer;
+    GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
         
+        // 2. Active 판정 (0.4s)
+        FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
+        FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
+        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, KillerData->TaserActive);
+
+        bool bHit = PerformAttackTrace();
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
 
-        SetKillerState(bHit ? EKillerState::Idle : EKillerState::Groggy);
+        // 3. 결과에 따른 상태 전이 및 유지 시간 적용
+        if (bHit) 
+        {
+            // 적중: 총 1.05s 시점에 Idle 복귀 (후딜 0.3s 반영)
+            // Attacking 상태를 유지하다가 후딜 끝날 때 Idle로
+            FTimerHandle RecoveryTimer;
+            GetWorldTimerManager().SetTimer(RecoveryTimer, [this]() { 
+                SetKillerState(EKillerState::Idle); 
+            }, KillerData->TaserRecoveryHit, false);
+        } 
+        else 
+        {
+            // 빗나감: 그로기 진입 (1.75s 동안 유지)
+            SetKillerState(EKillerState::Groggy);
+            
+            FTimerHandle GroggyTimer;
+            GetWorldTimerManager().SetTimer(GroggyTimer, [this]() { 
+                SetKillerState(EKillerState::Idle); 
+            }, KillerData->TaserGroggyOnMiss, false);
+        }
     }, KillerData->TaserWindup, false);
+}
+
+bool AKillerCharacter::PerformAttackTrace()
+{
+    // 공격 박스 설정
+    FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
+    FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
+    DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, KillerData->TaserActive, 0, 2.0f);
+
+    TArray<FOverlapResult> Overlaps;
+    FCollisionShape BoxShape = FCollisionShape::MakeBox(BoxExtent);
+    FCollisionQueryParams Params(NAME_None, false, this); // 자신 제외
+
+    bool bAnyHit = GetWorld()->OverlapMultiByChannel(Overlaps, BoxCenter, GetActorRotation().Quaternion(), ECC_Pawn, BoxShape, Params);
+
+    bool bHitSurvivor = false;
+    if (bAnyHit)
+    {
+        for (const FOverlapResult& Overlap : Overlaps)
+        {
+            if (ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Overlap.GetActor()))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
+                bHitSurvivor = true;
+                // [참고: 여기서 생존자에게 데미지 함수 호출]
+            }
+        }
+    }
+    return bHitSurvivor;
 }
 
 void AKillerCharacter::PickupSurvivor(AActor* Target)
@@ -172,50 +168,40 @@ void AKillerCharacter::DropSurvivor()
 
 void AKillerCharacter::SetKillerState(EKillerState NewState)
 {
-    CurrentState = NewState;
-    
-    // 상태가 변할 때마다 모드가 풀리지 않도록 강제 설정
-    if (GetCharacterMovement())
+    if (CurrentState != NewState)
     {
-        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)CurrentState, (int32)NewState);
     }
+    
+    CurrentState = NewState;
     
     UpdateMovementSpeed();
 }
 
 void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-    // 1. 부모의 기본 바인딩 (Move, Look 등) 처리
     Super::SetupPlayerInputComponent(PlayerInputComponent);
-    
     UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent);
     if (EIC && InputConfig)
     {
-        // 2. 공격 바인딩
-        if (InputConfig->AttackAction)
-        {
-            EIC->BindAction(InputConfig->AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::Attack);
-        }
-
-        // 3. 상호작용 바인딩 (R키와 E키가 모두 IA_Interact에 할당되어 있다면 하나만 바인딩하면 됩니다)
-        if (InputConfig->InteractAction)
-        {
-            EIC->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::Interact);
-            UE_LOG(LogTemp, Warning, TEXT("상호작용 키(R/E) 바인딩 완료!"));
-        }
+        if (InputConfig->AttackAction) EIC->BindAction(InputConfig->AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::Attack);
+        if (InputConfig->InteractAction) EIC->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::Interact);
     }
 }
 
 void AKillerCharacter::UpdateMovementSpeed()
 {
-    if (!KillerData) 
-    {
-        GetCharacterMovement()->MaxWalkSpeed = 748.f; // 안전장치
-        return;
-    }
-    
-    float Multiplier = (CurrentState == EKillerState::Carrying) ? KillerData->KillerCarrySpeedMultiplier : 
-                       (CurrentState == EKillerState::Groggy ? KillerData->KillerGroggySpeedMultiplier : 1.0f);
+    if (!KillerData) return;
+
+    float Multiplier = 1.0f;
+
+    if (CurrentState == EKillerState::Attacking) // 공격 중 50% 속도
+        Multiplier = KillerData->TaserAttackSpeedMultiplier; 
+    else if (CurrentState == EKillerState::Carrying) 
+        Multiplier = KillerData->KillerCarrySpeedMultiplier;
+    else if (CurrentState == EKillerState::Groggy) 
+        Multiplier = KillerData->KillerGroggySpeedMultiplier;
+
     GetCharacterMovement()->MaxWalkSpeed = KillerData->KillerBaseSpeed * Multiplier;
 }
 
@@ -223,36 +209,50 @@ AActor* AKillerCharacter::FindInteractableActor(float Radius)
 {
     TArray<FOverlapResult> Overlaps;
     FCollisionShape Sphere = FCollisionShape::MakeSphere(Radius);
+    FCollisionQueryParams Params(NAME_None, false, this);
     
-    // 범위 시각화 (디버그 용)
     DrawDebugSphere(GetWorld(), GetActorLocation(), Radius, 12, FColor::Yellow, false, 2.0f);
-
-    bool bResult = GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_Pawn, Sphere, FCollisionQueryParams(NAME_None, false, this));
+    bool bResult = GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_Pawn, Sphere, Params);
     
-    if (!bResult)
+    if (bResult)
     {
-        UE_LOG(LogTemp, Warning, TEXT("감지된 물체가 하나도 없습니다. 범위: %f"), Radius);
-        return nullptr;
-    }
-
-    for (const auto& Result : Overlaps)
-    {
-        AActor* HitActor = Result.GetActor();
-        if (HitActor)
+        for (const auto& Result : Overlaps)
         {
-            // 여기서 태그 확인 로그 출력
-            bool bHasTag = HitActor->ActorHasTag("DownedSurvivor");
-            UE_LOG(LogTemp, Warning, TEXT("감지된 액터: %s, 태그 포함 여부: %d"), *HitActor->GetName(), bHasTag);
-            
-            if (bHasTag) return HitActor;
+            if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Result.GetActor()))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("생존자 감지됨: %s"), *Survivor->GetName());
+                return Survivor;
+            }
         }
     }
     return nullptr;
 }
 
-bool AKillerCharacter::PerformAttackTrace()
+/*bool AKillerCharacter::PerformAttackTrace()
 {
-    if (!KillerData) return false;
     FHitResult Hit;
-    return GetWorld()->SweepSingleByChannel(Hit, GetActorLocation(), GetActorLocation() + (GetActorForwardVector() * KillerData->TaserRange), FQuat::Identity, ECC_Pawn, FCollisionShape::MakeBox(FVector(KillerData->TaserRange / 2, KillerData->TaserHitboxRadius, 75.f)));
-}
+    FVector Start = GetActorLocation();
+    FVector End = Start + (GetActorForwardVector() * KillerData->TaserRange);
+    FCollisionShape Box = FCollisionShape::MakeBox(FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f));
+
+    bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, GetActorRotation().Quaternion(), ECC_Pawn, Box);
+    
+    if (bHit && Hit.GetActor())
+    {
+        ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Hit.GetActor());
+        
+        if (HitSurvivor)
+        {
+            // ESurvivorState::Healthy, ESurvivorState::Injured 값을 직접 비교
+            
+            ESurvivorState SurvivorState = HitSurvivor->GetSurvivorState(); 
+            
+            if (SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured)
+            {
+                return true; // 공격 성공!
+            }
+        }
+    }
+    
+    return false;
+}*/

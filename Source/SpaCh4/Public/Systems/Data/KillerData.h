@@ -40,6 +40,8 @@ public:
 	float TaserHitstun = 0.30f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserGroggyOnMiss = 1.00f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
+	float TaserAttackSpeedMultiplier = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ChainShock")
 	float ChainShockCooldown = 24.0f;
