@@ -4,7 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "SPPlayerController.generated.h"
 
-class UInputConfigData;
+class USPInputConfigData;
 class UInputMappingContext;
 class UEnhancedInputLocalPlayerSubsystem;
 
@@ -27,5 +27,5 @@ private:
 	UEnhancedInputLocalPlayerSubsystem* GetInputSubsystem() const;
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
-	TObjectPtr<UInputConfigData> InputConfig;
+	TObjectPtr<USPInputConfigData> InputConfig;
 };

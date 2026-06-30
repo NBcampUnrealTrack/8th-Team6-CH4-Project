@@ -4,7 +4,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
 #include "EnhancedInputComponent.h"
-#include "Data/InputConfigData.h"
+#include "Data/SPInputConfigData.h"
 #include "EnhancedInputSubsystems.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 

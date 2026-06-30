@@ -13,7 +13,8 @@ public class SpaCh4 : ModuleRules
 			"Engine",
 			"InputCore",
 			"UMG",
-			"EnhancedInput"
+			"EnhancedInput",
+			"GameplayTags"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

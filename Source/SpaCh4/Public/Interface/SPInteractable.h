@@ -4,20 +4,23 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
-#include "Interactable.generated.h"
+#include "SPInteractable.generated.h"
 
 // This class does not need to be modified.
 UINTERFACE()
-class UInteractable : public UInterface
+class USPInteractable : public UInterface
 {
 	GENERATED_BODY()
 };
 
-class SPACH4_API IInteractable
+class SPACH4_API ISPInteractable
 {
 	GENERATED_BODY()
 
 public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
 	void Interact(AActor* Instigator);
+	
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
+	void SetHighlight(bool bEnabled);
 };

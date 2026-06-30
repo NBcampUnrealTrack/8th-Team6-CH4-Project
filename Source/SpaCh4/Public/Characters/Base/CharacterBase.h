@@ -6,7 +6,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
-class UInputConfigData;
+class USPInputConfigData;
 struct FInputActionValue;
 
 
@@ -28,7 +28,7 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Input")
-	TObjectPtr<UInputConfigData> InputConfig;
+	TObjectPtr<USPInputConfigData> InputConfig;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Camera")
 	TObjectPtr<USpringArmComponent> SpringArm;
