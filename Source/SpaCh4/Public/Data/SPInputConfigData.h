@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
-#include "InputConfigData.generated.h"
+#include "SPInputConfigData.generated.h"
 
 class UInputMappingContext;
 class UInputAction;
@@ -20,7 +20,7 @@ struct FInputMappingContextEntry
 };
 
 UCLASS(BlueprintType)
-class SPACH4_API UInputConfigData : public UDataAsset
+class SPACH4_API USPInputConfigData : public UDataAsset
 {
 	GENERATED_BODY()
 

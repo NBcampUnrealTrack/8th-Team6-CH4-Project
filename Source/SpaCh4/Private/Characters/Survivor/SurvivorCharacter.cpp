@@ -1,19 +1,69 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Interface/Interactable.h"
+#include "GameFramework/Controller.h"
+#include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Interface/SPInteractable.h"
 #include "Net/UnrealNetwork.h"
+#include "Systems/Data/SurvivorData.h"
+#include "TimerManager.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
-	
+	PrimaryActorTick.bCanEverTick = true;
 }
 
 void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	
+
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
+	DOREPLIFETIME(ASurvivorCharacter, CarriedItem);
+}
+
+void ASurvivorCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	UpdateInteractFocus();
+}
+
+void ASurvivorCharacter::UpdateInteractFocus()
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	AActor* ThisActor = nullptr;
+	
+	if (CanInteract() && !IsCarrying())
+	{
+		FHitResult Hit;
+		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
+		{
+			ThisActor = Hit.GetActor();
+		}
+	}
+	
+	if (ThisActor != LastActor)
+	{
+		if (LastActor.IsValid())
+		{
+			ISPInteractable::Execute_SetHighlight(LastActor.Get(), false);
+		}
+		if (ThisActor)
+		{
+			ISPInteractable::Execute_SetHighlight(ThisActor, true);
+		}
+		LastActor = ThisActor;
+	}
+}
+
+void ASurvivorCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	ApplyStateEffects();
 }
 
 void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
@@ -21,7 +71,20 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	if (!HasAuthority() || SurvivorState == NewState) return;
 	
 	SurvivorState = NewState;
+	CancelInteract();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::CancelInteract()
+{
+	if (!bIsInteract)
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(PickupDropTimer);
+	bIsInteract = false;
+	CurrentPickupItem = nullptr;
 }
 
 bool ASurvivorCharacter::CanMove() const
@@ -34,6 +97,35 @@ bool ASurvivorCharacter::CanInteract() const
 	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
 }
 
+bool ASurvivorCharacter::TraceInteractable(FHitResult& OutHit) const
+{
+	if (!GetController())
+	{
+		return false;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+	const FVector Start = ViewLocation;
+	const FVector End = Start + ViewRotation.Vector() * InteractReach;
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	const bool bHit = GetWorld()->SweepSingleByChannel(
+		OutHit, Start, End, FQuat::Identity, ECC_GameTraceChannel1,
+		FCollisionShape::MakeSphere(InteractRadius), Params);
+
+	if (bDrawDebug)
+	{
+		DrawDebugSphere(GetWorld(), End, InteractRadius, 12, bHit ? FColor::Green : FColor::Red, false, 0.f);
+	}
+
+	return bHit;
+}
+
 bool ASurvivorCharacter::Server_Interact_Validate()
 {
 	// 일단 모든 요청이 신뢰가 있다고 가정
@@ -42,34 +134,21 @@ bool ASurvivorCharacter::Server_Interact_Validate()
 
 void ASurvivorCharacter::Server_Interact_Implementation()
 {
-	UE_LOG(LogTemp, Warning, TEXT("Before Action Activate"));
-	if (!CanInteract()) return;
-	UE_LOG(LogTemp, Warning, TEXT("After Action Activate"));
-	
-	FVector CameraLocation; 
-	FRotator CameraRotation;
-	GetController()->GetPlayerViewPoint(CameraLocation, CameraRotation);
-	
-	const FVector Start = CameraLocation;
-	const FVector End   = Start + CameraRotation.Vector() * InteractReach;
-	
-	FCollisionQueryParams Params;
-	Params.AddIgnoredActor(this);
-	
-	FHitResult Hit;
-	const bool bHit = GetWorld()->SweepSingleByChannel(
-		Hit, Start, End, FQuat::Identity,
-		ECC_GameTraceChannel1, // 커스텀 채널(InteractTrace)                               
-		FCollisionShape::MakeSphere(InteractRadius), Params);
-	
-	if (bDrawDebug)
+	if (!CanInteract() || bIsInteract)
 	{
-		DrawDebugSphere(GetWorld(), End, InteractRadius, 12, FColor::Green, false, 5.f);
+		return;
 	}
 	
-	if (bHit && Hit.GetActor() && Hit.GetActor()->Implements<UInteractable>())
+	if (IsCarrying())
 	{
-		IInteractable::Execute_Interact(Hit.GetActor(), this);
+		BeginDrop();
+		return;
+	}
+
+	FHitResult Hit;
+	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
+	{
+		ISPInteractable::Execute_Interact(Hit.GetActor(), this);
 	}
 }
 
@@ -77,7 +156,10 @@ void ASurvivorCharacter::Interact()
 {
 	Super::Interact();
 	
-	Server_Interact();
+	if (CanInteract())
+	{
+		Server_Interact();
+	}
 }
 
 void ASurvivorCharacter::JumpOver()
@@ -90,8 +172,8 @@ void ASurvivorCharacter::JumpOver()
 	}
 
 	// TODO: JumpOver 행동 처리
-	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 → 창틀/난간 등. JumpOver 표면만 식별.
-	// 서버에서 목표 지점 구하기 → 보간 이동 → Multicast 동기화
+	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 -> 창틀/난간과 같이 JumpOver 표면만 식별해야 함
+	// 서버에서 목표 지점 구하기 -> 보간 이동 -> Multicast 동기화
 }
 
 bool ASurvivorCharacter::CanJumpOver() const
@@ -116,11 +198,103 @@ void ASurvivorCharacter::OnRep_SurvivorState()
 
 void ASurvivorCharacter::ApplyStateEffects()
 {
-	/*switch (SurvivorState)
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp || !SurvivorData)
 	{
-		// 각 State에 따른 분기를 처리해야 함.
-		// Healthy/Injured: 이동 가능
-		// Downed 이동 속도 금격히 감소, 상호작용 불가
-		// Dead/Caged/Carried/Escaped: 이동 불가, 상호작용 불가
-	}*/
+		return;
+	}
+
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Healthy:
+		MoveComp->MaxWalkSpeed = SurvivorData->SurvivorSprintSpeed;
+		break;
+
+	case ESurvivorState::Injured:
+		MoveComp->MaxWalkSpeed = SurvivorData->SurvivorSprintSpeed * SurvivorData->SurvivorInjuredSpeedMultiplier;
+		break;
+
+	case ESurvivorState::Downed:
+		MoveComp->MaxWalkSpeed = DownedWalkSpeed;
+		break;
+
+	default:
+		// Carried/Caged/Dead/Escaped: 이동 입력 차단
+		break;
+	}
+	
+	if (AController* Ctrl = GetController())
+	{
+		Ctrl->ResetIgnoreMoveInput();
+		if (!CanMove())
+		{
+ 			Ctrl->SetIgnoreMoveInput(true);
+		}
+	}
+}
+
+void ASurvivorCharacter::BeginPickup(ASPCollectibleItem* Item)
+{
+	if (!HasAuthority() || bIsInteract || IsCarrying() || !Item || !SurvivorData)
+	{
+		return;
+	}
+	
+	if (FVector::Dist(GetActorLocation(), Item->GetActorLocation()) > SurvivorData->PickupRange)
+	{
+		return;
+	}
+
+	CurrentPickupItem = Item;
+	
+	if (bInstantPickup)
+	{
+		CompletePickup();
+		return;
+	}
+
+	bIsInteract = true;
+	GetWorldTimerManager().SetTimer(
+		PickupDropTimer, this, &ASurvivorCharacter::CompletePickup, SurvivorData->PickupDuration, false);
+}
+
+void ASurvivorCharacter::CompletePickup()
+{
+	bIsInteract = false;
+	if (!CurrentPickupItem.IsValid())
+	{
+		return;
+	}
+
+	CarriedItem = CurrentPickupItem.Get();
+	CurrentPickupItem = nullptr;
+
+	CarriedItem->SetPickupCollisionEnabled(false);
+	CarriedItem->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CarrySocketName);
+}
+
+void ASurvivorCharacter::BeginDrop()
+{
+	if (!HasAuthority() || bIsInteract || !IsCarrying() || !SurvivorData)
+	{
+		return;
+	}
+
+	bIsInteract = true;
+	GetWorldTimerManager().SetTimer(
+		PickupDropTimer, this, &ASurvivorCharacter::CompleteDrop, SurvivorData->DropDuration, false);
+}
+
+void ASurvivorCharacter::CompleteDrop()
+{
+	bIsInteract = false;
+	if (!CarriedItem)
+	{
+		return;
+	}
+
+	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	CarriedItem->SetActorLocation(GetActorLocation());
+	CarriedItem->SetPickupCollisionEnabled(true);
+	CarriedItem = nullptr;
 }

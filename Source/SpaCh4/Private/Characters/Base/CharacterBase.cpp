@@ -2,7 +2,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "EnhancedInputComponent.h"
-#include "Data/InputConfigData.h"
+#include "Data/SPInputConfigData.h"
 #include "GameFramework/SpringArmComponent.h"
 
 ACharacterBase::ACharacterBase()

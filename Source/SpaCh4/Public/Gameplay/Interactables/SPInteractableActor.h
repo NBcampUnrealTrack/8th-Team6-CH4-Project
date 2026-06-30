@@ -2,14 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "Interface/Interactable.h"
+#include "Interface/SPInteractable.h"
 #include "SPInteractableActor.generated.h"
 
 class UStaticMeshComponent;
 
 
 UCLASS()
-class SPACH4_API ASPInteractableActor : public AActor, public IInteractable
+class SPACH4_API ASPInteractableActor : public AActor, public ISPInteractable
 {
 	GENERATED_BODY()
 
