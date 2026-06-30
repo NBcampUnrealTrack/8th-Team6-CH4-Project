@@ -240,11 +240,6 @@ void ASurvivorCharacter::BeginPickup(ASPCollectibleItem* Item)
 		return;
 	}
 	
-	if (FVector::Dist(GetActorLocation(), Item->GetActorLocation()) > SurvivorData->PickupRange)
-	{
-		return;
-	}
-
 	CurrentPickupItem = Item;
 	
 	if (bInstantPickup)
