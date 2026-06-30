@@ -1,5 +1,6 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Interface/Interactable.h"
 #include "Net/UnrealNetwork.h"
 
@@ -77,6 +78,35 @@ void ASurvivorCharacter::Interact()
 	Super::Interact();
 	
 	Server_Interact();
+}
+
+void ASurvivorCharacter::JumpOver()
+{
+	Super::JumpOver();
+
+	if (!CanJumpOver())
+	{
+		return;
+	}
+
+	// TODO: JumpOver 행동 처리
+	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 → 창틀/난간 등. JumpOver 표면만 식별.
+	// 서버에서 목표 지점 구하기 → 보간 이동 → Multicast 동기화
+}
+
+bool ASurvivorCharacter::CanJumpOver() const
+{
+	// 공중에서는 바로 넘지 못하도록
+	if (const UCharacterMovementComponent* CMC = GetCharacterMovement())
+	{
+		if (CMC->IsFalling())
+		{
+			return false;
+		}
+	}
+
+	// TODO: 운반 중일 때도 넘어갈 수 있을지? 
+	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
 }
 
 void ASurvivorCharacter::OnRep_SurvivorState()

@@ -34,11 +34,8 @@ void ACharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		EnhancedInput->BindAction(InputConfig->MoveAction, ETriggerEvent::Triggered, this, &ACharacterBase::Move);
 		EnhancedInput->BindAction(InputConfig->LookAction, ETriggerEvent::Triggered, this, &ACharacterBase::Look);
 		EnhancedInput->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
+		EnhancedInput->BindAction(InputConfig->JumpOverAction, ETriggerEvent::Started, this, &ThisClass::JumpOver);
 	}
-}
-
-void ACharacterBase::Interact()
-{
 }
 
 void ACharacterBase::Move(const FInputActionValue& Value)
@@ -60,4 +57,12 @@ void ACharacterBase::Look(const FInputActionValue& Value)
 
 	AddControllerYawInput(LookVector.X);
 	AddControllerPitchInput(LookVector.Y);
+}
+
+void ACharacterBase::Interact()
+{
+}
+
+void ACharacterBase::JumpOver()
+{
 }

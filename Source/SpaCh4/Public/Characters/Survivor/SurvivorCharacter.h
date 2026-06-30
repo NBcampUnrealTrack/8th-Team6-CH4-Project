@@ -28,12 +28,13 @@ public:
 	void SetSurvivorState(ESurvivorState NewState);
 	bool CanMove() const;
 	bool CanInteract() const;
+	bool CanJumpOver() const;
 
 protected:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Interact();
 	virtual void Interact() override;	
-	
+	virtual void JumpOver() override;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState();
