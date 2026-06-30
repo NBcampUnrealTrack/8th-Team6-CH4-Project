@@ -29,6 +29,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	void SetSurvivorState(ESurvivorState NewState);
+	ESurvivorState GetSurvivorState() const { return SurvivorState; };
+	
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;

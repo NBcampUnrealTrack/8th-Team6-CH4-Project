@@ -2,11 +2,23 @@
 
 #include "CoreMinimal.h"
 #include "Characters/Base/CharacterBase.h"
-#include "InputActionValue.h" // 추가 필수
 #include "KillerCharacter.generated.h"
 
+class UKillerData;
+
+// ---------------------------------------------------------------
+// KillerState (살인마 상태)
+// ---------------------------------------------------------------
 UENUM(BlueprintType)
-enum class EKillerState : uint8 { Idle, Attacking, Groggy, PickingUp, Carrying, Interacting };
+enum class EKillerState : uint8
+{
+    Idle        = 0 UMETA(DisplayName = "Idle"),
+    Attacking   = 1 UMETA(DisplayName = "Attacking"),
+    Groggy      = 2 UMETA(DisplayName = "Groggy"),
+    PickingUp   = 3 UMETA(DisplayName = "PickingUp"),
+    Carrying    = 4 UMETA(DisplayName = "Carrying"),
+    Interacting = 5 UMETA(DisplayName = "Interacting")
+};
 
 UCLASS()
 class SPACH4_API AKillerCharacter : public ACharacterBase
@@ -15,48 +27,32 @@ class SPACH4_API AKillerCharacter : public ACharacterBase
 
 public:
     AKillerCharacter();
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginPlay() override;
+    virtual void PostInitializeComponents() override;
 
 protected:
+    bool bIsBusy = false;
+    
+    virtual void Interact() override;
+    void Attack();
+
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
-    // EnhancedInput 요구 사양에 맞게 FInputActionValue 인자 추가
-    void HandleAttack(const FInputActionValue& Value);
-    void HandleInteract(const FInputActionValue& Value);
-
-    UPROPERTY(ReplicatedUsing = OnRep_KillerState, VisibleAnywhere, Category = "Killer Character|State")
+    
     EKillerState CurrentState = EKillerState::Idle;
-
-    UFUNCTION()
-    void OnRep_KillerState();
-
     void SetKillerState(EKillerState NewState);
     void UpdateMovementSpeed();
 
-    UFUNCTION(Server, Reliable)
-    void Server_Attack();
-    UFUNCTION(Server, Reliable)
-    void Server_Interact();
-    UFUNCTION(Server, Reliable)
-    void Server_PickupSurvivor(AActor* TargetSurvivor);
-    UFUNCTION(Server, Reliable)
-    void Server_DropSurvivor();
-    UFUNCTION(Server, Reliable)
-    void Server_HookSurvivor();
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Killer Data")
+    TObjectPtr<UKillerData> KillerData;
 
+    // 공격 및 상호작용 로직
+    void PerformAttack();
+    void PickupSurvivor(AActor* Target);
+    void DropSurvivor();
+    
     AActor* FindInteractableActor(float Radius);
     bool PerformAttackTrace();
-    
-    UPROPERTY(Replicated)
-    TObjectPtr<AActor> CarriedSurvivor;
 
-    // 블루프린트에서 직접 에셋 할당
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Killer Character|Input")
-    TObjectPtr<class UInputAction> AttackAction;
-
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Killer Character|Input")
-    TObjectPtr<class UInputAction> InteractAction;
-
-    const float BaseSpeed = 748.f;
+    UPROPERTY()
+    AActor* CarriedSurvivor;
 };
