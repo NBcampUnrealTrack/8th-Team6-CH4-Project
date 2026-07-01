@@ -35,7 +35,7 @@ FGameplayTag ASPDeliveryStation::GetInteractableTag_Implementation() const
 	return SPGameplayTags::Interactable::Delivery;
 }
 
-void ASPDeliveryStation::SubmitValue(int32 Value)
+void ASPDeliveryStation::SubmitValue(int32 Value) const
 {
 	if (!HasAuthority())
 	{

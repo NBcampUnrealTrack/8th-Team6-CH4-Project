@@ -1,14 +1,16 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
-#include "InputActionValue.h"
+#include "Gameplay/Escape/SPEscapeGate.h"
 #include "Interface/SPInteractable.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
+#include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
 
@@ -84,7 +86,7 @@ void ASurvivorCharacter::UpdateInteract()
 		}
 	}
 
-	if (ThisActor != LastActor)
+	if (ThisActor != LastActor && !bIsInteract)
 	{
 		if (LastActor.IsValid())
 		{
@@ -125,6 +127,13 @@ void ASurvivorCharacter::CancelInteract()
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
+
+	if (ASPEscapeGate* Gate = CurrentEscapeGate.Get())
+	{
+		Gate->ClearOpener(this);
+	}
+	CurrentEscapeGate = nullptr;
+
 	ApplyStateEffects();
 }
 
@@ -154,6 +163,10 @@ bool ASurvivorCharacter::TraceInteractable(FHitResult& OutHit) const
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
+	if (CarriedItem)
+	{
+		Params.AddIgnoredActor(CarriedItem);
+	}
 
 	const bool bHit = GetWorld()->SweepSingleByChannel(
 		OutHit, Start, End, FQuat::Identity, ECC_GameTraceChannel1,
@@ -207,10 +220,7 @@ void ASurvivorCharacter::JumpOver()
 {
 	Super::JumpOver();
 
-	if (!CanJumpOver())
-	{
-		return;
-	}
+	if (!CanJumpOver()) return;
 
 	// TODO: JumpOver 행동 처리
 	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 -> 창틀/난간과 같이 JumpOver 표면만 식별해야 함
@@ -375,8 +385,33 @@ void ASurvivorCharacter::CompleteDelivery()
 	}
 
 	Station->SubmitValue(CarriedItem->GetValue());
-	
+
 	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	CarriedItem->Destroy();
 	CarriedItem = nullptr;
+}
+
+void ASurvivorCharacter::BeginEscapeOpen(ASPEscapeGate* Gate)
+{
+	if (!HasAuthority() || bIsInteract || !Gate || Gate->IsActivated())
+	{
+		return;
+	}
+	
+	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
+	if (!MatchGameState || !MatchGameState->CanActivateEscapeGates())
+	{
+		return;
+	}
+
+	CurrentEscapeGate = Gate;
+	bIsInteract = true;
+	Gate->SetOpener(this);
+}
+
+void ASurvivorCharacter::EndEscapeChanneling()
+{
+	bIsInteract = false;
+	CurrentEscapeGate = nullptr;
+	ApplyStateEffects();
 }

@@ -9,6 +9,7 @@
 class USurvivorData;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
+class ASPEscapeGate;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -40,6 +41,8 @@ public:
 	
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
+	void BeginEscapeOpen(ASPEscapeGate* Gate);
+	void EndEscapeChanneling();
 	bool IsCarrying() const { return CarriedItem != nullptr; }
 	
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
@@ -51,8 +54,7 @@ protected:
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Interact();
-
-	// 채널링(줍기/드롭/제출) 중 이동 입력 시 서버에 취소 요청 (DBD식)
+	
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CancelInteract();
 
@@ -116,6 +118,7 @@ private:
 	FTimerHandle PickupDropTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
+	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
 	TWeakObjectPtr<AActor> LastActor;
 	FGameplayTag InteractableTag;
 	
