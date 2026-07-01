@@ -1,8 +1,9 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
 #include "UObject/Interface.h"
 #include "SPInteractable.generated.h"
 
@@ -20,7 +21,10 @@ class SPACH4_API ISPInteractable
 public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
 	void Interact(AActor* Instigator);
-	
+
 	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
 	void SetHighlight(bool bEnabled);
+	
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
+	FGameplayTag GetInteractableTag() const;
 };

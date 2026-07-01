@@ -24,23 +24,19 @@ public:
 	
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual void SetHighlight_Implementation(bool bEnabled) override;
+	virtual FGameplayTag GetInteractableTag_Implementation() const override;
 
 	int32 GetValue() const { return Value; }
 	ECollectibleSize GetCollectibleSize() const { return CollectibleSize; }
-	bool BlocksParkourWhileCarried() const { return bBlocksParkourWhileCarried; }
 	void SetPickupCollisionEnabled(bool bEnabled);
-
-
+	
 protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Collectible")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	TObjectPtr<UStaticMeshComponent> Mesh;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectible")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	ECollectibleSize CollectibleSize = ECollectibleSize::Small;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectible")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	int32 Value = 10;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectible")
-	bool bBlocksParkourWhileCarried = false;
 };

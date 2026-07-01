@@ -23,7 +23,7 @@ protected:
 	virtual void Interact();
 	virtual void JumpOver();
 	
-	void Move(const FInputActionValue& Value);
+	virtual void Move(const FInputActionValue& Value);
 
 	void Look(const FInputActionValue& Value);
 

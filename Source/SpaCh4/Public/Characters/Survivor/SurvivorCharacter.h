@@ -2,10 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "Characters/Base/CharacterBase.h"
+#include "GameplayTagAssetInterface.h"
+#include "GameplayTagContainer.h"
 #include "SurvivorCharacter.generated.h"
 
 class USurvivorData;
 class ASPCollectibleItem;
+class ASPDeliveryStation;
+class ASPEscapeGate;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -20,7 +24,7 @@ enum class ESurvivorState : uint8
 };
 
 UCLASS()
-class SPACH4_API ASurvivorCharacter : public ACharacterBase
+class SPACH4_API ASurvivorCharacter : public ACharacterBase, public IGameplayTagAssetInterface
 {
 	GENERATED_BODY()
 
@@ -36,7 +40,13 @@ public:
 	bool CanJumpOver() const;
 	
 	void BeginPickup(ASPCollectibleItem* Item);
+	void BeginDelivery(ASPDeliveryStation* Station);
+	void BeginEscapeOpen(ASPEscapeGate* Gate);
+	void EndEscapeChanneling();
 	bool IsCarrying() const { return CarriedItem != nullptr; }
+	
+	FGameplayTag GetInteractableTag() const { return InteractableTag; }
+	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -44,7 +54,12 @@ protected:
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_Interact();
-	virtual void Interact() override;	
+	
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_CancelInteract();
+
+	virtual void Move(const FInputActionValue& Value) override;
+	virtual void Interact() override;
 	virtual void JumpOver() override;
 private:
 	UFUNCTION()
@@ -54,9 +69,10 @@ private:
 	void CompletePickup();
 	void BeginDrop();
 	void CompleteDrop();
+	void CompleteDelivery();
 	void CancelInteract();
 	
-	void UpdateInteractFocus();
+	void UpdateInteract();
 	bool TraceInteractable(FHitResult& OutHit) const;
 	
 	/* 생존자의 State & Interact 관리 */
@@ -69,6 +85,10 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	float InteractRadius{20.f};
 
+	// 상호작용 중 이동 시 상호작용 취소 여부
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
+	bool bCancelInteractOnMove{true};
+
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
 
@@ -79,6 +99,10 @@ private:
 	UPROPERTY(Replicated)
 	TObjectPtr<ASPCollectibleItem> CarriedItem;
 
+	// 상호작용 중인지 판단
+	UPROPERTY(Replicated)
+	bool bIsInteract{false};
+	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	FName CarrySocketName{"CarrySocket"};
 
@@ -86,9 +110,16 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	bool bInstantPickup{false};
 	
+	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
+	FGameplayTagContainer OwningTag;
 	
-	bool bIsInteract{false};           
+	
+	
 	FTimerHandle PickupDropTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
+	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
+	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
 	TWeakObjectPtr<AActor> LastActor;
+	FGameplayTag InteractableTag;
+	
 };
