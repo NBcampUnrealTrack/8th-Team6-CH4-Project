@@ -4,14 +4,27 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Delivery/SPDeliveryStation.h"
+#include "InputActionValue.h"
 #include "Interface/SPInteractable.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
 #include "TimerManager.h"
+#include "Type/SPGameplayTag.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	bUseControllerRotationYaw = true;
+	GetCharacterMovement()->bOrientRotationToMovement = false;
+
+	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
+}
+
+void ASurvivorCharacter::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
+{
+	TagContainer.AppendTags(OwningTag);
 }
 
 void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -20,15 +33,38 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
 	DOREPLIFETIME(ASurvivorCharacter, CarriedItem);
+	DOREPLIFETIME(ASurvivorCharacter, bIsInteract);
 }
 
 void ASurvivorCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	UpdateInteractFocus();
+	UpdateInteract();
+	
+	bUseControllerRotationYaw = !(bIsInteract && bCancelInteractOnMove);
 }
 
-void ASurvivorCharacter::UpdateInteractFocus()
+void ASurvivorCharacter::Move(const FInputActionValue& Value)
+{
+	if (bIsInteract && bCancelInteractOnMove)
+	{
+		Server_CancelInteract();
+	}
+	
+	Super::Move(Value);
+}
+
+bool ASurvivorCharacter::Server_CancelInteract_Validate()
+{
+	return true;
+}
+
+void ASurvivorCharacter::Server_CancelInteract_Implementation()
+{
+	CancelInteract();
+}
+
+void ASurvivorCharacter::UpdateInteract()
 {
 	if (!IsLocallyControlled())
 	{
@@ -36,16 +72,18 @@ void ASurvivorCharacter::UpdateInteractFocus()
 	}
 
 	AActor* ThisActor = nullptr;
+	FGameplayTag Tag;
 	
-	if (CanInteract() && !IsCarrying())
+	if (CanInteract())
 	{
 		FHitResult Hit;
 		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
 		{
 			ThisActor = Hit.GetActor();
+			Tag = ISPInteractable::Execute_GetInteractableTag(ThisActor);
 		}
 	}
-	
+
 	if (ThisActor != LastActor)
 	{
 		if (LastActor.IsValid())
@@ -57,6 +95,7 @@ void ASurvivorCharacter::UpdateInteractFocus()
 			ISPInteractable::Execute_SetHighlight(ThisActor, true);
 		}
 		LastActor = ThisActor;
+		InteractableTag = Tag;
 	}
 }
 
@@ -85,6 +124,8 @@ void ASurvivorCharacter::CancelInteract()
 	GetWorldTimerManager().ClearTimer(PickupDropTimer);
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
+	CurrentDeliveryStation = nullptr;
+	ApplyStateEffects();
 }
 
 bool ASurvivorCharacter::CanMove() const
@@ -139,16 +180,16 @@ void ASurvivorCharacter::Server_Interact_Implementation()
 		return;
 	}
 	
-	if (IsCarrying())
-	{
-		BeginDrop();
-		return;
-	}
-
 	FHitResult Hit;
 	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
 	{
 		ISPInteractable::Execute_Interact(Hit.GetActor(), this);
+		return;
+	}
+	
+	if (IsCarrying())
+	{
+		BeginDrop();
 	}
 }
 
@@ -291,5 +332,51 @@ void ASurvivorCharacter::CompleteDrop()
 	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	CarriedItem->SetActorLocation(GetActorLocation());
 	CarriedItem->SetPickupCollisionEnabled(true);
+	CarriedItem = nullptr;
+}
+
+void ASurvivorCharacter::BeginDelivery(ASPDeliveryStation* Station)
+{
+	if (!HasAuthority() || bIsInteract || !IsCarrying() || !SurvivorData)
+	{
+		return;
+	}
+	if (!Station || Station->IsComplete())
+	{
+		return;
+	}
+
+	CurrentDeliveryStation = Station;
+	bIsInteract = true;
+	
+	if (!bCancelInteractOnMove)
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->MaxWalkSpeed *= SurvivorData->DeliveryMovePenalty;
+		}
+	}
+
+	GetWorldTimerManager().SetTimer(
+		PickupDropTimer, this, &ASurvivorCharacter::CompleteDelivery, Station->GetDeliveryDuration(), false);
+}
+
+void ASurvivorCharacter::CompleteDelivery()
+{
+	bIsInteract = false;
+	ApplyStateEffects();
+
+	ASPDeliveryStation* Station = CurrentDeliveryStation.Get();
+	CurrentDeliveryStation = nullptr;
+
+	if (!Station || !CarriedItem)
+	{
+		return;
+	}
+
+	Station->SubmitValue(CarriedItem->GetValue());
+	
+	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	CarriedItem->Destroy();
 	CarriedItem = nullptr;
 }
