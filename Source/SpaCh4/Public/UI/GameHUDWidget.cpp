@@ -345,9 +345,11 @@ void UGameHUDWidget::RefreshTeammateEntries()
 
 	TArray<UTeammateEntryWidget*> Entries;
 	Entries.Reserve(SpaCh4HUD::TeammateSlotCount);
-	for (UTeammateEntryWidget* Entry : TeammateEntries)
+
+	for (int32 Index = 0; Index < SpaCh4HUD::TeammateSlotCount; ++Index)
 	{
-		if (Entry)
+		const FName WidgetName(*FString::Printf(TEXT("TeammateEntries_%d"), Index));
+		if (UTeammateEntryWidget* Entry = Cast<UTeammateEntryWidget>(GetWidgetFromName(WidgetName)))
 		{
 			Entries.Add(Entry);
 		}
@@ -355,19 +357,18 @@ void UGameHUDWidget::RefreshTeammateEntries()
 
 	if (Entries.Num() == 0)
 	{
-		for (int32 Index = 0; Index < SpaCh4HUD::TeammateSlotCount; ++Index)
+		for (UTeammateEntryWidget* Entry : TeammateEntries)
 		{
-			const FName WidgetName(*FString::Printf(TEXT("TeammateEntries_%d"), Index));
-			if (UTeammateEntryWidget* Entry = Cast<UTeammateEntryWidget>(GetWidgetFromName(WidgetName)))
+			if (Entry)
 			{
 				Entries.Add(Entry);
 			}
 		}
 	}
 
-	for (int32 Index = 0; Index < Entries.Num(); ++Index)
+	for (int32 Index = 0; Index < SpaCh4HUD::TeammateSlotCount; ++Index)
 	{
-		UTeammateEntryWidget* Entry = Entries[Index];
+		UTeammateEntryWidget* Entry = Entries.IsValidIndex(Index) ? Entries[Index] : nullptr;
 		if (!Entry)
 		{
 			continue;
@@ -387,10 +388,32 @@ void UGameHUDWidget::RefreshTeammateEntries()
 
 void UGameHUDWidget::EnsurePreviewDefaults()
 {
-	if (PreviewTeammateData.Num() > 0)
+	static const ESurvivorDisplayState ExpectedStates[] = {
+		ESurvivorDisplayState::Healthy,
+		ESurvivorDisplayState::Injured,
+		ESurvivorDisplayState::Dead,
+	};
+	static constexpr int32 ExpectedPreviewCount = UE_ARRAY_COUNT(ExpectedStates);
+
+	bool bHasCanonicalPreview = PreviewTeammateData.Num() == ExpectedPreviewCount;
+	if (bHasCanonicalPreview)
+	{
+		for (int32 PreviewIndex = 0; PreviewIndex < ExpectedPreviewCount; ++PreviewIndex)
+		{
+			if (PreviewTeammateData[PreviewIndex].DisplayState != ExpectedStates[PreviewIndex])
+			{
+				bHasCanonicalPreview = false;
+				break;
+			}
+		}
+	}
+
+	if (bHasCanonicalPreview)
 	{
 		return;
 	}
+
+	PreviewTeammateData.Reset();
 
 	FTeammateHUDData TeammateA;
 	TeammateA.Nickname = NSLOCTEXT("SpaCh4", "PreviewTeammateA", "Player_A");
@@ -401,14 +424,13 @@ void UGameHUDWidget::EnsurePreviewDefaults()
 	FTeammateHUDData TeammateB;
 	TeammateB.Nickname = NSLOCTEXT("SpaCh4", "PreviewTeammateB", "Player_B");
 	TeammateB.CageStack = 1;
-	TeammateB.DisplayState = ESurvivorDisplayState::Downed;
-	TeammateB.DownedHealthPercent = 0.65f;
+	TeammateB.DisplayState = ESurvivorDisplayState::Injured;
 	PreviewTeammateData.Add(TeammateB);
 
 	FTeammateHUDData TeammateC;
 	TeammateC.Nickname = NSLOCTEXT("SpaCh4", "PreviewTeammateC", "Player_C");
 	TeammateC.CageStack = 2;
-	TeammateC.DisplayState = ESurvivorDisplayState::Caged;
+	TeammateC.DisplayState = ESurvivorDisplayState::Dead;
 	PreviewTeammateData.Add(TeammateC);
 }
 
