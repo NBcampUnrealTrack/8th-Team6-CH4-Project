@@ -4,9 +4,9 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
-#include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameState.h"
+#include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
 
 ASPEscapeGate::ASPEscapeGate()
@@ -14,14 +14,16 @@ ASPEscapeGate::ASPEscapeGate()
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
 
-	Mesh = CreateDefaultSubobject<UStaticMeshComponent>("Mesh");
-	SetRootComponent(Mesh);
-	Mesh->SetCollisionProfileName(TEXT("Interactable"));
-	Mesh->SetCustomDepthStencilValue(250);
-	Mesh->SetRenderCustomDepth(false);
+	SwitchMesh = CreateDefaultSubobject<UStaticMeshComponent>("Mesh");
+	SetRootComponent(SwitchMesh);
+	SwitchMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	SwitchMesh->SetCustomDepthStencilValue(250);
+	SwitchMesh->SetRenderCustomDepth(false);
+	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>("DoorMesh");
+	DoorMesh->SetupAttachment(SwitchMesh);
 
 	ExitTrigger = CreateDefaultSubobject<UBoxComponent>("ExitTrigger");
-	ExitTrigger->SetupAttachment(Mesh);
+	ExitTrigger->SetupAttachment(SwitchMesh);
 	ExitTrigger->SetCollisionProfileName(TEXT("Trigger"));
 }
 
@@ -31,10 +33,19 @@ void ASPEscapeGate::BeginPlay()
 
 	ExitTrigger->OnComponentBeginOverlap.AddDynamic(this, &ASPEscapeGate::OnExitTriggerBeginOverlap);
 
-	if (AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr)
+	BindAvailabilityDelegate();
+}
+
+void ASPEscapeGate::BindAvailabilityDelegate()
+{
+	AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
+	if (!MatchGameState)
 	{
-		MatchGameState->OnEscapeGateAvailabilityChanged.AddDynamic(this, &ASPEscapeGate::OnEscapeAvailabilityChanged);
+		GetWorldTimerManager().SetTimerForNextTick(this, &ASPEscapeGate::BindAvailabilityDelegate);
+		return;
 	}
+
+	MatchGameState->OnEscapeGateAvailabilityChanged.AddDynamic(this, &ASPEscapeGate::OnEscapeAvailabilityChanged);
 }
 
 void ASPEscapeGate::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -55,6 +66,10 @@ void ASPEscapeGate::Tick(float DeltaSeconds)
 	}
 
 	OpenProgress = FMath::Min(OpenProgress + DeltaSeconds, OpenDuration);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Green, FString::Printf(TEXT("탈출구 진행률: %.2f / %.2f"), OpenProgress, OpenDuration));
+	}
 
 	if (OpenProgress >= OpenDuration)
 	{
@@ -79,12 +94,23 @@ void ASPEscapeGate::Interact_Implementation(AActor* Interactor)
 
 void ASPEscapeGate::SetHighlight_Implementation(bool bEnabled)
 {
-	Mesh->SetRenderCustomDepth(bEnabled);
+	SwitchMesh->SetRenderCustomDepth(bEnabled);
 }
 
 FGameplayTag ASPEscapeGate::GetInteractableTag_Implementation() const
 {
 	return SPGameplayTags::Interactable::Escape::Gate;
+}
+
+bool ASPEscapeGate::IsInteractable_Implementation() const
+{
+	if (bIsActivated)
+	{
+		return false;
+	}
+	
+	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
+	return MatchGameState && MatchGameState->CanActivateEscapeGates();
 }
 
 void ASPEscapeGate::SetOpener(ASurvivorCharacter* Opener)
@@ -109,17 +135,13 @@ void ASPEscapeGate::OnRep_IsActivated()
 {
 	if (bIsActivated)
 	{
-		Mesh->SetRenderCustomDepth(false);
-
+		SwitchMesh->SetRenderCustomDepth(false);
 	}
 }
 
 void ASPEscapeGate::OnEscapeAvailabilityChanged(bool bCanActivate)
 {
-	// TODO: 게이트 Mesh 콜리전을 'Interactable' 프로파일로 전환한다.
-	//  - 평소(비활성)에는 Interactable가 아니어서 상호작용 트레이스에 잡히지 않는다.
-	//  - Interactable로 전환해 조준·개방이 가능해진다.
-	//  - 탈출구 개방 로직과 함께 내일 이어서 구현.
+	SwitchMesh->SetCollisionProfileName(TEXT("Interactable"));
 }
 
 void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -128,21 +150,13 @@ void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedCom
 
 	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(OtherActor))
 	{
-		if (AreAllGatesActivated())
+		if (bIsActivated)
 		{
 			Survivor->SetSurvivorState(ESurvivorState::Escaped);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, FString::Printf(TEXT("%s 탈출!"), *Survivor->GetName()));
+			}
 		}
 	}
-}
-
-bool ASPEscapeGate::AreAllGatesActivated() const
-{
-	for (TActorIterator<ASPEscapeGate> It(GetWorld()); It; ++It)
-	{
-		if (!It->IsActivated())
-		{
-			return false;
-		}
-	}
-	return true;
 }

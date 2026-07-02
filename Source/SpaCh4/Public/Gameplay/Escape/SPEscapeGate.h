@@ -24,6 +24,7 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual void SetHighlight_Implementation(bool bEnabled) override;
 	virtual FGameplayTag GetInteractableTag_Implementation() const override;
+	virtual bool IsInteractable_Implementation() const override;
 
 	bool IsActivated() const { return bIsActivated; }
 
@@ -38,12 +39,16 @@ protected:
 	
 	UFUNCTION()
 	void OnEscapeAvailabilityChanged(bool bCanActivate);
+	void BindAvailabilityDelegate();
 
 	UFUNCTION()
 	void OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
-	TObjectPtr<UStaticMeshComponent> Mesh;
+	TObjectPtr<UStaticMeshComponent> SwitchMesh;
+	
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
+	TObjectPtr<UStaticMeshComponent> DoorMesh;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UBoxComponent> ExitTrigger;
@@ -58,7 +63,5 @@ protected:
 	bool bIsActivated = false;
 
 private:
-	bool AreAllGatesActivated() const;
-	
 	TWeakObjectPtr<ASurvivorCharacter> CurrentOpener;
 };
