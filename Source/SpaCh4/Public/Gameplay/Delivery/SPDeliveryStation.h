@@ -19,6 +19,7 @@ public:
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual void SetHighlight_Implementation(bool bEnabled) override;
 	virtual FGameplayTag GetInteractableTag_Implementation() const override;
+	virtual bool IsInteractable_Implementation() const override;
 	
 	void SubmitValue(int32 Value) const;
 	bool IsComplete() const;

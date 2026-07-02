@@ -3,6 +3,7 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "Systems/MatchGameMode.h"
 #include "Systems/MatchGameState.h"
 #include "Type/SPGameplayTag.h"
 
@@ -41,11 +42,19 @@ void ASPDeliveryStation::SubmitValue(int32 Value) const
 	{
 		return;
 	}
-
-	if (AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr)
+	
+	AMatchGameMode* MatchGameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMatchGameMode>() : nullptr;
+	if (!MatchGameMode)
 	{
-		MatchGameState->AddDeliveredValue(StationId, Value);
-		UE_LOG(LogTemp, Warning, TEXT("납품소 %s에 %d 반납. 현재 점수 %d"), *StationId.ToString(), Value, MatchGameState->GetDeliveryStationValue(StationId));
+		return;
+	}
+
+	if (MatchGameMode->AddDeliveredValue(StationId, Value))
+	{
+		if (const AMatchGameState* MatchGameState = GetWorld()->GetGameState<AMatchGameState>())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("납품소 %s에 %d 반납. 현재 점수 %d"), *StationId.ToString(), Value, MatchGameState->GetDeliveryStationValue(StationId));
+		}
 	}
 }
 
@@ -56,4 +65,10 @@ bool ASPDeliveryStation::IsComplete() const
 		return MatchGameState->GetDeliveryStationValue(StationId) >= MatchGameState->GetDeliveryStationTargetValueByID(StationId);
 	}
 	return false;
+}
+
+bool ASPDeliveryStation::IsInteractable_Implementation() const
+{
+	// 목표치를 다 채운 납품소는 더 이상 조준·상호작용 대상이 아니다.
+	return !IsComplete();
 }

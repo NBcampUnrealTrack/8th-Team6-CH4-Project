@@ -79,7 +79,8 @@ void ASurvivorCharacter::UpdateInteract()
 	if (CanInteract())
 	{
 		FHitResult Hit;
-		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
+		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>()
+			&& ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
 		{
 			ThisActor = Hit.GetActor();
 			Tag = ISPInteractable::Execute_GetInteractableTag(ThisActor);
@@ -131,6 +132,10 @@ void ASurvivorCharacter::CancelInteract()
 	if (ASPEscapeGate* Gate = CurrentEscapeGate.Get())
 	{
 		Gate->ClearOpener(this);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("탈출구 상호작용 취소"));
+		}
 	}
 	CurrentEscapeGate = nullptr;
 
@@ -194,7 +199,8 @@ void ASurvivorCharacter::Server_Interact_Implementation()
 	}
 	
 	FHitResult Hit;
-	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
+	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>()
+		&& ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
 	{
 		ISPInteractable::Execute_Interact(Hit.GetActor(), this);
 		return;
