@@ -99,6 +99,20 @@ void ALobbyPlayerController::BeginPlay()
 	}
 }
 
+void ALobbyPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	Super::EndPlay(EndPlayReason);
+	FInputModeGameOnly Mode;
+	SetInputMode(Mode);
+
+	bShowMouseCursor = false;
+	if (LobbyUIWidgetInstance)
+	{
+		LobbyUIWidgetInstance->RemoveFromParent();
+		LobbyUIWidgetInstance = nullptr;
+	}
+}
+
 void ALobbyPlayerController::OnLobbyPlayersChanged()
 {
 	if (IsValid(LobbyUIWidgetInstance))

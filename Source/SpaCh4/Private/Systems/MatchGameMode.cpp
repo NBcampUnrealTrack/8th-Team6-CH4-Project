@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"
 #include "Player/LDPlayerState.h"
+#include "Player/SPPlayerController.h"
 
 namespace MatchGameModeStationIds
 {
@@ -19,6 +20,7 @@ AMatchGameMode::AMatchGameMode()
 {
 	GameStateClass = AMatchGameState::StaticClass();
 	PlayerStateClass = ALDPlayerState::StaticClass();
+	PlayerControllerClass = ASPPlayerController::StaticClass();
 }
 
 void AMatchGameMode::BeginPlay()
