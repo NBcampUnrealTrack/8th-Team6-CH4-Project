@@ -5,17 +5,13 @@
 #include "GameFramework/PlayerState.h"
 #include "Player/LobbyPlayerController.h"
 #include "TimerManager.h"
-
-namespace LobbyPlayerStateTags
-{
-	const FName SurvivorRole(TEXT("LobbyRole.Survivor"));
-	const FName KillerRole(TEXT("LobbyRole.Killer"));
-}
+#include "Player/LDPlayerState.h"
 
 ALobbyGameMode::ALobbyGameMode()
 {
 	GameStateClass = ALobbyGameState::StaticClass();
 	PlayerControllerClass = ALobbyPlayerController::StaticClass();
+	PlayerStateClass = ALDPlayerState::StaticClass();
 	bUseSeamlessTravel = true;
 }
 
@@ -240,23 +236,19 @@ void ALobbyGameMode::ApplyLobbyInfoToPlayerState(APlayerController* PlayerContro
 	}
 
 	// 레벨 변경시 역활을 PlayerState의 Tag설정으로 구분
-	APlayerState* PlayerState = PlayerController->PlayerState;
+	ALDPlayerState* PlayerState = Cast<ALDPlayerState>(PlayerController->PlayerState);
+	if (!IsValid(PlayerState))
+	{
+		return;
+	}
+
 	if (!PlayerInfo.Nickname.IsEmpty())
 	{
 		PlayerState->SetPlayerName(PlayerInfo.Nickname);
 	}
 
-	PlayerState->Tags.Remove(LobbyPlayerStateTags::SurvivorRole);
-	PlayerState->Tags.Remove(LobbyPlayerStateTags::KillerRole);
 
-	if (PlayerInfo.SelectedRole == ELobbyPlayerRole::Survivor)
-	{
-		PlayerState->Tags.AddUnique(LobbyPlayerStateTags::SurvivorRole);
-	}
-	else if (PlayerInfo.SelectedRole == ELobbyPlayerRole::Killer)
-	{
-		PlayerState->Tags.AddUnique(LobbyPlayerStateTags::KillerRole);
-	}
+	PlayerState->SetPlayerRole(PlayerInfo.SelectedRole);
 }
 
 void ALobbyGameMode::EvaluateCountdownState()
@@ -333,6 +325,7 @@ void ALobbyGameMode::TravelToMatchGameLevel()
 	GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
 	LobbyGameState->SetLobbyPhase(ELobbyPhase::Traveling);
 
+
 	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
 	{
 		APlayerController* PlayerController = Iterator->Get();
@@ -345,6 +338,7 @@ void ALobbyGameMode::TravelToMatchGameLevel()
 		if (LobbyGameState->GetLobbyPlayerInfo(GetPlayerId(PlayerController), PlayerInfo))
 		{
 			ApplyLobbyInfoToPlayerState(PlayerController, PlayerInfo);
+
 		}
 	}
 

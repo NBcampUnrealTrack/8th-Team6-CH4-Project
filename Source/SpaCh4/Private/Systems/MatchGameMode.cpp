@@ -1,7 +1,13 @@
 #include "Systems/MatchGameMode.h"
 
+#include "EngineUtils.h"
+#include "SkeletalMeshAttributes.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "GameFramework/PlayerStart.h"
+#include "GameFramework/PlayerState.h"
+#include "Kismet/GameplayStatics.h"
+#include "Player/LDPlayerState.h"
 
 namespace MatchGameModeStationIds
 {
@@ -12,6 +18,7 @@ namespace MatchGameModeStationIds
 AMatchGameMode::AMatchGameMode()
 {
 	GameStateClass = AMatchGameState::StaticClass();
+	PlayerStateClass = ALDPlayerState::StaticClass();
 }
 
 void AMatchGameMode::BeginPlay()
@@ -25,6 +32,81 @@ void AMatchGameMode::BeginPlay()
 		StartMatch();
 	}
 }
+
+UClass* AMatchGameMode::GetDefaultPawnClassForController_Implementation(AController* InController)
+{
+	if (IsValid(InController) == false)
+	{
+		return Super::GetDefaultPawnClassForController_Implementation(InController);
+	}
+	const ALDPlayerState* PlayerState = InController->GetPlayerState<ALDPlayerState>();
+	if (PlayerState == nullptr)
+	{
+		return Super::GetDefaultPawnClassForController_Implementation(InController);
+	}
+	// 로비에서 설정한 Tag값에 따라 생존자/살인마 스폰
+	if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Survivor)
+	{
+		if (IsValid(SurvivorPawnClass))
+		{
+			return SurvivorPawnClass;
+		}
+	}
+	else if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
+	{
+		if (IsValid(KillerPawnClass))
+		{
+			return KillerPawnClass;
+		}
+	}
+	return Super::GetDefaultPawnClassForController_Implementation(InController);
+	
+}
+
+AActor* AMatchGameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+	if (IsValid(Player) == false)
+	{
+		return Super::ChoosePlayerStart_Implementation(Player);
+	}
+	ALDPlayerState* PlayerState = Player->GetPlayerState<ALDPlayerState>();
+	if (PlayerState == nullptr)
+	{
+		return Super::ChoosePlayerStart_Implementation(Player);
+	}
+	// 플레이어의 역활을 저장하고
+	FName PlayerRole = NAME_None;
+	if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Survivor)
+	{
+		PlayerRole = "Survivor";
+	}
+	if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
+	{
+		PlayerRole = "Killer";
+	}
+	
+	
+	// 레밸 내 PlayerStart중 동일 태그를 가지는 PlayerStart를 가져옴
+	TArray<APlayerStart*> CandidateStarts;
+	for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
+	{
+		APlayerStart* PlayerStart = *It;
+		if (PlayerStart && PlayerStart->PlayerStartTag == PlayerRole)
+		{
+			CandidateStarts.Add(PlayerStart);
+		}
+	}
+
+	// 각 태그를 가진 PlayerStart중 랜덤 위치에 스폰되도록 함. 
+	if (CandidateStarts.Num() > 0)
+	{
+		const int32 Index = FMath::RandRange(0, CandidateStarts.Num() - 1);
+		return CandidateStarts[Index];
+	}
+	// 아니라면 그냥 PlayerStart에서?
+	return Super::ChoosePlayerStart_Implementation(Player);
+}
+
 
 void AMatchGameMode::StartMatch()
 {

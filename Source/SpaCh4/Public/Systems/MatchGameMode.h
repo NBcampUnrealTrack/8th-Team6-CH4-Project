@@ -16,7 +16,23 @@ public:
 
 	virtual void BeginPlay() override;
 	
-	 
+#pragma region PlayerClass
+	// 플레이어의 기본Pawn을 결정하는 기본함수, PlayerController가 다르게 설정된다면 Login에서 설정해야함.
+	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
+	// 플레이어 시작지점을 결정하는 내장함수
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
+	
+protected:
+	UPROPERTY(EditDefaultsOnly, Category = "Spawn")
+	TSubclassOf<APawn> SurvivorPawnClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Spawn")
+	TSubclassOf<APawn> KillerPawnClass;
+	
+#pragma endregion
+	
+public:
+	
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Flow")
 	void StartMatch();
 
