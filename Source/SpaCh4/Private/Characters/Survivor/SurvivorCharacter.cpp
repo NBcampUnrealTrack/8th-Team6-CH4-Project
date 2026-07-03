@@ -1,17 +1,32 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Delivery/SPDeliveryStation.h"
+#include "Gameplay/Escape/SPEscapeGate.h"
 #include "Interface/SPInteractable.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
+#include "Systems/MatchGameState.h"
 #include "TimerManager.h"
+#include "Type/SPGameplayTag.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	bUseControllerRotationYaw = true;
+	GetCharacterMovement()->bOrientRotationToMovement = false;
+
+	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
+}
+
+void ASurvivorCharacter::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
+{
+	TagContainer.AppendTags(OwningTag);
 }
 
 void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -20,15 +35,38 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
 	DOREPLIFETIME(ASurvivorCharacter, CarriedItem);
+	DOREPLIFETIME(ASurvivorCharacter, bIsInteract);
 }
 
 void ASurvivorCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	UpdateInteractFocus();
+	UpdateInteract();
+	
+	bUseControllerRotationYaw = !(bIsInteract && bCancelInteractOnMove);
 }
 
-void ASurvivorCharacter::UpdateInteractFocus()
+void ASurvivorCharacter::Move(const FInputActionValue& Value)
+{
+	if (bIsInteract && bCancelInteractOnMove)
+	{
+		Server_CancelInteract();
+	}
+	
+	Super::Move(Value);
+}
+
+bool ASurvivorCharacter::Server_CancelInteract_Validate()
+{
+	return true;
+}
+
+void ASurvivorCharacter::Server_CancelInteract_Implementation()
+{
+	CancelInteract();
+}
+
+void ASurvivorCharacter::UpdateInteract()
 {
 	if (!IsLocallyControlled())
 	{
@@ -36,17 +74,20 @@ void ASurvivorCharacter::UpdateInteractFocus()
 	}
 
 	AActor* ThisActor = nullptr;
+	FGameplayTag Tag;
 	
-	if (CanInteract() && !IsCarrying())
+	if (CanInteract())
 	{
 		FHitResult Hit;
-		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
+		if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>()
+			&& ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
 		{
 			ThisActor = Hit.GetActor();
+			Tag = ISPInteractable::Execute_GetInteractableTag(ThisActor);
 		}
 	}
-	
-	if (ThisActor != LastActor)
+
+	if (ThisActor != LastActor && !bIsInteract)
 	{
 		if (LastActor.IsValid())
 		{
@@ -57,6 +98,7 @@ void ASurvivorCharacter::UpdateInteractFocus()
 			ISPInteractable::Execute_SetHighlight(ThisActor, true);
 		}
 		LastActor = ThisActor;
+		InteractableTag = Tag;
 	}
 }
 
@@ -85,6 +127,19 @@ void ASurvivorCharacter::CancelInteract()
 	GetWorldTimerManager().ClearTimer(PickupDropTimer);
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
+	CurrentDeliveryStation = nullptr;
+
+	if (ASPEscapeGate* Gate = CurrentEscapeGate.Get())
+	{
+		Gate->ClearOpener(this);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("탈출구 상호작용 취소"));
+		}
+	}
+	CurrentEscapeGate = nullptr;
+
+	ApplyStateEffects();
 }
 
 bool ASurvivorCharacter::CanMove() const
@@ -113,6 +168,10 @@ bool ASurvivorCharacter::TraceInteractable(FHitResult& OutHit) const
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
+	if (CarriedItem)
+	{
+		Params.AddIgnoredActor(CarriedItem);
+	}
 
 	const bool bHit = GetWorld()->SweepSingleByChannel(
 		OutHit, Start, End, FQuat::Identity, ECC_GameTraceChannel1,
@@ -139,16 +198,17 @@ void ASurvivorCharacter::Server_Interact_Implementation()
 		return;
 	}
 	
+	FHitResult Hit;
+	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>()
+		&& ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
+	{
+		ISPInteractable::Execute_Interact(Hit.GetActor(), this);
+		return;
+	}
+	
 	if (IsCarrying())
 	{
 		BeginDrop();
-		return;
-	}
-
-	FHitResult Hit;
-	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>())
-	{
-		ISPInteractable::Execute_Interact(Hit.GetActor(), this);
 	}
 }
 
@@ -166,10 +226,7 @@ void ASurvivorCharacter::JumpOver()
 {
 	Super::JumpOver();
 
-	if (!CanJumpOver())
-	{
-		return;
-	}
+	if (!CanJumpOver()) return;
 
 	// TODO: JumpOver 행동 처리
 	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 -> 창틀/난간과 같이 JumpOver 표면만 식별해야 함
@@ -292,4 +349,75 @@ void ASurvivorCharacter::CompleteDrop()
 	CarriedItem->SetActorLocation(GetActorLocation());
 	CarriedItem->SetPickupCollisionEnabled(true);
 	CarriedItem = nullptr;
+}
+
+void ASurvivorCharacter::BeginDelivery(ASPDeliveryStation* Station)
+{
+	if (!HasAuthority() || bIsInteract || !IsCarrying() || !SurvivorData)
+	{
+		return;
+	}
+	if (!Station || Station->IsComplete())
+	{
+		return;
+	}
+
+	CurrentDeliveryStation = Station;
+	bIsInteract = true;
+	
+	if (!bCancelInteractOnMove)
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->MaxWalkSpeed *= SurvivorData->DeliveryMovePenalty;
+		}
+	}
+
+	GetWorldTimerManager().SetTimer(
+		PickupDropTimer, this, &ASurvivorCharacter::CompleteDelivery, Station->GetDeliveryDuration(), false);
+}
+
+void ASurvivorCharacter::CompleteDelivery()
+{
+	bIsInteract = false;
+	ApplyStateEffects();
+
+	ASPDeliveryStation* Station = CurrentDeliveryStation.Get();
+	CurrentDeliveryStation = nullptr;
+
+	if (!Station || !CarriedItem)
+	{
+		return;
+	}
+
+	Station->SubmitValue(CarriedItem->GetValue());
+
+	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	CarriedItem->Destroy();
+	CarriedItem = nullptr;
+}
+
+void ASurvivorCharacter::BeginEscapeOpen(ASPEscapeGate* Gate)
+{
+	if (!HasAuthority() || bIsInteract || !Gate || Gate->IsActivated())
+	{
+		return;
+	}
+	
+	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
+	if (!MatchGameState || !MatchGameState->CanActivateEscapeGates())
+	{
+		return;
+	}
+
+	CurrentEscapeGate = Gate;
+	bIsInteract = true;
+	Gate->SetOpener(this);
+}
+
+void ASurvivorCharacter::EndEscapeChanneling()
+{
+	bIsInteract = false;
+	CurrentEscapeGate = nullptr;
+	ApplyStateEffects();
 }

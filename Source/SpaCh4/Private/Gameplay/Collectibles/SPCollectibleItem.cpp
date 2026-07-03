@@ -2,6 +2,7 @@
 
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/StaticMeshComponent.h"
+#include "Type/SPGameplayTag.h"
 
 ASPCollectibleItem::ASPCollectibleItem()
 {
@@ -34,4 +35,9 @@ void ASPCollectibleItem::SetPickupCollisionEnabled(bool bEnabled)
 void ASPCollectibleItem::SetHighlight_Implementation(bool bEnabled)
 {
 	Mesh->SetRenderCustomDepth(bEnabled);
+}
+
+FGameplayTag ASPCollectibleItem::GetInteractableTag_Implementation() const
+{
+	return SPGameplayTags::Interactable::Collectible;
 }
