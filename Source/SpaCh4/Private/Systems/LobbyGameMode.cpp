@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Player/LobbyPlayerController.h"
+#include "Systems/Data/BalanceData.h"
 #include "TimerManager.h"
 #include "Player/LDPlayerState.h"
 
@@ -19,10 +20,7 @@ void ALobbyGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (ALobbyGameState* LobbyGameState = GetLobbyGameState())
-	{
-		LobbyGameState->SetLobbyRules(SurvivorLimit, KillerLimit, RequiredReadyPlayerCount);
-	}
+	ApplyBalanceRules();
 }
 
 void ALobbyGameMode::PostLogin(APlayerController* NewPlayer)
@@ -178,10 +176,11 @@ bool ALobbyGameMode::CanStartCountdown() const
 		return false;
 	}
 
-	return LobbyGameState->GetConnectedPlayerCount() == RequiredReadyPlayerCount
-		&& LobbyGameState->GetSurvivorCount() == SurvivorLimit
-		&& LobbyGameState->GetKillerCount() == KillerLimit
-		&& LobbyGameState->GetReadyCount() == RequiredReadyPlayerCount;
+	const int32 RequiredReadyCount = LobbyGameState->GetRequiredReadyPlayerCount();
+	return LobbyGameState->GetConnectedPlayerCount() == RequiredReadyCount
+		&& LobbyGameState->GetSurvivorCount() == LobbyGameState->GetSurvivorLimit()
+		&& LobbyGameState->GetKillerCount() == LobbyGameState->GetKillerLimit()
+		&& LobbyGameState->GetReadyCount() == RequiredReadyCount;
 }
 
 ALobbyGameState* ALobbyGameMode::GetLobbyGameState() const
@@ -249,6 +248,31 @@ void ALobbyGameMode::ApplyLobbyInfoToPlayerState(APlayerController* PlayerContro
 
 
 	PlayerState->SetPlayerRole(PlayerInfo.SelectedRole);
+}
+
+const UBalanceData* ALobbyGameMode::GetActiveBalanceData() const
+{
+	if (IsValid(BalanceData))
+	{
+		return BalanceData;
+	}
+
+	return GetDefault<UBalanceData>();
+}
+
+void ALobbyGameMode::ApplyBalanceRules()
+{
+	if (const UBalanceData* ActiveBalanceData = GetActiveBalanceData())
+	{
+		SurvivorLimit = FMath::Max(0, ActiveBalanceData->InitialSurvivorCount);
+		KillerLimit = FMath::Max(0, ActiveBalanceData->InitialKillerCount);
+		RequiredReadyPlayerCount = SurvivorLimit + KillerLimit;
+	}
+
+	if (ALobbyGameState* LobbyGameState = GetLobbyGameState())
+	{
+		LobbyGameState->SetLobbyRules(SurvivorLimit, KillerLimit, RequiredReadyPlayerCount);
+	}
 }
 
 void ALobbyGameMode::EvaluateCountdownState()
