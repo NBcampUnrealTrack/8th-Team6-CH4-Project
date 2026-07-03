@@ -7,6 +7,7 @@
 
 class APlayerController;
 class APlayerState;
+class UBalanceData;
 
 UCLASS()
 class SPACH4_API ALobbyGameMode : public AGameModeBase
@@ -41,11 +42,16 @@ protected:
 	FString BuildDefaultNickname(const APlayerController* PlayerController) const;
 	void RegisterLobbyPlayer(APlayerController* PlayerController);
 	void ApplyLobbyInfoToPlayerState(APlayerController* PlayerController, const FLobbyPlayerInfo& PlayerInfo) const;
+	const UBalanceData* GetActiveBalanceData() const;
+	void ApplyBalanceRules();
 	void EvaluateCountdownState();
 	void StartCountdown();
 	void CancelCountdown();
 	void HandleCountdownTick();
 	void TravelToMatchGameLevel();
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Balance")
+	TObjectPtr<UBalanceData> BalanceData;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Lobby|Rules")
 	int32 SurvivorLimit = 3;

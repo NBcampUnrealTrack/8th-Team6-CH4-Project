@@ -33,6 +33,12 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Balance|Escape")
 	int32 GetHatchRequiredDeliveredValue() const;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Balance|Players")
+	int32 InitialSurvivorCount = 3;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Balance|Players")
+	int32 InitialKillerCount = 1;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Match")
 	float MatchTimeLimit = 900.0f;
 
@@ -44,10 +50,7 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Delivery")
 	int32 TotalRequiredValue = 400;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Delivery")
-	float DeliveryDuration = 2.5f;
-
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectible")
 	int32 SmallCollectibleValue = 10;
 
@@ -59,16 +62,4 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectible")
 	int32 DangerousCollectibleValue = 60;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Escape")
-	float EscapeGateOpenDuration = 10.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Escape")
-	float HatchEscapeDuration = 3.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cage")
-	float CageRescueDuration = 4.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Survivor")
-	int32 InitialSurvivorCount = 3;
 };
