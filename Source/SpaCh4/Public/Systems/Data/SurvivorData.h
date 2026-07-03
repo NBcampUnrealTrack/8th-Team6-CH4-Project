@@ -38,7 +38,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float CarrySlowHazardous = 0.90;
 	
-	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float PickupRange = 150;
 	
@@ -64,12 +63,14 @@ public:
 	float RescueDurationStage2 = 4.00;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
-	float EscapeGateOpenDuration = 8.00;
+	float CageRescueDuration = 4.0f;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
-	float HatchEscapeDuration = 3.00;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
+	float EscapeGateOpenDuration = 10.0f;
 
-
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
+	float HatchEscapeDuration = 3.0f;
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float SprintNoiseRadius = 1500;
 	
@@ -114,16 +115,4 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
 	float ThreatSensorCooldown = 5.00;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectibles")
-	float ValueSmall = 10;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectibles")
-	float ValueMedium = 30;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectibles")
-	float ValueLarge = 50;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collectibles")
-	float ValueHazardous = 60;
 };
