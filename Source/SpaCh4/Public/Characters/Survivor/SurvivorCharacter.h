@@ -4,12 +4,14 @@
 #include "Characters/Base/CharacterBase.h"
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
+#include "Inventory/SPInventoryTypes.h"
 #include "SurvivorCharacter.generated.h"
 
 class USurvivorData;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
+class USPInventoryComponent;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -44,12 +46,21 @@ public:
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
 	bool IsCarrying() const { return CarriedItem != nullptr; }
+
+	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "SP|Inventory")
+	bool TryAcquireConsumable(EConsumableItemType ItemType);
 	
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
 	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
+	TObjectPtr<USPInventoryComponent> InventoryComponent;
+
 protected:
 	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	UFUNCTION(Server, Reliable, WithValidation)
@@ -64,6 +75,12 @@ protected:
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState();
+
+	UFUNCTION()
+	void HandleInventoryChanged();
+	
+	void BindInventoryHudRefresh();
+	void RefreshLocalInventoryHud() const;
 	
 	void ApplyStateEffects();
 	void CompletePickup();

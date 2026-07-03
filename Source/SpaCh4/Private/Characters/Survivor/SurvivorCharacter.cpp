@@ -4,22 +4,24 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Interface/SPInteractable.h"
+#include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
 #include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
+#include "UI/GameHUD.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	bUseControllerRotationYaw = true;
-	GetCharacterMovement()->bOrientRotationToMovement = false;
+	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 }
@@ -42,8 +44,6 @@ void ASurvivorCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	UpdateInteract();
-	
-	bUseControllerRotationYaw = !(bIsInteract && bCancelInteractOnMove);
 }
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
@@ -105,7 +105,61 @@ void ASurvivorCharacter::UpdateInteract()
 void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (HasAuthority() && InventoryComponent)
+	{
+		InventoryComponent->InitializeDefaultLoadout();
+	}
+
+	BindInventoryHudRefresh();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	BindInventoryHudRefresh();
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::BindInventoryHudRefresh()
+{
+	if (!IsLocallyControlled() || !InventoryComponent)
+	{
+		return;
+	}
+
+	InventoryComponent->OnInventoryChanged.RemoveDynamic(this, &ASurvivorCharacter::HandleInventoryChanged);
+	InventoryComponent->OnInventoryChanged.AddDynamic(this, &ASurvivorCharacter::HandleInventoryChanged);
+}
+
+void ASurvivorCharacter::HandleInventoryChanged()
+{
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::RefreshLocalInventoryHud() const
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	if (AGameHUD* GameHUD = Cast<AGameHUD>(PlayerController->GetHUD()))
+	{
+		GameHUD->RefreshInventoryPanels();
+	}
+}
+
+bool ASurvivorCharacter::TryAcquireConsumable(const EConsumableItemType ItemType)
+{
+	return InventoryComponent && InventoryComponent->TryAddConsumable(ItemType);
 }
 
 void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
@@ -323,6 +377,11 @@ void ASurvivorCharacter::CompletePickup()
 
 	CarriedItem->SetPickupCollisionEnabled(false);
 	CarriedItem->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CarrySocketName);
+
+	if (InventoryComponent)
+	{
+		InventoryComponent->SetCollectibleFromItem(CarriedItem);
+	}
 }
 
 void ASurvivorCharacter::BeginDrop()
@@ -349,6 +408,11 @@ void ASurvivorCharacter::CompleteDrop()
 	CarriedItem->SetActorLocation(GetActorLocation());
 	CarriedItem->SetPickupCollisionEnabled(true);
 	CarriedItem = nullptr;
+
+	if (InventoryComponent)
+	{
+		InventoryComponent->ClearCollectible();
+	}
 }
 
 void ASurvivorCharacter::BeginDelivery(ASPDeliveryStation* Station)
@@ -395,6 +459,11 @@ void ASurvivorCharacter::CompleteDelivery()
 	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	CarriedItem->Destroy();
 	CarriedItem = nullptr;
+
+	if (InventoryComponent)
+	{
+		InventoryComponent->ClearCollectible();
+	}
 }
 
 void ASurvivorCharacter::BeginEscapeOpen(ASPEscapeGate* Gate)

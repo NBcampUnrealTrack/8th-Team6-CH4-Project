@@ -151,16 +151,29 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 		return;
 	}
 
+	// Designer / WBP brush settings win. Only apply project fallback when nothing is assigned.
+	const FSlateBrush& ExistingBrush = TitleImage->GetBrush();
+	const FVector2D DesignerImageSize = ExistingBrush.ImageSize;
+	const bool bHasDesignerTexture = ExistingBrush.GetResourceObject() != nullptr;
+
+	TitleImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	if (bHasDesignerTexture)
+	{
+		FSlateBrush Brush = ExistingBrush;
+		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.Tiling = ESlateBrushTileType::NoTile;
+		TitleImage->SetBrush(Brush);
+		TitleImage->SetColorAndOpacity(FLinearColor::White);
+		return;
+	}
+
 	UTexture2D* Texture = LoadMenuTexture(TitleTexturePath);
 	if (!Texture)
 	{
 		return;
 	}
 
-	// Keep designer-authored brush size from WBP_MainMenu.
-	const FVector2D DesignerImageSize = TitleImage->GetBrush().ImageSize;
-
-	TitleImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 	TitleImage->SetBrushFromTexture(Texture, true);
 
 	FSlateBrush Brush = TitleImage->GetBrush();

@@ -1,5 +1,6 @@
 #include "UI/GameHUDWidget.h"
 
+#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/Image.h"
 #include "Components/OverlaySlot.h"
 #include "Components/ProgressBar.h"
@@ -7,6 +8,7 @@
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Systems/MatchGameState.h"
+#include "Inventory/SPInventoryComponent.h"
 #include "UI/HUDFontUtils.h"
 #include "UI/TeammateEntryWidget.h"
 
@@ -253,9 +255,14 @@ void UGameHUDWidget::RefreshAll()
 {
 	RefreshTeammateEntries();
 	RefreshDeliveryPanel();
+	RefreshInventoryAndPerkPanels();
+	OnDeliveryDataUpdated(GatherDeliveryData());
+}
+
+void UGameHUDWidget::RefreshInventoryAndPerkPanels()
+{
 	RefreshInventoryPanel();
 	RefreshPerkPanel();
-	OnDeliveryDataUpdated(GatherDeliveryData());
 	OnInventoryDataUpdated(GatherInventoryData());
 	OnPerkDataUpdated(GatherPerkData());
 }
@@ -317,6 +324,17 @@ TArray<FDeliveryHUDData> UGameHUDWidget::GatherDeliveryData() const
 
 TArray<FInventorySlotHUDData> UGameHUDWidget::GatherInventoryData() const
 {
+	if (const APlayerController* PlayerController = GetOwningPlayer())
+	{
+		if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(PlayerController->GetPawn()))
+		{
+			if (const USPInventoryComponent* Inventory = Survivor->GetInventoryComponent())
+			{
+				return Inventory->BuildInventoryHUDData();
+			}
+		}
+	}
+
 	if (bUsePreviewData && PreviewInventoryData.Num() > 0)
 	{
 		return PreviewInventoryData;
@@ -329,6 +347,17 @@ TArray<FInventorySlotHUDData> UGameHUDWidget::GatherInventoryData() const
 
 TArray<FPerkHUDData> UGameHUDWidget::GatherPerkData() const
 {
+	if (const APlayerController* PlayerController = GetOwningPlayer())
+	{
+		if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(PlayerController->GetPawn()))
+		{
+			if (const USPInventoryComponent* Inventory = Survivor->GetInventoryComponent())
+			{
+				return Inventory->BuildPerkHUDData();
+			}
+		}
+	}
+
 	if (bUsePreviewData && PreviewPerkData.Num() > 0)
 	{
 		return PreviewPerkData;

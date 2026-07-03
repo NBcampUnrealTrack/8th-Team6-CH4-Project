@@ -14,6 +14,9 @@ class SPACH4_API AGameHUD : public AHUD
 public:
 	AGameHUD();
 
+	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void RefreshInventoryPanels();
+
 protected:
 	virtual void BeginPlay() override;
 
