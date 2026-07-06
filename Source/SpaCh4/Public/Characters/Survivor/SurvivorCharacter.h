@@ -10,6 +10,7 @@ class USurvivorData;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
+class ASPHatch;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -39,10 +40,13 @@ public:
 	bool CanInteract() const;
 	bool CanJumpOver() const;
 	
+	/* 생존자 상호작용 */
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
+	void BeginHatchEscape(ASPHatch* Hatch);
+	void CompleteHatchEscape();
 	bool IsCarrying() const { return CarriedItem != nullptr; }
 	
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
@@ -63,17 +67,29 @@ protected:
 	virtual void JumpOver() override;
 private:
 	UFUNCTION()
-	void OnRep_SurvivorState();
+	void OnRep_SurvivorState(ESurvivorState OldState);
 	
+	/* 생존자 State 처리 */
 	void ApplyStateEffects();
+	void NotifyMatchStateChange(ESurvivorState NewState);
+	
+	/* 생존자 상호작용 */
 	void CompletePickup();
 	void BeginDrop();
 	void CompleteDrop();
 	void CompleteDelivery();
 	void CancelInteract();
-	
 	void UpdateInteract();
 	bool TraceInteractable(FHitResult& OutHit) const;
+	
+	/* 생존자의 이동 속도 관리 */
+	void UpdateMoveSpeed(float DeltaSeconds);
+	float ComputeTargetMoveSpeed() const;
+	float GetBaseWalkSpeed() const;
+	float GetSprintSpeedForState(ESurvivorState State) const;
+	void HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState);
+	void StartHitEscapeSprint(ESurvivorState PreviousState);
+	
 	
 	/* 생존자의 State & Interact 관리 */
 	UPROPERTY(ReplicatedUsing="OnRep_SurvivorState")
@@ -84,20 +100,24 @@ private:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	float InteractRadius{20.f};
-
-	// 상호작용 중 이동 시 상호작용 취소 여부
+	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	bool bCancelInteractOnMove{true};
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
-
-	// TODO: SurvivorData로 이관
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
-	float DownedWalkSpeed{150.f};
-
+	
 	UPROPERTY(Replicated)
 	TObjectPtr<ASPCollectibleItem> CarriedItem;
+	
+	/* 생존자 이동 속도 파라미터 */
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
+	float MoveSpeedInterpSpeed{8.f};
+	
+	bool bHitEscapeSprintActive{false};
+	float HitEscapeSprintRemaining{0.f};
+	float HitEscapeSprintSpeed{0.f};
+
 
 	// 상호작용 중인지 판단
 	UPROPERTY(Replicated)
@@ -113,12 +133,12 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
 	
-	
-	
+	/* 상호작용 처리 파라미터 */
 	FTimerHandle PickupDropTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
 	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
+	TWeakObjectPtr<ASPHatch> CurrentHatch;
 	TWeakObjectPtr<AActor> LastActor;
 	FGameplayTag InteractableTag;
 	

@@ -7,9 +7,11 @@
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
+#include "Gameplay/Escape/SPHatch.h"
 #include "Interface/SPInteractable.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
+#include "Systems/MatchGameMode.h"
 #include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
@@ -18,8 +20,11 @@ ASurvivorCharacter::ASurvivorCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	bUseControllerRotationYaw = true;
-	GetCharacterMovement()->bOrientRotationToMovement = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationRoll = false;
+	
+	GetCharacterMovement()->bOrientRotationToMovement = true;
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 }
@@ -42,18 +47,17 @@ void ASurvivorCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	UpdateInteract();
-	
-	bUseControllerRotationYaw = !(bIsInteract && bCancelInteractOnMove);
+	UpdateMoveSpeed(DeltaSeconds);
 }
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
+	Super::Move(Value);
+	
 	if (bIsInteract && bCancelInteractOnMove)
 	{
 		Server_CancelInteract();
 	}
-	
-	Super::Move(Value);
 }
 
 bool ASurvivorCharacter::Server_CancelInteract_Validate()
@@ -106,15 +110,23 @@ void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	ApplyStateEffects();
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = ComputeTargetMoveSpeed();
+	}
 }
 
 void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 {
 	if (!HasAuthority() || SurvivorState == NewState) return;
 	
+	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+	HandleStateTransition(OldState, NewState);
 	CancelInteract();
 	ApplyStateEffects();
+	NotifyMatchStateChange(NewState);
 }
 
 void ASurvivorCharacter::CancelInteract()
@@ -138,6 +150,12 @@ void ASurvivorCharacter::CancelInteract()
 		}
 	}
 	CurrentEscapeGate = nullptr;
+
+	if (ASPHatch* Hatch = CurrentHatch.Get())
+	{
+		Hatch->ClearEscaper(this);
+	}
+	CurrentHatch = nullptr;
 
 	ApplyStateEffects();
 }
@@ -244,12 +262,12 @@ bool ASurvivorCharacter::CanJumpOver() const
 		}
 	}
 
-	// TODO: 운반 중일 때도 넘어갈 수 있을지? 
 	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
 }
 
-void ASurvivorCharacter::OnRep_SurvivorState()
+void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 {
+	HandleStateTransition(OldState, SurvivorState);
 	ApplyStateEffects();
 }
 
@@ -261,25 +279,6 @@ void ASurvivorCharacter::ApplyStateEffects()
 		return;
 	}
 
-	switch (SurvivorState)
-	{
-	case ESurvivorState::Healthy:
-		MoveComp->MaxWalkSpeed = SurvivorData->SurvivorSprintSpeed;
-		break;
-
-	case ESurvivorState::Injured:
-		MoveComp->MaxWalkSpeed = SurvivorData->SurvivorSprintSpeed * SurvivorData->SurvivorInjuredSpeedMultiplier;
-		break;
-
-	case ESurvivorState::Downed:
-		MoveComp->MaxWalkSpeed = DownedWalkSpeed;
-		break;
-
-	default:
-		// Carried/Caged/Dead/Escaped: 이동 입력 차단
-		break;
-	}
-	
 	if (AController* Ctrl = GetController())
 	{
 		Ctrl->ResetIgnoreMoveInput();
@@ -420,4 +419,121 @@ void ASurvivorCharacter::EndEscapeChanneling()
 	bIsInteract = false;
 	CurrentEscapeGate = nullptr;
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::BeginHatchEscape(ASPHatch* Hatch)
+{
+	if (!HasAuthority() || bIsInteract || !CanInteract() || !Hatch)
+	{
+		return;
+	}
+	if (!Hatch->IsInteractable_Implementation())
+	{
+		return;
+	}
+
+	CurrentHatch = Hatch;
+	bIsInteract = true;
+	Hatch->SetEscaper(this);
+}
+
+void ASurvivorCharacter::CompleteHatchEscape()
+{
+	bIsInteract = false;
+	CurrentHatch = nullptr;
+	SetSurvivorState(ESurvivorState::Escaped);
+}
+
+void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
+{
+	AMatchGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMatchGameMode>() : nullptr;
+	if (!GameMode)
+	{
+		return;
+	}
+
+	if (NewState == ESurvivorState::Escaped)
+	{
+		// 임시 처리
+		GameMode->RegisterSurvivorEscaped(NAME_None);
+	}
+}
+
+void ASurvivorCharacter::UpdateMoveSpeed(float DeltaSeconds)
+{
+	if (bHitEscapeSprintActive)
+	{
+		HitEscapeSprintRemaining -= DeltaSeconds;
+		if (HitEscapeSprintRemaining <= 0.f)
+		{
+			bHitEscapeSprintActive = false;
+			HitEscapeSprintRemaining = 0.f;
+		}
+	}
+
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (!MoveComp)
+	{
+		return;
+	}
+
+	const float Target = ComputeTargetMoveSpeed();
+	MoveComp->MaxWalkSpeed = FMath::FInterpTo(MoveComp->MaxWalkSpeed, Target, DeltaSeconds, MoveSpeedInterpSpeed);
+}
+
+float ASurvivorCharacter::ComputeTargetMoveSpeed() const
+{
+	if (bHitEscapeSprintActive)
+	{
+		return HitEscapeSprintSpeed;
+	}
+	return GetBaseWalkSpeed();
+}
+
+float ASurvivorCharacter::GetBaseWalkSpeed() const
+{
+	checkf(IsValid(SurvivorData), TEXT("SurvivorData 미할당"));
+
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Healthy:
+		return SurvivorData->SurvivorWalkSpeed;
+
+	case ESurvivorState::Injured:
+		return SurvivorData->SurvivorWalkSpeed * SurvivorData->SurvivorInjuredSpeedMultiplier;
+
+	default:
+		// Downed/Carried/Caged/Dead/Escaped: 기본 이동 불가
+		return 0.f;
+	}
+}
+
+float ASurvivorCharacter::GetSprintSpeedForState(ESurvivorState State) const
+{
+	if (State == ESurvivorState::Injured)
+	{
+		return SurvivorData->SurvivorSprintSpeed * SurvivorData->SurvivorInjuredSpeedMultiplier;
+	}
+	return SurvivorData->SurvivorSprintSpeed;
+}
+
+void ASurvivorCharacter::HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState)
+{
+	const bool bHitDowngrade =
+		(OldState == ESurvivorState::Healthy && NewState == ESurvivorState::Injured) ||
+		(OldState == ESurvivorState::Injured && NewState == ESurvivorState::Downed);
+
+	if (bHitDowngrade)
+	{
+		StartHitEscapeSprint(OldState);
+	}
+}
+
+void ASurvivorCharacter::StartHitEscapeSprint(ESurvivorState PreviousState)
+{
+	checkf(IsValid(SurvivorData), TEXT("SurvivorData 미할당"));
+	
+	HitEscapeSprintSpeed = GetSprintSpeedForState(PreviousState);
+	HitEscapeSprintRemaining = SurvivorData->HitEscapeSprintDuration;
+	bHitEscapeSprintActive = true;
 }
