@@ -11,6 +11,7 @@
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
 #include "Interface/SPInteractable.h"
+#include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
 #include "Systems/MatchGameState.h"
@@ -271,6 +272,10 @@ void USPInteractionComponent::CompletePickup()
 	if (const ASurvivorCharacter* Survivor = GetSurvivor())
 	{
 		CarriedItem->AttachToComponent(Survivor->GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CarrySocketName);
+		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
+		{
+			Inv->SetCollectibleFromItem(CarriedItem);
+		}
 	}
 }
 
@@ -306,6 +311,14 @@ void USPInteractionComponent::CompleteDrop()
 	}
 	CarriedItem->SetPickupCollisionEnabled(true);
 	CarriedItem = nullptr;
+
+	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
+		{
+			Inv->ClearCollectible();
+		}
+	}
 }
 
 void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
@@ -356,6 +369,14 @@ void USPInteractionComponent::CompleteDelivery()
 	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	CarriedItem->Destroy();
 	CarriedItem = nullptr;
+
+	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
+		{
+			Inv->ClearCollectible();
+		}
+	}
 }
 
 void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)

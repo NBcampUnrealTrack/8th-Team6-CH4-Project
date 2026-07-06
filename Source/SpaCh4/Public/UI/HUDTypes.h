@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Inventory/SPInventoryTypes.h"
 #include "HUDTypes.generated.h"
 
 namespace SpaCh4HUD
@@ -68,6 +69,9 @@ struct FInventorySlotHUDData
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD")
 	bool bIsOccupied = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "HUD")
+	EInventorySlotContentType ContentType = EInventorySlotContentType::Empty;
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD")
 	FText ItemName;

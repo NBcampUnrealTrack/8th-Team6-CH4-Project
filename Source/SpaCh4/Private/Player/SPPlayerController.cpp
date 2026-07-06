@@ -6,7 +6,13 @@
 void ASPPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-
+	if (IsLocalController())
+	{
+		SetInputMode(FInputModeGameOnly());
+		bShowMouseCursor = false;
+		ResetIgnoreMoveInput();
+		ResetIgnoreLookInput();
+	}
 	if (!InputConfig)
 	{
 		return;
@@ -16,6 +22,8 @@ void ASPPlayerController::BeginPlay()
 	{
 		AddInputMappingContext(Entry.MappingContext, Entry.Priority);
 	}
+
+	
 }
 
 void ASPPlayerController::AddInputMappingContext(UInputMappingContext* MappingContext, int32 Priority)

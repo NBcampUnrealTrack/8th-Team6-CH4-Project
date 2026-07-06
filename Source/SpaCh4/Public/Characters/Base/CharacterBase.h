@@ -19,6 +19,8 @@ public:
 	ACharacterBase();
 
 protected:
+	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void Interact();
 	virtual void JumpOver();
@@ -26,6 +28,8 @@ protected:
 	virtual void Move(const FInputActionValue& Value);
 
 	void Look(const FInputActionValue& Value);
+	void EnsureInputConfig();
+	void InitializeInputMappingContexts();
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Input")
 	TObjectPtr<USPInputConfigData> InputConfig;

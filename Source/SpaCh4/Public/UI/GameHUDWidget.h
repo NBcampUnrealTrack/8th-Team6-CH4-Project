@@ -23,6 +23,9 @@ public:
 	void RefreshAll();
 
 	UFUNCTION(BlueprintCallable, Category = "HUD")
+	void RefreshInventoryAndPerkPanels();
+
+	UFUNCTION(BlueprintCallable, Category = "HUD")
 	TArray<FTeammateHUDData> GatherTeammateData() const;
 
 	UFUNCTION(BlueprintCallable, Category = "HUD")

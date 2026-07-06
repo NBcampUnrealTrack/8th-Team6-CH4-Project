@@ -4,6 +4,7 @@
 #include "Characters/Base/CharacterBase.h"
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
+#include "Inventory/SPInventoryTypes.h"
 #include "SurvivorCharacter.generated.h"
 
 class USurvivorData;
@@ -13,6 +14,7 @@ class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
+class USPInventoryComponent;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -54,11 +56,20 @@ public:
 	void CompleteHatchEscape();
 	bool IsCarrying() const;
 
+	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "SP|Inventory")
+	bool TryAcquireConsumable(EConsumableItemType ItemType);
+
 	FGameplayTag GetInteractableTag() const;
 	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
+	TObjectPtr<USPInventoryComponent> InventoryComponent;
+
 protected:
 	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	virtual void Move(const FInputActionValue& Value) override;
@@ -68,6 +79,12 @@ protected:
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
+
+	UFUNCTION()
+	void HandleInventoryChanged();
+
+	void BindInventoryHudRefresh();
+	void RefreshLocalInventoryHud() const;
 
 	/* 상태 처리 */
 	void ApplyStateEffects();

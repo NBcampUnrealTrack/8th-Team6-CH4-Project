@@ -5,9 +5,12 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
+#include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
 #include "Type/SPGameplayTag.h"
+#include "UI/GameHUD.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
@@ -20,6 +23,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 
 	InteractionComponent = CreateDefaultSubobject<USPInteractionComponent>("InteractionComponent");
 	MovementComponent = CreateDefaultSubobject<USPMovementComponent>("MovementComponent");
+	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 }
@@ -75,7 +79,61 @@ void ASurvivorCharacter::JumpOver()
 void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (HasAuthority() && InventoryComponent)
+	{
+		InventoryComponent->InitializeDefaultLoadout();
+	}
+
+	BindInventoryHudRefresh();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	BindInventoryHudRefresh();
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::BindInventoryHudRefresh()
+{
+	if (!IsLocallyControlled() || !InventoryComponent)
+	{
+		return;
+	}
+
+	InventoryComponent->OnInventoryChanged.RemoveDynamic(this, &ASurvivorCharacter::HandleInventoryChanged);
+	InventoryComponent->OnInventoryChanged.AddDynamic(this, &ASurvivorCharacter::HandleInventoryChanged);
+}
+
+void ASurvivorCharacter::HandleInventoryChanged()
+{
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::RefreshLocalInventoryHud() const
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	if (AGameHUD* GameHUD = Cast<AGameHUD>(PlayerController->GetHUD()))
+	{
+		GameHUD->RefreshInventoryPanels();
+	}
+}
+
+bool ASurvivorCharacter::TryAcquireConsumable(const EConsumableItemType ItemType)
+{
+	return InventoryComponent && InventoryComponent->TryAddConsumable(ItemType);
 }
 
 void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
@@ -84,12 +142,12 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
-	
+
 	if (MovementComponent)
 	{
 		MovementComponent->HandleStateTransition(OldState, NewState);
 	}
-	
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->CancelInteract();

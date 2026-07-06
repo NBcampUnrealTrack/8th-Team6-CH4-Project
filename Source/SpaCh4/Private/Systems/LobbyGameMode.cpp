@@ -4,18 +4,15 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Player/LobbyPlayerController.h"
+#include "Systems/Data/BalanceData.h"
 #include "TimerManager.h"
-
-namespace LobbyPlayerStateTags
-{
-	const FName SurvivorRole(TEXT("LobbyRole.Survivor"));
-	const FName KillerRole(TEXT("LobbyRole.Killer"));
-}
+#include "Player/LDPlayerState.h"
 
 ALobbyGameMode::ALobbyGameMode()
 {
 	GameStateClass = ALobbyGameState::StaticClass();
 	PlayerControllerClass = ALobbyPlayerController::StaticClass();
+	PlayerStateClass = ALDPlayerState::StaticClass();
 	bUseSeamlessTravel = true;
 }
 
@@ -23,10 +20,7 @@ void ALobbyGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (ALobbyGameState* LobbyGameState = GetLobbyGameState())
-	{
-		LobbyGameState->SetLobbyRules(SurvivorLimit, KillerLimit, RequiredReadyPlayerCount);
-	}
+	ApplyBalanceRules();
 }
 
 void ALobbyGameMode::PostLogin(APlayerController* NewPlayer)
@@ -182,10 +176,11 @@ bool ALobbyGameMode::CanStartCountdown() const
 		return false;
 	}
 
-	return LobbyGameState->GetConnectedPlayerCount() == RequiredReadyPlayerCount
-		&& LobbyGameState->GetSurvivorCount() == SurvivorLimit
-		&& LobbyGameState->GetKillerCount() == KillerLimit
-		&& LobbyGameState->GetReadyCount() == RequiredReadyPlayerCount;
+	const int32 RequiredReadyCount = LobbyGameState->GetRequiredReadyPlayerCount();
+	return LobbyGameState->GetConnectedPlayerCount() == RequiredReadyCount
+		&& LobbyGameState->GetSurvivorCount() == LobbyGameState->GetSurvivorLimit()
+		&& LobbyGameState->GetKillerCount() == LobbyGameState->GetKillerLimit()
+		&& LobbyGameState->GetReadyCount() == RequiredReadyCount;
 }
 
 ALobbyGameState* ALobbyGameMode::GetLobbyGameState() const
@@ -240,22 +235,43 @@ void ALobbyGameMode::ApplyLobbyInfoToPlayerState(APlayerController* PlayerContro
 	}
 
 	// 레벨 변경시 역활을 PlayerState의 Tag설정으로 구분
-	APlayerState* PlayerState = PlayerController->PlayerState;
+	ALDPlayerState* PlayerState = Cast<ALDPlayerState>(PlayerController->PlayerState);
+	if (!IsValid(PlayerState))
+	{
+		return;
+	}
+
 	if (!PlayerInfo.Nickname.IsEmpty())
 	{
 		PlayerState->SetPlayerName(PlayerInfo.Nickname);
 	}
 
-	PlayerState->Tags.Remove(LobbyPlayerStateTags::SurvivorRole);
-	PlayerState->Tags.Remove(LobbyPlayerStateTags::KillerRole);
 
-	if (PlayerInfo.SelectedRole == ELobbyPlayerRole::Survivor)
+	PlayerState->SetPlayerRole(PlayerInfo.SelectedRole);
+}
+
+const UBalanceData* ALobbyGameMode::GetActiveBalanceData() const
+{
+	if (IsValid(BalanceData))
 	{
-		PlayerState->Tags.AddUnique(LobbyPlayerStateTags::SurvivorRole);
+		return BalanceData;
 	}
-	else if (PlayerInfo.SelectedRole == ELobbyPlayerRole::Killer)
+
+	return GetDefault<UBalanceData>();
+}
+
+void ALobbyGameMode::ApplyBalanceRules()
+{
+	if (const UBalanceData* ActiveBalanceData = GetActiveBalanceData())
 	{
-		PlayerState->Tags.AddUnique(LobbyPlayerStateTags::KillerRole);
+		SurvivorLimit = FMath::Max(0, ActiveBalanceData->InitialSurvivorCount);
+		KillerLimit = FMath::Max(0, ActiveBalanceData->InitialKillerCount);
+		RequiredReadyPlayerCount = SurvivorLimit + KillerLimit;
+	}
+
+	if (ALobbyGameState* LobbyGameState = GetLobbyGameState())
+	{
+		LobbyGameState->SetLobbyRules(SurvivorLimit, KillerLimit, RequiredReadyPlayerCount);
 	}
 }
 
@@ -333,6 +349,7 @@ void ALobbyGameMode::TravelToMatchGameLevel()
 	GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
 	LobbyGameState->SetLobbyPhase(ELobbyPhase::Traveling);
 
+
 	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
 	{
 		APlayerController* PlayerController = Iterator->Get();
@@ -345,6 +362,7 @@ void ALobbyGameMode::TravelToMatchGameLevel()
 		if (LobbyGameState->GetLobbyPlayerInfo(GetPlayerId(PlayerController), PlayerInfo))
 		{
 			ApplyLobbyInfoToPlayerState(PlayerController, PlayerInfo);
+
 		}
 	}
 
