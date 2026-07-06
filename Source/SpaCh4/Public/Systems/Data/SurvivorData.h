@@ -24,9 +24,6 @@ public:
 	float SurvivorSprintSpeed = 650;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
-	float SurvivorWalkSpeed = 350;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorCrouchSpeed = 220;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
