@@ -4,12 +4,17 @@
 #include "Characters/Base/CharacterBase.h"
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
+#include "Inventory/SPInventoryTypes.h"
 #include "SurvivorCharacter.generated.h"
 
 class USurvivorData;
+class USPInteractionComponent;
+class USPMovementComponent;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
+class ASPHatch;
+class USPInventoryComponent;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -31,95 +36,74 @@ class SPACH4_API ASurvivorCharacter : public ACharacterBase, public IGameplayTag
 public:
 	ASurvivorCharacter();
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-	
+
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
-	
+
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
-	
+
+	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
+	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+
+	/* 상호작용 파사드 — 대상 액터/게이트/해치가 호출하면 컴포넌트로 위임 */
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	bool IsCarrying() const { return CarriedItem != nullptr; }
-	
-	FGameplayTag GetInteractableTag() const { return InteractableTag; }
+	void BeginHatchEscape(ASPHatch* Hatch);
+	void CompleteHatchEscape();
+	bool IsCarrying() const;
+
+	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "SP|Inventory")
+	bool TryAcquireConsumable(EConsumableItemType ItemType);
+
+	FGameplayTag GetInteractableTag() const;
 	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
+	TObjectPtr<USPInventoryComponent> InventoryComponent;
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void Tick(float DeltaSeconds) override;
-
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_Interact();
-	
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_CancelInteract();
 
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
+
 private:
 	UFUNCTION()
-	void OnRep_SurvivorState();
-	
-	void ApplyStateEffects();
-	void CompletePickup();
-	void BeginDrop();
-	void CompleteDrop();
-	void CompleteDelivery();
-	void CancelInteract();
-	
-	void UpdateInteract();
-	bool TraceInteractable(FHitResult& OutHit) const;
-	
-	/* 생존자의 State & Interact 관리 */
-	UPROPERTY(ReplicatedUsing="OnRep_SurvivorState")
-	ESurvivorState SurvivorState = ESurvivorState::Healthy;
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	float InteractReach{200.f};
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	float InteractRadius{20.f};
+	void OnRep_SurvivorState(ESurvivorState OldState);
 
-	// 상호작용 중 이동 시 상호작용 취소 여부
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	bool bCancelInteractOnMove{true};
+	UFUNCTION()
+	void HandleInventoryChanged();
+
+	void BindInventoryHudRefresh();
+	void RefreshLocalInventoryHud() const;
+
+	/* 상태 처리 */
+	void ApplyStateEffects();
+	void NotifyMatchStateChange(ESurvivorState NewState);
+
+	/* 컴포넌트 (상호작용 · 이동 정책) */
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPInteractionComponent> InteractionComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPMovementComponent> MovementComponent;
+
+	/* 생존자 상태 */
+	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
+	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
 
-	// TODO: SurvivorData로 이관
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
-	float DownedWalkSpeed{150.f};
-
-	UPROPERTY(Replicated)
-	TObjectPtr<ASPCollectibleItem> CarriedItem;
-
-	// 상호작용 중인지 판단
-	UPROPERTY(Replicated)
-	bool bIsInteract{false};
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	FName CarrySocketName{"CarrySocket"};
-
-	// 즉시 획득 여부
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	bool bInstantPickup{false};
-	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
-	
-	
-	
-	FTimerHandle PickupDropTimer;
-	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
-	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
-	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
-	TWeakObjectPtr<AActor> LastActor;
-	FGameplayTag InteractableTag;
-	
 };

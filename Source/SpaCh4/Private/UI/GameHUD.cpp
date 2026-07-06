@@ -41,3 +41,11 @@ void AGameHUD::BeginPlay()
 	GameHUDWidget->AddToViewport();
 	GameHUDWidget->RefreshAll();
 }
+
+void AGameHUD::RefreshInventoryPanels()
+{
+	if (GameHUDWidget)
+	{
+		GameHUDWidget->RefreshInventoryAndPerkPanels();
+	}
+}
