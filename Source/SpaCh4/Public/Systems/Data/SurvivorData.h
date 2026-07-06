@@ -18,6 +18,9 @@ public:
 	
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float SurvivorWalkSpeed = 350;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorSprintSpeed = 650;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
@@ -25,6 +28,9 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorInjuredSpeedMultiplier = 0.92;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float HitEscapeSprintDuration = 3.00;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float CarrySlowSmall = 0.95;
@@ -67,6 +73,9 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float EscapeGateOpenDuration = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
+	float WalkNoiseRadius = 1000;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float HatchEscapeDuration = 3.0f;
