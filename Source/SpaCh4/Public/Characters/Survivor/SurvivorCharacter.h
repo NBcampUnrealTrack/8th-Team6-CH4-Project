@@ -7,6 +7,8 @@
 #include "SurvivorCharacter.generated.h"
 
 class USurvivorData;
+class USPInteractionComponent;
+class USPMovementComponent;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
@@ -32,114 +34,59 @@ class SPACH4_API ASurvivorCharacter : public ACharacterBase, public IGameplayTag
 public:
 	ASurvivorCharacter();
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-	
+
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
-	
+
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
-	
-	/* 생존자 상호작용 */
+
+	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
+	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+
+	/* 상호작용 파사드 — 대상 액터/게이트/해치가 호출하면 컴포넌트로 위임 */
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
-	bool IsCarrying() const { return CarriedItem != nullptr; }
-	
-	FGameplayTag GetInteractableTag() const { return InteractableTag; }
+	bool IsCarrying() const;
+
+	FGameplayTag GetInteractableTag() const;
 	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_Interact();
-	
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_CancelInteract();
-
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
+
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
-	
-	/* 생존자 State 처리 */
+
+	/* 상태 처리 */
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
-	
-	/* 생존자 상호작용 */
-	void CompletePickup();
-	void BeginDrop();
-	void CompleteDrop();
-	void CompleteDelivery();
-	void CancelInteract();
-	void UpdateInteract();
-	bool TraceInteractable(FHitResult& OutHit) const;
-	
-	/* 생존자의 이동 속도 관리 */
-	void UpdateMoveSpeed(float DeltaSeconds);
-	float ComputeTargetMoveSpeed() const;
-	float GetBaseWalkSpeed() const;
-	float GetSprintSpeedForState(ESurvivorState State) const;
-	void HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState);
-	void StartHitEscapeSprint(ESurvivorState PreviousState);
-	
-	
-	/* 생존자의 State & Interact 관리 */
-	UPROPERTY(ReplicatedUsing="OnRep_SurvivorState")
+
+	/* 컴포넌트 (상호작용 · 이동 정책) */
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPInteractionComponent> InteractionComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPMovementComponent> MovementComponent;
+
+	/* 생존자 상태 */
+	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	float InteractReach{200.f};
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	float InteractRadius{20.f};
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
-	bool bCancelInteractOnMove{true};
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
-	
-	UPROPERTY(Replicated)
-	TObjectPtr<ASPCollectibleItem> CarriedItem;
-	
-	/* 생존자 이동 속도 파라미터 */
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
-	float MoveSpeedInterpSpeed{8.f};
-	
-	bool bHitEscapeSprintActive{false};
-	float HitEscapeSprintRemaining{0.f};
-	float HitEscapeSprintSpeed{0.f};
 
-
-	// 상호작용 중인지 판단
-	UPROPERTY(Replicated)
-	bool bIsInteract{false};
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	FName CarrySocketName{"CarrySocket"};
-
-	// 즉시 획득 여부
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	bool bInstantPickup{false};
-	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
-	
-	/* 상호작용 처리 파라미터 */
-	FTimerHandle PickupDropTimer;
-	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
-	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
-	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
-	TWeakObjectPtr<ASPHatch> CurrentHatch;
-	TWeakObjectPtr<AActor> LastActor;
-	FGameplayTag InteractableTag;
-	
 };
