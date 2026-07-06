@@ -21,6 +21,9 @@ public:
 	float SurvivorSprintSpeed = 650;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float SurvivorWalkSpeed = 350;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorCrouchSpeed = 220;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
@@ -66,7 +69,7 @@ public:
 	float CageRescueDuration = 4.0f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
-	float EscapeGateOpenDuration = 10.0f;
+	float EscapeGateOpenDuration = 8.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float HatchEscapeDuration = 3.0f;
@@ -105,7 +108,7 @@ public:
 	float DeliveryProPenaltyReduction = 0.50;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
-	float SilentRollNoiseReduction = 0.30;
+	float SilentRollNoiseReduction = 0.70;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
 	float StageTwoRescueReduction = 1.00;

@@ -263,7 +263,7 @@ void AMatchGameState::SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEs
 	OnSurvivorCountChanged.Broadcast(AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
 }
 
-void AMatchGameState::SetSurvivorState(FName SurvivorId, EMatchSurvivorState NewSurvivorState)
+void AMatchGameState::SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState)
 {
 	if (SurvivorId.IsNone())
 	{

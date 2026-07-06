@@ -65,7 +65,7 @@ public:
 
 	// 생존자 상태 변경
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorStateChanged(FName SurvivorId, EMatchSurvivorState NewSurvivorState);
+	void RegisterSurvivorStateChanged(FName SurvivorId, ESurvivorState NewSurvivorState);
 
 	// 결과 확인
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Result")

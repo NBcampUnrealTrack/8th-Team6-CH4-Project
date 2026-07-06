@@ -204,9 +204,7 @@ void AKillerCharacter::UpdateMovementSpeed()
 
     float Multiplier = 1.0f;
 
-    if (CurrentState == EKillerState::Attacking) // 공격 중 50% 속도
-        Multiplier = KillerData->TaserAttackSpeedMultiplier; 
-    else if (CurrentState == EKillerState::Carrying) 
+    if (CurrentState == EKillerState::Carrying) 
         Multiplier = KillerData->KillerCarrySpeedMultiplier;
     else if (CurrentState == EKillerState::Groggy) 
         Multiplier = KillerData->KillerGroggySpeedMultiplier;
