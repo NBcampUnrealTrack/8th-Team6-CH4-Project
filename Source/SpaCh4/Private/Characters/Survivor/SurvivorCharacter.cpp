@@ -13,6 +13,7 @@
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
 #include "InputAction.h"
+#include "GameFramework/PlayerState.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
