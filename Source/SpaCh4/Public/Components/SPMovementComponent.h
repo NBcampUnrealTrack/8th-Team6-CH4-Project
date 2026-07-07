@@ -31,6 +31,7 @@ private:
 	float ComputeTargetMoveSpeed() const;
 	float GetBaseWalkSpeed() const;
 	float GetSprintSpeedForState(ESurvivorState State) const;
+	float GetCarryMoveSpeedMultiplier() const;
 	void StartHitEscapeSprint(ESurvivorState PreviousState);
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")

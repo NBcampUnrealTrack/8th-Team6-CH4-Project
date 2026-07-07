@@ -2,6 +2,7 @@
 
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/BoxComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
@@ -19,6 +20,16 @@ ASPEscapeGate::ASPEscapeGate()
 	SwitchMesh->SetCollisionProfileName(TEXT("NoCollision"));
 	SwitchMesh->SetCustomDepthStencilValue(250);
 	SwitchMesh->SetRenderCustomDepth(false);
+
+	LeverPivot = CreateDefaultSubobject<USceneComponent>("LeverPivot");
+	LeverPivot->SetupAttachment(SwitchMesh);
+
+	LeverMesh = CreateDefaultSubobject<UStaticMeshComponent>("LeverMesh");
+	LeverMesh->SetupAttachment(LeverPivot);
+	LeverMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	LeverMesh->SetCustomDepthStencilValue(250);
+	LeverMesh->SetRenderCustomDepth(false);
+
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>("DoorMesh");
 	DoorMesh->SetupAttachment(SwitchMesh);
 
@@ -60,6 +71,8 @@ void ASPEscapeGate::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	UpdateLeverRotation(DeltaSeconds);
+
 	if (!HasAuthority() || bIsActivated || !CurrentOpener.IsValid())
 	{
 		return;
@@ -95,6 +108,7 @@ void ASPEscapeGate::Interact_Implementation(AActor* Interactor)
 void ASPEscapeGate::SetHighlight_Implementation(bool bEnabled)
 {
 	SwitchMesh->SetRenderCustomDepth(bEnabled);
+	LeverMesh->SetRenderCustomDepth(bEnabled);
 }
 
 FGameplayTag ASPEscapeGate::GetInteractableTag_Implementation() const
@@ -125,10 +139,37 @@ void ASPEscapeGate::SetOpener(ASurvivorCharacter* Opener)
 
 void ASPEscapeGate::ClearOpener(ASurvivorCharacter* Opener)
 {
-	if (CurrentOpener == Opener)
+	if (CurrentOpener != Opener)
 	{
-		CurrentOpener = nullptr;
+		return;
 	}
+
+	CurrentOpener = nullptr;
+
+	if (HasAuthority() && !bIsActivated)
+	{
+		OpenProgress = SnapProgressToCheckpoint(OpenProgress);
+	}
+}
+
+float ASPEscapeGate::SnapProgressToCheckpoint(float CurrentProgress) const
+{
+	if (OpenDuration <= 0.f)
+	{
+		return 0.f;
+	}
+
+	const float Ratio = CurrentProgress / OpenDuration;
+	float SnappedRatio = 0.f;
+	for (const float Checkpoint : ProgressCheckpoints)
+	{
+		if (Ratio + KINDA_SMALL_NUMBER >= Checkpoint && Checkpoint > SnappedRatio)
+		{
+			SnappedRatio = Checkpoint;
+		}
+	}
+
+	return SnappedRatio * OpenDuration;
 }
 
 void ASPEscapeGate::OnRep_IsActivated()
@@ -136,12 +177,26 @@ void ASPEscapeGate::OnRep_IsActivated()
 	if (bIsActivated)
 	{
 		SwitchMesh->SetRenderCustomDepth(false);
+		LeverMesh->SetRenderCustomDepth(false);
 	}
 }
 
 void ASPEscapeGate::OnEscapeAvailabilityChanged(bool bCanActivate)
 {
 	SwitchMesh->SetCollisionProfileName(TEXT("Interactable"));
+}
+
+void ASPEscapeGate::UpdateLeverRotation(float DeltaSeconds)
+{
+	const float TargetTime = FMath::Max(LeverRotateDuration, KINDA_SMALL_NUMBER);
+	if (!bIsActivated || LeverRotateElapsed >= TargetTime)
+	{
+		return;
+	}
+
+	LeverRotateElapsed = FMath::Min(LeverRotateElapsed + DeltaSeconds, TargetTime);
+	const float Alpha = LeverRotateElapsed / TargetTime;
+	LeverPivot->SetRelativeRotation(FMath::Lerp(FRotator::ZeroRotator, LeverPulledRotation, Alpha));
 }
 
 void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)

@@ -37,6 +37,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	{
 		MoveComp->bOrientRotationToMovement = true;
 		MoveComp->RotationRate = FRotator(0.f, 540.f, 0.f);
+		MoveComp->GetNavAgentPropertiesRef().bCanCrouch = true;
 	}
 }
 
@@ -87,6 +88,21 @@ void ASurvivorCharacter::JumpOver()
 	}
 }
 
+void ASurvivorCharacter::ToggleCrouch()
+{
+	if (bIsCrouched)
+	{
+		UnCrouch();
+		return;
+	}
+
+	const bool bStateAllowsCrouch = SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
+	if (bStateAllowsCrouch && CanCrouch())
+	{
+		Crouch();
+	}
+}
+
 void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -117,6 +133,17 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		if (JumpOverAction)
 		{
 			EnhancedInput->BindAction(JumpOverAction, ETriggerEvent::Started, this, &ASurvivorCharacter::JumpOver);
+		}
+
+		UInputAction* CrouchAction = InputConfig ? InputConfig->CrouchAction.Get() : nullptr;
+		if (!CrouchAction)
+		{
+			CrouchAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_Crouch.IA_Crouch"));
+		}
+
+		if (CrouchAction)
+		{
+			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ASurvivorCharacter::ToggleCrouch);
 		}
 	}
 }

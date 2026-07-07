@@ -5,6 +5,7 @@
 #include "Interface/SPInteractable.h"
 #include "SPEscapeGate.generated.h"
 
+class USceneComponent;
 class UStaticMeshComponent;
 class UBoxComponent;
 class UPrimitiveComponent;
@@ -33,20 +34,28 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	
+	UFUNCTION()
+	void OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	UFUNCTION()
 	void OnRep_IsActivated();
 	
 	UFUNCTION()
 	void OnEscapeAvailabilityChanged(bool bCanActivate);
+	
 	void BindAvailabilityDelegate();
-
-	UFUNCTION()
-	void OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
+	void UpdateLeverRotation(float DeltaSeconds);
+	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UStaticMeshComponent> SwitchMesh;
-	
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
+	TObjectPtr<USceneComponent> LeverPivot;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
+	TObjectPtr<UStaticMeshComponent> LeverMesh;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
 	
@@ -55,6 +64,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	float OpenDuration = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape")
+	TArray<float> ProgressCheckpoints = {0.33f, 0.66f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
+	FRotator LeverPulledRotation = FRotator(0.0f, 0.0f, -60.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
+	float LeverRotateDuration = 0.5f;
 	
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	float OpenProgress = 0.0f;
@@ -63,5 +81,9 @@ protected:
 	bool bIsActivated = false;
 
 private:
+	float SnapProgressToCheckpoint(float CurrentProgress) const;
+
 	TWeakObjectPtr<ASurvivorCharacter> CurrentOpener;
+
+	float LeverRotateElapsed = 0.0f;
 };
