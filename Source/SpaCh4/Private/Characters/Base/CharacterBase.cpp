@@ -131,10 +131,6 @@ void ACharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 		{
 			EnhancedInput->BindAction(InteractAction, ETriggerEvent::Started, this, &ThisClass::Interact);
 		}
-		if (JumpOverAction)
-		{
-			EnhancedInput->BindAction(JumpOverAction, ETriggerEvent::Started, this, &ThisClass::JumpOver);
-		}
 	}
 }
 
