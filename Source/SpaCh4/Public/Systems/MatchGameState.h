@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Characters/Survivor/SurvivorCharacter.h"
 #include "GameFramework/GameStateBase.h"
 #include "MatchGameState.generated.h"
 
@@ -26,17 +27,6 @@ enum class EMatchResult : uint8
 	KillerPerfectWin UMETA(DisplayName = "살인마 완벽한 승리")
 };
 
-UENUM(BlueprintType)
-enum class EMatchSurvivorState : uint8
-{
-	Alive,
-	Injured,
-	Downed,
-	Carried,
-	Caged,
-	Dead,
-	Escaped
-};
 
 // 생존자의 상태관리를 위한 값
 USTRUCT(BlueprintType)
@@ -50,7 +40,7 @@ struct FSurvivorMatchState
 
 	// 생존자 상태
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
-	EMatchSurvivorState SurvivorState = EMatchSurvivorState::Alive;
+	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchPhaseChangedSignature, EMatchPhase, MatchPhase);
@@ -67,7 +57,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHatchAvailabilityChangedSignature
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSurvivorCountChangedSignature, int32, AliveSurvivorCount, int32, EscapedSurvivorCount, int32, KilledSurvivorCount);
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSurvivorStateChangedSignature, FName, SurvivorId, EMatchSurvivorState, SurvivorState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSurvivorStateChangedSignature, FName, SurvivorId, ESurvivorState, SurvivorState);
 
 UCLASS()
 class SPACH4_API AMatchGameState : public AGameStateBase
@@ -141,7 +131,7 @@ public:
 	void SetCanActivateEscapeGates(bool bNewCanActivateEscapeGates);
 	void SetCanSpawnHatch(bool bNewCanSpawnHatch);
 	void SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEscapedSurvivorCount, int32 NewKilledSurvivorCount);
-	void SetSurvivorState(FName SurvivorId, EMatchSurvivorState NewSurvivorState);
+	void SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState);
 
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnMatchPhaseChangedSignature OnMatchPhaseChanged;

@@ -216,7 +216,7 @@ void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorId)
 	const int32 NewAliveSurvivorCount = FMath::Max(0, MatchGameState->GetAliveSurvivorCount() - 1);
 	const int32 NewEscapedSurvivorCount = MatchGameState->GetEscapedSurvivorCount() + 1;
 	MatchGameState->SetSurvivorCounts(NewAliveSurvivorCount, NewEscapedSurvivorCount, MatchGameState->GetKilledSurvivorCount());
-	RegisterSurvivorStateChanged(SurvivorId, EMatchSurvivorState::Escaped);
+	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Escaped);
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
@@ -238,13 +238,13 @@ void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorId)
 	const int32 NewAliveSurvivorCount = FMath::Max(0, MatchGameState->GetAliveSurvivorCount() - 1);
 	const int32 NewKilledSurvivorCount = MatchGameState->GetKilledSurvivorCount() + 1;
 	MatchGameState->SetSurvivorCounts(NewAliveSurvivorCount, MatchGameState->GetEscapedSurvivorCount(), NewKilledSurvivorCount);
-	RegisterSurvivorStateChanged(SurvivorId, EMatchSurvivorState::Dead);
+	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Dead);
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
 
-void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorId, EMatchSurvivorState NewSurvivorState)
+void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorId, ESurvivorState NewSurvivorState)
 {
 	if (!HasAuthority())
 	{
