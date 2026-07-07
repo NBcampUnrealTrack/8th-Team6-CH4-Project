@@ -17,7 +17,7 @@ class SPACH4_API ALDPlayerState : public APlayerState
 
 public:
 	ALDPlayerState();
-	
+#pragma region LobbyRoles
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Lobby|Role")
 	ELobbyPlayerRole GetPlayerRole() const;
 
@@ -30,4 +30,6 @@ public:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby|Role")
 	ELobbyPlayerRole PlayerRole = ELobbyPlayerRole::None;
+#pragma endregion
+	
 };
