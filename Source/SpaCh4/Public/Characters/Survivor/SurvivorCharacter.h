@@ -5,8 +5,10 @@
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
 #include "Inventory/SPInventoryTypes.h"
+#include "Animation/AnimEnums.h"
 #include "SurvivorCharacter.generated.h"
 
+class UAnimMontage;
 class USurvivorData;
 class USPInteractionComponent;
 class USPMovementComponent;
@@ -43,11 +45,11 @@ public:
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
+	bool IsParkouring() const { return bIsParkour; }
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 
-	/* 상호작용 파사드 — 대상 액터/게이트/해치가 호출하면 컴포넌트로 위임 */
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
@@ -71,10 +73,25 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_JumpOver();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayParkourMontage(
+		UAnimMontage* Montage,
+		AActor* ObstacleActor,
+		const FRotator& FacingRotation,
+		float ObstacleHeight,
+		FVector_NetQuantize ObstacleImpactPoint);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_SnapParkourLanding(FVector_NetQuantize WorldLocation, FRotator WorldRotation);
 
 private:
 	UFUNCTION()
@@ -83,21 +100,43 @@ private:
 	UFUNCTION()
 	void HandleInventoryChanged();
 
+	UFUNCTION()
+	void OnParkourMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
-
-	/* 상태 처리 */
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 
-	/* 컴포넌트 (상호작용 · 이동 정책) */
+	bool TraceParkourObstacle(FHitResult& OutObstacleHit, float& OutObstacleHeight, FString* OutFailReason = nullptr) const;
+	void GetParkourFacing(FVector& OutForward, FVector& OutRight) const;
+	void EnsureParkourMontagesLoaded();
+	void PlayParkourMontage(
+		UAnimMontage* Montage,
+		AActor* ObstacleActor,
+		const FRotator& FacingRotation,
+		float ObstacleHeight,
+		const FVector& ObstacleImpactPoint);
+	void EndParkour(bool bInterrupted);
+	void UpdateParkourRootMotion();
+	void InitParkourVaultTargets(AActor* ObstacleActor, const FVector& ObstacleImpactPoint);
+	FVector BuildParkourVaultLocation(float MontageAlpha) const;
+	FVector BuildParkourLocationFromRootMotion(const FVector& RootMotionTranslation, float MontageTime, float MontageLength) const;
+	bool ExtractMontageRootMotionAtTime(const UAnimMontage* Montage, float MontageTime, FVector& OutTranslation, FQuat& OutRotation) const;
+	bool ComputeParkourLandingFromRootMotion(FVector& OutLocation, FRotator& OutRotation) const;
+	bool ResolveParkourLanding(FVector& OutLocation, FRotator& OutRotation) const;
+	void SnapParkourLocationToGround(FVector& InOutLocation, bool bIgnoreParkourObstacle = true) const;
+	void ApplyParkourLanding(const FVector& WorldLocation, const FRotator& WorldRotation);
+	void SetParkourObstacleCollisionIgnored(bool bIgnore);
+	void OnParkourEndTimer();
+	void LogParkourDebug(const FString& Message, FColor Color = FColor::Yellow) const;
+
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPMovementComponent> MovementComponent;
 
-	/* 생존자 상태 */
 	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 
@@ -106,4 +145,55 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	TObjectPtr<UAnimMontage> ParkourMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourTraceDistance{150.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourMinStartDistance{15.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourMaxStartDistance{70.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourTraceRadius{25.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float MinObstacleHeight{50.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float MaxObstacleHeight{130.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourReferenceObstacleHeight{90.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourClearanceOverObstacle{15.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
+	float ParkourLandingForwardOffset{55.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour", meta = (ClampMin = "0.5", ClampMax = "0.9"))
+	float ParkourLandByMontageAlpha{0.67f};
+
+	UPROPERTY(Replicated)
+	bool bIsParkour{false};
+
+	TWeakObjectPtr<AActor> CurrentParkourObstacle;
+	FOnMontageEnded ParkourMontageEndedDelegate;
+	TObjectPtr<UAnimMontage> ActiveParkourMontage;
+	FTransform ParkourStartTransform = FTransform::Identity;
+	float ParkourObstacleHeight = 0.f;
+	float ParkourStartFeetZ = 0.f;
+	FVector ParkourVaultEndLocation = FVector::ZeroVector;
+	float ParkourVaultPeakCenterZ = 0.f;
+	float ParkourWallClearForward = 0.f;
+	float ParkourWallClearMontageAlpha = 0.f;
+	ERootMotionMode::Type CachedRootMotionMode = ERootMotionMode::NoRootMotionExtraction;
+	TEnumAsByte<EMovementMode> CachedMovementMode = MOVE_Walking;
+	float CachedGravityScale = 1.f;
+	FTimerHandle ParkourEndTimerHandle;
 };

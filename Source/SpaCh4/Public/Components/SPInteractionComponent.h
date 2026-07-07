@@ -36,6 +36,7 @@ public:
 
 	bool IsCarrying() const { return CarriedItem != nullptr; }
 	bool IsInteracting() const { return bIsInteract; }
+	ASPCollectibleItem* GetCarriedItem() const { return CarriedItem; }
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
 
