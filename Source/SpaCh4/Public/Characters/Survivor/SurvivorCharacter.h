@@ -10,6 +10,7 @@
 class USurvivorData;
 class USPInteractionComponent;
 class USPMovementComponent;
+class USPParkourComponent;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
@@ -37,17 +38,19 @@ public:
 	ASurvivorCharacter();
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
+	UFUNCTION(BlueprintCallable, Category = "SP|Survivor")
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
 
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
+	bool IsParkouring() const;
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+	USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 
-	/* 상호작용 파사드 — 대상 액터/게이트/해치가 호출하면 컴포넌트로 위임 */
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
@@ -64,13 +67,15 @@ public:
 	FGameplayTag GetInteractableTag() const;
 	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
 
+	void NotifyParkourEnded();
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
-	virtual void Tick(float DeltaSeconds) override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
@@ -85,19 +90,19 @@ private:
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
-
-	/* 상태 처리 */
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
+	void ToggleCrouch();
 
-	/* 컴포넌트 (상호작용 · 이동 정책) */
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPMovementComponent> MovementComponent;
 
-	/* 생존자 상태 */
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPParkourComponent> ParkourComponent;
+
 	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 

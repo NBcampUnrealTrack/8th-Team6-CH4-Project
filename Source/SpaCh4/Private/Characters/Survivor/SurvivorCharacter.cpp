@@ -2,11 +2,17 @@
 
 #include "Components/SPInteractionComponent.h"
 #include "Components/SPMovementComponent.h"
-#include "Engine/World.h"
+#include "Components/SPParkourComponent.h"
+#include "Data/SPInputConfigData.h"
+#include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
-#include "GameFramework/PlayerState.h"
+#include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Delivery/SPDeliveryStation.h"
+#include "Gameplay/Escape/SPEscapeGate.h"
+#include "Gameplay/Escape/SPHatch.h"
+#include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
@@ -15,8 +21,6 @@
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
-	PrimaryActorTick.bCanEverTick = true;
-
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
@@ -24,9 +28,17 @@ ASurvivorCharacter::ASurvivorCharacter()
 
 	InteractionComponent = CreateDefaultSubobject<USPInteractionComponent>("InteractionComponent");
 	MovementComponent = CreateDefaultSubobject<USPMovementComponent>("MovementComponent");
+	ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+		MoveComp->RotationRate = FRotator(0.f, 540.f, 0.f);
+		MoveComp->GetNavAgentPropertiesRef().bCanCrouch = true;
+	}
 }
 
 void ASurvivorCharacter::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
@@ -41,13 +53,13 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
 }
 
-void ASurvivorCharacter::Tick(float DeltaSeconds)
-{
-	Super::Tick(DeltaSeconds);
-}
-
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsParkouring())
+	{
+		return;
+	}
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->NotifyMoveInput();
@@ -70,11 +82,25 @@ void ASurvivorCharacter::JumpOver()
 {
 	Super::JumpOver();
 
-	if (!CanJumpOver()) return;
+	if (ParkourComponent)
+	{
+		ParkourComponent->RequestJumpOver();
+	}
+}
 
-	// TODO: JumpOver 행동 처리
-	// 전방으로 'JumpOverTrace' 전용 콜리전 채널 트레이스 -> 창틀/난간과 같이 JumpOver 표면만 식별해야 함
-	// 서버에서 목표 지점 구하기 -> 보간 이동 -> Multicast 동기화
+void ASurvivorCharacter::ToggleCrouch()
+{
+	if (bIsCrouched)
+	{
+		UnCrouch();
+		return;
+	}
+
+	const bool bStateAllowsCrouch = SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
+	if (bStateAllowsCrouch && CanCrouch())
+	{
+		Crouch();
+	}
 }
 
 void ASurvivorCharacter::BeginPlay()
@@ -88,6 +114,38 @@ void ASurvivorCharacter::BeginPlay()
 
 	BindInventoryHudRefresh();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+	EnsureInputConfig();
+
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	{
+		UInputAction* JumpOverAction = InputConfig ? InputConfig->JumpOverAction.Get() : nullptr;
+		if (!JumpOverAction)
+		{
+			JumpOverAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_JumpOver.IA_JumpOver"));
+		}
+
+		if (JumpOverAction)
+		{
+			EnhancedInput->BindAction(JumpOverAction, ETriggerEvent::Started, this, &ASurvivorCharacter::JumpOver);
+		}
+
+		UInputAction* CrouchAction = InputConfig ? InputConfig->CrouchAction.Get() : nullptr;
+		if (!CrouchAction)
+		{
+			CrouchAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_Crouch.IA_Crouch"));
+		}
+
+		if (CrouchAction)
+		{
+			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ASurvivorCharacter::ToggleCrouch);
+		}
+	}
 }
 
 void ASurvivorCharacter::PossessedBy(AController* NewController)
@@ -139,7 +197,10 @@ bool ASurvivorCharacter::TryAcquireConsumable(const EConsumableItemType ItemType
 
 void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 {
-	if (!HasAuthority() || SurvivorState == NewState) return;
+	if (!HasAuthority() || SurvivorState == NewState)
+	{
+		return;
+	}
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
@@ -160,6 +221,11 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 bool ASurvivorCharacter::CanMove() const
 {
+	if (IsParkouring())
+	{
+		return false;
+	}
+
 	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured || SurvivorState == ESurvivorState::Downed;
 }
 
@@ -170,17 +236,17 @@ bool ASurvivorCharacter::CanInteract() const
 
 bool ASurvivorCharacter::CanJumpOver() const
 {
-	// 공중에서는 바로 넘지 못하도록
-	if (const UCharacterMovementComponent* CMC = GetCharacterMovement())
-	{
-		if (CMC->IsFalling())
-		{
-			return false;
-		}
-	}
+	return ParkourComponent && ParkourComponent->CanJumpOver();
+}
 
-	// TODO: 운반 중일 때도 넘어갈 수 있을지?
-	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
+bool ASurvivorCharacter::IsParkouring() const
+{
+	return ParkourComponent && ParkourComponent->IsParkouring();
+}
+
+void ASurvivorCharacter::NotifyParkourEnded()
+{
+	ApplyStateEffects();
 }
 
 void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)

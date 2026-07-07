@@ -1,7 +1,9 @@
 #include "Components/SPMovementComponent.h"
 
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/SPInteractionComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Systems/Data/SurvivorData.h"
 
 USPMovementComponent::USPMovementComponent()
@@ -38,7 +40,14 @@ void USPMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
 	}
 
 	const float Target = ComputeTargetMoveSpeed();
-	MoveComp->MaxWalkSpeed = FMath::FInterpTo(MoveComp->MaxWalkSpeed, Target, DeltaTime, MoveSpeedInterpSpeed);
+	if (MoveComp->IsCrouching())
+	{
+		MoveComp->MaxWalkSpeedCrouched = FMath::FInterpTo(MoveComp->MaxWalkSpeedCrouched, Target, DeltaTime, MoveSpeedInterpSpeed);
+	}
+	else
+	{
+		MoveComp->MaxWalkSpeed = FMath::FInterpTo(MoveComp->MaxWalkSpeed, Target, DeltaTime, MoveSpeedInterpSpeed);
+	}
 }
 
 void USPMovementComponent::SnapToTargetSpeed()
@@ -46,7 +55,15 @@ void USPMovementComponent::SnapToTargetSpeed()
 	const ASurvivorCharacter* Survivor = GetSurvivor();
 	if (UCharacterMovementComponent* MoveComp = Survivor ? Survivor->GetCharacterMovement() : nullptr)
 	{
-		MoveComp->MaxWalkSpeed = ComputeTargetMoveSpeed();
+		const float Target = ComputeTargetMoveSpeed();
+		if (MoveComp->IsCrouching())
+		{
+			MoveComp->MaxWalkSpeedCrouched = Target;
+		}
+		else
+		{
+			MoveComp->MaxWalkSpeed = Target;
+		}
 	}
 }
 
@@ -63,11 +80,8 @@ const USurvivorData* USPMovementComponent::GetSurvivorData() const
 
 float USPMovementComponent::ComputeTargetMoveSpeed() const
 {
-	if (bHitEscapeSprintActive)
-	{
-		return HitEscapeSprintSpeed;
-	}
-	return GetBaseWalkSpeed();
+	const float BaseSpeed = bHitEscapeSprintActive ? HitEscapeSprintSpeed : GetBaseWalkSpeed();
+	return BaseSpeed * GetCarryMoveSpeedMultiplier();
 }
 
 float USPMovementComponent::GetBaseWalkSpeed() const
@@ -79,17 +93,44 @@ float USPMovementComponent::GetBaseWalkSpeed() const
 		return 0.f;
 	}
 
+	const float WalkSpeed = Survivor->bIsCrouched ? Data->SurvivorCrouchSpeed : Data->SurvivorWalkSpeed;
+
 	switch (Survivor->GetSurvivorState())
 	{
 	case ESurvivorState::Healthy:
-		return Data->SurvivorWalkSpeed;
+		return WalkSpeed;
 
 	case ESurvivorState::Injured:
-		return Data->SurvivorWalkSpeed * Data->SurvivorInjuredSpeedMultiplier;
+		return WalkSpeed * Data->SurvivorInjuredSpeedMultiplier;
 
 	default:
-		// Downed/Carried/Caged/Dead/Escaped: 기본 이동 불가
 		return 0.f;
+	}
+}
+
+float USPMovementComponent::GetCarryMoveSpeedMultiplier() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	if (!Survivor || !Data)
+	{
+		return 1.f;
+	}
+
+	const USPInteractionComponent* Interaction = Survivor->GetInteractionComponent();
+	const ASPCollectibleItem* CarriedItem = Interaction ? Interaction->GetCarriedItem() : nullptr;
+	if (!CarriedItem)
+	{
+		return 1.f;
+	}
+
+	switch (CarriedItem->GetCollectibleSize())
+	{
+	case ECollectibleSize::Small:     return Data->CarrySlowSmall;
+	case ECollectibleSize::Medium:    return Data->CarrySlowMedium;
+	case ECollectibleSize::Large:     return Data->CarrySlowLarge;
+	case ECollectibleSize::Hazardous: return Data->CarrySlowHazardous;
+	default:                          return 1.f;
 	}
 }
 

@@ -1,6 +1,7 @@
 #include "Gameplay/Escape/SPHatch.h"
 
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/ArrowComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
@@ -13,16 +14,79 @@ ASPHatch::ASPHatch()
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
 
-	HatchMesh = CreateDefaultSubobject<UStaticMeshComponent>("HatchMesh");
-	SetRootComponent(HatchMesh);
-	HatchMesh->SetCollisionProfileName(TEXT("NoCollision"));
-	HatchMesh->SetCustomDepthStencilValue(250);
-	HatchMesh->SetRenderCustomDepth(false);
+	TrayMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TrayMesh"));
+	SetRootComponent(TrayMesh);
+	TrayMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	TrayMesh->SetCustomDepthStencilValue(250);
+	TrayMesh->SetRenderCustomDepth(false);
+
+	DoorPivot = CreateDefaultSubobject<UArrowComponent>(TEXT("DoorPivot"));
+	DoorPivot->SetupAttachment(TrayMesh);
+	DoorPivot->SetRelativeRotation(FRotator::ZeroRotator);
+	DoorPivot->SetArrowColor(FLinearColor::Green);
+	DoorPivot->ArrowSize = 1.0f;
+	DoorPivot->bIsScreenSizeScaled = true;
+	DoorPivot->SetHiddenInGame(true);
+
+	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
+	DoorMesh->SetupAttachment(DoorPivot);
+	DoorMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	DoorMesh->SetCustomDepthStencilValue(250);
+	DoorMesh->SetRenderCustomDepth(false);
+}
+
+void ASPHatch::EnsureDoorComponentHierarchy()
+{
+	if (!TrayMesh || !DoorPivot || !DoorMesh)
+	{
+		return;
+	}
+
+	if (DoorPivot->GetAttachParent() != TrayMesh)
+	{
+		DoorPivot->AttachToComponent(TrayMesh, FAttachmentTransformRules::KeepRelativeTransform);
+	}
+
+	if (DoorMesh->GetAttachParent() != DoorPivot)
+	{
+		DoorMesh->AttachToComponent(DoorPivot, FAttachmentTransformRules::KeepWorldTransform);
+	}
+}
+
+#if WITH_EDITOR
+void ASPHatch::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(ASPHatch, DoorRotation))
+	{
+		ApplyDoorRotation();
+	}
+}
+#endif
+
+void ASPHatch::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	EnsureDoorComponentHierarchy();
 }
 
 void ASPHatch::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (DoorPivot)
+	{
+		if (DoorRotation.IsNearlyZero() && !DoorPivot->GetRelativeRotation().IsNearlyZero())
+		{
+			DoorRotation = DoorPivot->GetRelativeRotation();
+		}
+		else
+		{
+			ApplyDoorRotation();
+		}
+	}
 
 	ApplyHatchVisibility();
 	BindAvailabilityDelegate();
@@ -91,7 +155,7 @@ void ASPHatch::Interact_Implementation(AActor* Interactor)
 
 void ASPHatch::SetHighlight_Implementation(bool bEnabled)
 {
-	HatchMesh->SetRenderCustomDepth(bEnabled);
+	SetHatchRenderCustomDepth(bEnabled);
 }
 
 FGameplayTag ASPHatch::GetInteractableTag_Implementation() const
@@ -149,8 +213,52 @@ void ASPHatch::OnHatchAvailabilityChanged(bool bCanSpawn)
 	ApplyHatchVisibility();
 }
 
+void ASPHatch::SetDoorRotation(const FRotator& NewRotation)
+{
+	DoorRotation = NewRotation;
+	ApplyDoorRotation();
+}
+
+void ASPHatch::ApplyDoorRotation()
+{
+	if (!DoorPivot || DoorPivot->GetRelativeRotation().Equals(DoorRotation, KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+
+	DoorPivot->SetRelativeRotation(DoorRotation);
+}
+
+void ASPHatch::SetHatchRenderCustomDepth(bool bEnabled)
+{
+	if (TrayMesh)
+	{
+		TrayMesh->SetRenderCustomDepth(bEnabled);
+	}
+
+	if (DoorMesh)
+	{
+		DoorMesh->SetRenderCustomDepth(bEnabled);
+	}
+}
+
+void ASPHatch::SetHatchCollisionEnabled(bool bEnabled)
+{
+	const FName CollisionProfile = bEnabled ? TEXT("Interactable") : TEXT("NoCollision");
+
+	if (TrayMesh)
+	{
+		TrayMesh->SetCollisionProfileName(CollisionProfile);
+	}
+
+	if (DoorMesh)
+	{
+		DoorMesh->SetCollisionProfileName(CollisionProfile);
+	}
+}
+
 void ASPHatch::ApplyHatchVisibility()
 {
 	SetActorHiddenInGame(!bIsSpawned);
-	HatchMesh->SetCollisionProfileName(bIsSpawned ? TEXT("Interactable") : TEXT("NoCollision"));
+	SetHatchCollisionEnabled(bIsSpawned);
 }

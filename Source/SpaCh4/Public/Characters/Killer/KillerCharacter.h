@@ -39,6 +39,7 @@ public:
     void AddCharTag(FGameplayTag NewTag) { charTag.AddTag(NewTag); }
 
 protected:
+    bool bCanPickup = true;
     // 서버와 동기화되는 상태
     UPROPERTY(ReplicatedUsing = OnRep_CurrentState)
     EKillerState CurrentState = EKillerState::Idle;
