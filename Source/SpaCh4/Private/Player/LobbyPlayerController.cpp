@@ -6,6 +6,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Systems/LobbyGameMode.h"
 #include "Systems/MatchGameState.h"
+#include "Systems/SPEOSSessionSubsystem.h"
 #include "UI/TestLobbyUIWidget.h"
 
 void ALobbyPlayerController::LobbySetNickname(const FString& NewNickname)
@@ -96,6 +97,20 @@ void ALobbyPlayerController::BeginPlay()
 		LGS->OnLobbyReadyCountChanged.AddDynamic(this, &ALobbyPlayerController::OnLobbyReadyCountChanged);
 		LGS->OnLobbyPhaseChanged.AddDynamic(this, &ALobbyPlayerController::OnLobbyPhaseChanged);
 		LGS->OnLobbyCountdownChanged.AddDynamic(this, &ALobbyPlayerController::OnLobbyCountdownChanged);
+	}
+
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (USPEOSSessionSubsystem* SessionSubsystem = GameInstance->GetSubsystem<USPEOSSessionSubsystem>())
+		{
+			const FString AccountNickname = SessionSubsystem->GetCachedNickname();
+			if (!AccountNickname.IsEmpty())
+			{
+				LobbySetNickname(AccountNickname);
+				
+				LobbyUIWidgetInstance->NicknameText->SetText(FText::FromString(AccountNickname));
+			}
+		}
 	}
 }
 
