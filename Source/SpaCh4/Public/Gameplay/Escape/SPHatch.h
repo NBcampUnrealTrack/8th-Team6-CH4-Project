@@ -5,6 +5,7 @@
 #include "Interface/SPInteractable.h"
 #include "SPHatch.generated.h"
 
+class UArrowComponent;
 class UStaticMeshComponent;
 class ASurvivorCharacter;
 
@@ -29,8 +30,19 @@ public:
 	void SetEscaper(ASurvivorCharacter* Escaper);
 	void ClearEscaper(ASurvivorCharacter* Escaper);
 
+	UFUNCTION(BlueprintCallable, Category = "SP|Hatch|Door")
+	void SetDoorRotation(const FRotator& NewRotation);
+
+	UFUNCTION(BlueprintCallable, Category = "SP|Hatch|Door")
+	FRotator GetDoorRotation() const { return DoorRotation; }
+
 protected:
+	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 
 	UFUNCTION()
 	void OnRep_IsSpawned();
@@ -40,9 +52,22 @@ protected:
 	void BindAvailabilityDelegate();
 	
 	void ApplyHatchVisibility();
+	void SetHatchRenderCustomDepth(bool bEnabled);
+	void SetHatchCollisionEnabled(bool bEnabled);
+	void EnsureDoorComponentHierarchy();
+	void ApplyDoorRotation();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
-	TObjectPtr<UStaticMeshComponent> HatchMesh;
+	TObjectPtr<UStaticMeshComponent> TrayMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Door")
+	TObjectPtr<UArrowComponent> DoorPivot;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Door")
+	TObjectPtr<UStaticMeshComponent> DoorMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SP|Hatch|Door")
+	FRotator DoorRotation = FRotator::ZeroRotator;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
 	float EscapeDuration = 3.0f;
