@@ -1,4 +1,4 @@
-#include "Systems/MatchGameMode.h"
+﻿#include "Systems/MatchGameMode.h"
 
 #include "EngineUtils.h"
 #include "SkeletalMeshAttributes.h"
@@ -9,6 +9,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Player/LDPlayerState.h"
 #include "Player/SPPlayerController.h"
+#include "Systems/SPEOSSessionSubsystem.h"
 
 namespace MatchGameModeStationIds
 {
@@ -110,6 +111,35 @@ AActor* AMatchGameMode::ChoosePlayerStart_Implementation(AController* Player)
 }
 
 
+void AMatchGameMode::PostLogin(APlayerController* NewPlayer)
+{
+	Super::PostLogin(NewPlayer);
+	RegisterMatchPlayer(NewPlayer);
+}
+
+void AMatchGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
+{
+	Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+	RegisterMatchPlayer(NewPlayer);
+}
+
+void AMatchGameMode::Logout(AController* Exiting)
+{
+	if (AMatchGameState* MatchGameState = GetMatchGameState())
+	{
+		if (const ALDPlayerState* LDPlayerState = Exiting ? Exiting->GetPlayerState<ALDPlayerState>() : nullptr)
+		{
+			const FString PlayerName = LDPlayerState->GetPlayerName();
+			if (!PlayerName.IsEmpty())
+			{
+				MatchGameState->SetMatchPlayerConnected(FName(*PlayerName), false);
+			}
+		}
+	}
+
+	Super::Logout(Exiting);
+}
+
 void AMatchGameMode::StartMatch()
 {
 	if (!HasAuthority())
@@ -149,9 +179,19 @@ void AMatchGameMode::FinishMatch(EMatchResult Result)
 	}
 
 	GetWorldTimerManager().ClearTimer(MatchTimerHandle);
+	GetWorldTimerManager().ClearTimer(SessionShutdownTimerHandle);
 
 	MatchGameState->SetMatchResult(Result);
 	MatchGameState->SetMatchPhase(EMatchPhase::Ended);
+
+	if (SessionShutdownDelay > 0.0f)
+	{
+		GetWorldTimerManager().SetTimer(SessionShutdownTimerHandle, this, &AMatchGameMode::HandleSessionShutdownTimer, SessionShutdownDelay, false);
+	}
+	else
+	{
+		HandleSessionShutdownTimer();
+	}
 }
 
 bool AMatchGameMode::AddDeliveredValue(FName StationId, int32 Value)
@@ -213,9 +253,6 @@ void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorId)
 		return;
 	}
 
-	const int32 NewAliveSurvivorCount = FMath::Max(0, MatchGameState->GetAliveSurvivorCount() - 1);
-	const int32 NewEscapedSurvivorCount = MatchGameState->GetEscapedSurvivorCount() + 1;
-	MatchGameState->SetSurvivorCounts(NewAliveSurvivorCount, NewEscapedSurvivorCount, MatchGameState->GetKilledSurvivorCount());
 	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Escaped);
 
 	RefreshEscapeConditions();
@@ -235,9 +272,6 @@ void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorId)
 		return;
 	}
 
-	const int32 NewAliveSurvivorCount = FMath::Max(0, MatchGameState->GetAliveSurvivorCount() - 1);
-	const int32 NewKilledSurvivorCount = MatchGameState->GetKilledSurvivorCount() + 1;
-	MatchGameState->SetSurvivorCounts(NewAliveSurvivorCount, MatchGameState->GetEscapedSurvivorCount(), NewKilledSurvivorCount);
 	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Dead);
 
 	RefreshEscapeConditions();
@@ -317,8 +351,8 @@ void AMatchGameMode::InitializeMatchState()
 		ActiveBalanceData->MatchTimeLimit,
 		ActiveBalanceData->DeliveryStationATargetValue,
 		ActiveBalanceData->DeliveryStationBTargetValue,
-		ActiveBalanceData->GetTotalRequiredValue(),
-		ActiveBalanceData->InitialSurvivorCount);
+		ActiveBalanceData->GetTotalRequiredValue());
+	RegisterExistingMatchPlayersFromPlayerStates();
 
 	MatchGameState->SetMatchPhase(EMatchPhase::Waiting);
 	MatchGameState->SetMatchResult(EMatchResult::None);
@@ -326,6 +360,50 @@ void AMatchGameMode::InitializeMatchState()
 	MatchGameState->SetCanSpawnHatch(false);
 }
 
+void AMatchGameMode::RegisterMatchPlayer(AController* PlayerController)
+{
+	AMatchGameState* MatchGameState = GetMatchGameState();
+	const ALDPlayerState* LDPlayerState = PlayerController ? PlayerController->GetPlayerState<ALDPlayerState>() : nullptr;
+	if (!IsValid(MatchGameState) || !IsValid(LDPlayerState))
+	{
+		return;
+	}
+
+	FString PlayerName = LDPlayerState->GetPlayerName();
+	// 이름을 가져오지 못할때 임시이름
+	if (PlayerName.IsEmpty())
+	{
+		PlayerName = FString::Printf(TEXT("Player_%d"), LDPlayerState->GetPlayerId());
+	}
+
+	MatchGameState->RegisterMatchPlayer(LDPlayerState->GetPlayerId(), PlayerName, LDPlayerState->GetPlayerRole());
+}
+
+void AMatchGameMode::RegisterExistingMatchPlayersFromPlayerStates()
+{
+	AMatchGameState* MatchGameState = GetMatchGameState();
+	if (!IsValid(MatchGameState))
+	{
+		return;
+	}
+
+	for (APlayerState* PlayerState : MatchGameState->PlayerArray)
+	{
+		const ALDPlayerState* LDPlayerState = Cast<ALDPlayerState>(PlayerState);
+		if (!IsValid(LDPlayerState))
+		{
+			continue;
+		}
+
+		FString PlayerName = LDPlayerState->GetPlayerName();
+		if (PlayerName.IsEmpty())
+		{
+			PlayerName = FString::Printf(TEXT("Player_%d"), LDPlayerState->GetPlayerId());
+		}
+
+		MatchGameState->RegisterMatchPlayer(LDPlayerState->GetPlayerId(), PlayerName, LDPlayerState->GetPlayerRole());
+	}
+}
 void AMatchGameMode::HandleMatchTimerTick()
 {
 	AMatchGameState* MatchGameState = GetMatchGameState();
@@ -342,6 +420,17 @@ void AMatchGameMode::HandleMatchTimerTick()
 	{
 		const EMatchResult TimeoutResult = MatchGameState->GetEscapedSurvivorCount() > 0 ? CalculateMatchResult() : EMatchResult::KillerWin;
 		FinishMatch(TimeoutResult);
+	}
+}
+
+void AMatchGameMode::HandleSessionShutdownTimer()
+{
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (USPEOSSessionSubsystem* SessionSubsystem = GameInstance->GetSubsystem<USPEOSSessionSubsystem>())
+		{
+			SessionSubsystem->EndSession();
+		}
 	}
 }
 
@@ -373,6 +462,7 @@ void AMatchGameMode::RefreshEscapeConditions()
 void AMatchGameMode::TryFinishMatchFromSurvivorCounts()
 {
 	const AMatchGameState* MatchGameState = GetMatchGameState();
+	// 한명이라도 생존해있다면 결과내지않음.
 	if (!IsValid(MatchGameState) || MatchGameState->GetAliveSurvivorCount() > 0)
 	{
 		return;
@@ -381,7 +471,7 @@ void AMatchGameMode::TryFinishMatchFromSurvivorCounts()
 	FinishMatch(CalculateNoSurvivorLeftResult());
 }
 
-// 생존자거 없을때, 살인마의 승리 확인(완벽승리 / 일반승리)
+// 생존자가 없을때(사망이든, 탈출이든) 승리 확인
 EMatchResult AMatchGameMode::CalculateNoSurvivorLeftResult() const
 {
 	const AMatchGameState* MatchGameState = GetMatchGameState();
@@ -390,10 +480,11 @@ EMatchResult AMatchGameMode::CalculateNoSurvivorLeftResult() const
 		return EMatchResult::None;
 	}
 
+	// 한명이라도 탈출한 경우에, 탈출한 수에 따른 생존자 승리판정 진행.
 	if (MatchGameState->GetEscapedSurvivorCount() > 0)
 	{
 		return CalculateMatchResult();
 	}
-
+	// 탈출한 생존자가 없을때, 진행률에 따른 살인마의 승리 판정.
 	return MatchGameState->GetDeliveryProgress() < 0.5f ? EMatchResult::KillerPerfectWin : EMatchResult::KillerWin;
 }

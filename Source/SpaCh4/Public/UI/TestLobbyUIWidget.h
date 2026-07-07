@@ -15,6 +15,8 @@ class SPACH4_API UTestLobbyUIWidget : public UUserWidget
 {
 	GENERATED_BODY()
 public:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (BindWidget))
+	TObjectPtr<UTextBlock> NicknameText;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UTextBlock> PlayerCountText;
@@ -27,10 +29,5 @@ public:
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (BindWidget))
 	TObjectPtr<UTextBlock> NotificationText;
-
-	
-	
-	
-
 
 };

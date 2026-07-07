@@ -6,6 +6,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
@@ -272,6 +273,9 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	if (NewState == ESurvivorState::Escaped)
 	{
 		// 추후 통합 때 제대로 된 ID를 넘기는 방식으로 구현
-		GameMode->RegisterSurvivorEscaped(NAME_None);
+		const AController* SurvivorController = GetController();
+		const APlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->PlayerState : nullptr;
+		const FString SurvivorName = SurvivorPlayerState ? SurvivorPlayerState->GetPlayerName() : FString();
+		GameMode->RegisterSurvivorEscaped(SurvivorName.IsEmpty() ? NAME_None : FName(*SurvivorName));
 	}
 }

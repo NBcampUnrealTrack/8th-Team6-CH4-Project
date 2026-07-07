@@ -8,6 +8,7 @@
 #include "Engine/Texture2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Systems/SPEOSSessionSubsystem.h"
 #include "Styling/SlateTypes.h"
 #include "UI/HUDFontUtils.h"
 
@@ -68,10 +69,12 @@ void UMainMenuWidget::NativeConstruct()
 	}
 
 	BindMenuButtons();
+	BindOnlineEvents();
 	ApplyMenuLabels();
 	EnsureTitleOnTop();
 	ApplyMenuTitleImage();
 	ApplyMenuButtonStyles();
+	LoginToEOS();
 }
 
 void UMainMenuWidget::BindMenuButtons()
@@ -95,6 +98,21 @@ void UMainMenuWidget::BindMenuButtons()
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleQuitClicked);
 	}
+}
+
+void UMainMenuWidget::BindOnlineEvents()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (!SessionSubsystem)
+	{
+		return;
+	}
+
+	SessionSubsystem->OnLoginCompleted.RemoveDynamic(this, &UMainMenuWidget::HandleOnlineLoginCompleted);
+	SessionSubsystem->OnLoginCompleted.AddDynamic(this, &UMainMenuWidget::HandleOnlineLoginCompleted);
+	SessionSubsystem->OnMatchmakingStatusChanged.RemoveDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
+	SessionSubsystem->OnMatchmakingStatusChanged.AddDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
 }
 
 void UMainMenuWidget::ApplyMenuLabels()
@@ -299,12 +317,44 @@ void UMainMenuWidget::HandleQuitClicked()
 
 void UMainMenuWidget::OpenSurvivorLobby()
 {
-	OpenLevelAtPath(SurvivorLobbyLevelPath);
+	StartOnlineMatchmaking();
 }
 
 void UMainMenuWidget::OpenKillerLobby()
 {
-	OpenLevelAtPath(KillerLobbyLevelPath);
+	StartOnlineMatchmaking();
+}
+
+void UMainMenuWidget::LoginToEOS()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (SessionSubsystem)
+	{
+		SessionSubsystem->Login();
+	}
+}
+
+void UMainMenuWidget::StartOnlineMatchmaking()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (!SessionSubsystem)
+	{
+		return;
+	}
+
+	SessionSubsystem->StartMatchmaking(SurvivorLobbyLevelPath);
+}
+
+void UMainMenuWidget::HandleOnlineLoginCompleted(bool bWasSuccessful, const FString& StatusMessage)
+{
+	UE_LOG(LogTemp, Log, TEXT("MainMenu EOS login: %s (%s)"), bWasSuccessful ? TEXT("Success") : TEXT("Failed"), *StatusMessage);
+}
+
+void UMainMenuWidget::HandleMatchmakingStatusChanged(bool bWasSuccessful, const FString& StatusMessage)
+{
+	UE_LOG(LogTemp, Log, TEXT("MainMenu matchmaking: %s (%s)"), bWasSuccessful ? TEXT("Progress") : TEXT("Failed"), *StatusMessage);
 }
 
 void UMainMenuWidget::OpenSettings()
