@@ -17,8 +17,11 @@ public:
 	UKillerData();
 
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 748(생존자*1.15)"));
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 748(생존자650 * 1.15)"));
 	float KillerBaseSpeed = 748.f;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 403(생존자350 * 1.15)"));
+	float KillerWalkSpeed = 403.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float KillerCarrySpeedMultiplier = 0.9f;
@@ -50,9 +53,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserGroggyOnMiss = 1.00f;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
-	float TaserAttackSpeedMultiplier = 0.5f;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "ChainShock")
 	float ChainShockCooldown = 24.0f;
 	
@@ -93,8 +93,7 @@ public:
 	float BlakoutZoneRadius = 800.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
-	float BlackoutZoneDepositPenalty = 0.20f;
-
+	float BlackoutZoneDepositPenalty = 0.80f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traps")
 	float TrapRetriggerCooldown = 3.0f;

@@ -72,7 +72,7 @@ public:
 	float CageRescueDuration = 4.0f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
-	float EscapeGateOpenDuration = 10.0f;
+	float EscapeGateOpenDuration = 8.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float WalkNoiseRadius = 1000;
@@ -114,7 +114,7 @@ public:
 	float DeliveryProPenaltyReduction = 0.50;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
-	float SilentRollNoiseReduction = 0.30;
+	float SilentRollNoiseReduction = 0.70;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
 	float StageTwoRescueReduction = 1.00;
