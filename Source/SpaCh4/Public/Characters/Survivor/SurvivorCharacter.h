@@ -38,6 +38,7 @@ public:
 	ASurvivorCharacter();
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
+	UFUNCTION(BlueprintCallable, Category = "SP|Survivor")
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
 
