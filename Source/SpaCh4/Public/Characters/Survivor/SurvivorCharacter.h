@@ -92,6 +92,7 @@ private:
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
+	void ToggleCrouch();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
