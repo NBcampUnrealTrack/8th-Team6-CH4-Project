@@ -794,13 +794,23 @@ void UGameHUDWidget::RefreshInventoryPanel()
 
 	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
 	{
-		if (!InventorySlots[Index])
+		UImage* SlotImage = InventorySlots[Index];
+		if (!SlotImage)
 		{
 			continue;
 		}
 
-		const bool bOccupied = InventoryData.IsValidIndex(Index) && InventoryData[Index].bIsOccupied;
-		InventorySlots[Index]->SetOpacity(bOccupied ? 1.0f : 0.45f);
+		const bool bValidData = InventoryData.IsValidIndex(Index);
+		const bool bOccupied = bValidData && InventoryData[Index].bIsOccupied;
+		SlotImage->SetOpacity(bOccupied ? 1.0f : 0.45f);
+
+		if (bValidData && InventoryData[Index].ContentType == EInventorySlotContentType::Consumable)
+		{
+			continue;
+		}
+
+		UTexture2D* SlotIcon = bOccupied ? InventoryData[Index].Icon.LoadSynchronous() : nullptr;
+		SlotImage->SetBrushFromTexture(SlotIcon, false);
 	}
 }
 

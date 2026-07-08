@@ -4,6 +4,8 @@
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "SPInventoryTypes.generated.h"
 
+class UTexture2D;
+
 UENUM(BlueprintType)
 enum class EInventorySlotContentType : uint8
 {
@@ -48,6 +50,9 @@ struct FInventorySlotEntry
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	int32 CollectibleValue = 0;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	TSoftObjectPtr<UTexture2D> CollectibleIcon;
+
 	bool IsOccupied() const { return ContentType != EInventorySlotContentType::Empty; }
 
 	void Clear()
@@ -56,6 +61,7 @@ struct FInventorySlotEntry
 		ConsumableType = EConsumableItemType::None;
 		CollectibleSize = ECollectibleSize::Small;
 		CollectibleValue = 0;
+		CollectibleIcon = nullptr;
 	}
 };
 
