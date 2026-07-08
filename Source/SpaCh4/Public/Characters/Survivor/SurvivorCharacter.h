@@ -7,6 +7,8 @@
 #include "Inventory/SPInventoryTypes.h"
 #include "SurvivorCharacter.generated.h"
 
+class AKillerCharacter;
+class ACage;
 class USurvivorData;
 class USPInteractionComponent;
 class USPMovementComponent;
@@ -46,6 +48,8 @@ public:
 	bool CanInteract() const;
 	bool CanJumpOver() const;
 	bool IsParkouring() const;
+	bool IsCarrying() const;
+	int GetCagedCount() const { return CagedCount; }
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
@@ -57,17 +61,19 @@ public:
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
-	bool IsCarrying() const;
+	void RescueFromCage();
+	
+	/* 살인자 쪽 호출 */
+	void EnterCaged(ACage* Cage);
+	void ApplyHit();
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+	FGameplayTag GetInteractableTag() const;
+	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
+	void NotifyParkourEnded();
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "SP|Inventory")
 	bool TryAcquireConsumable(EConsumableItemType ItemType);
-
-	FGameplayTag GetInteractableTag() const;
-	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
-
-	void NotifyParkourEnded();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
@@ -87,13 +93,16 @@ private:
 
 	UFUNCTION()
 	void HandleInventoryChanged();
+	
+	UFUNCTION()
+	void OnCageExpired();
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 	void ToggleCrouch();
-
+	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
@@ -103,12 +112,18 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPParkourComponent> ParkourComponent;
 
-	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = "OnRep_SurvivorState",  meta = (AllowPrivateAccess = true))
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
+	int32 CagedCount = 0;
+	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
+	
+	
+	FTimerHandle CageTimerHandle;
 };

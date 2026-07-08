@@ -14,6 +14,7 @@
 #include "Gameplay/Escape/SPHatch.h"
 #include "InputAction.h"
 #include "GameFramework/PlayerState.h"
+#include "Gameplay/Cage/Cage.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
@@ -104,6 +105,51 @@ void ASurvivorCharacter::ToggleCrouch()
 	}
 }
 
+void ASurvivorCharacter::EnterCaged(ACage* Cage)
+{
+	if (!HasAuthority()) return;
+	++CagedCount;
+
+	if (CagedCount >= 3)
+	{
+		SetSurvivorState(ESurvivorState::Dead);
+		return;
+	}
+
+	SetSurvivorState(ESurvivorState::Caged);
+	const float Time = (CagedCount == 1) ? Cage->StageOneDuration : Cage->StageTwoDuration;
+	GetWorldTimerManager().SetTimer(
+		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
+}
+
+void ASurvivorCharacter::OnCageExpired()
+{
+	SetSurvivorState(ESurvivorState::Dead);
+}
+
+void ASurvivorCharacter::RescueFromCage()
+{
+	if (!HasAuthority()) return;
+	GetWorldTimerManager().ClearTimer(CageTimerHandle);
+	SetSurvivorState(ESurvivorState::Downed);
+}
+
+void ASurvivorCharacter::ApplyHit()
+{
+	if (!HasAuthority()) return;
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Healthy: 
+		SetSurvivorState(ESurvivorState::Injured); 
+		break;
+	case ESurvivorState::Injured: 
+		SetSurvivorState(ESurvivorState::Downed);  
+		break;
+	default: 
+		break; 
+	}
+}
+
 void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -171,6 +217,8 @@ void ASurvivorCharacter::HandleInventoryChanged()
 {
 	RefreshLocalInventoryHud();
 }
+
+
 
 void ASurvivorCharacter::RefreshLocalInventoryHud() const
 {
