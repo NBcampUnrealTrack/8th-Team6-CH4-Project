@@ -60,15 +60,15 @@ public:
 
 	// 생존자 탈출 등록
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorEscaped(FName SurvivorId);
+	void RegisterSurvivorEscaped(FName SurvivorNickname);
 
 	// 생존자 사망 등록
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorKilled(FName SurvivorId);
+	void RegisterSurvivorKilled(FName SurvivorNickname);
 
 	// 생존자 상태 변경
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorStateChanged(FName SurvivorId, ESurvivorState NewSurvivorState);
+	void RegisterSurvivorStateChanged(FName SurvivorNickname, ESurvivorState NewSurvivorState);
 
 	// 결과 확인
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Result")
