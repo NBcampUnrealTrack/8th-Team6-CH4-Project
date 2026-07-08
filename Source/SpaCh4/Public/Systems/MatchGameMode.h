@@ -32,6 +32,9 @@ protected:
 #pragma endregion
 	
 public:
+	virtual void PostLogin(APlayerController* NewPlayer) override;
+	virtual void HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer) override;
+	virtual void Logout(AController* Exiting) override;
 	
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Flow")
 	void StartMatch();
@@ -76,7 +79,10 @@ protected:
 	const UBalanceData* GetActiveBalanceData() const;
 
 	void InitializeMatchState();
+	void RegisterMatchPlayer(AController* PlayerController);
+	void RegisterExistingMatchPlayersFromPlayerStates();
 	void HandleMatchTimerTick();
+	void HandleSessionShutdownTimer();
 	// 탈출구 조건 체크
 	void RefreshEscapeConditions();
 	void TryFinishMatchFromSurvivorCounts();
@@ -88,5 +94,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Match")
 	bool bAutoStartMatch = true;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Online|Session")
+	float SessionShutdownDelay = 10.0f;
+
 	FTimerHandle MatchTimerHandle;
+	FTimerHandle SessionShutdownTimerHandle;
 };

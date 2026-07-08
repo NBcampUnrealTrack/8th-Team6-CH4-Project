@@ -10,6 +10,7 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Gameplay/Cage/Cage.h"
 #include "Type/SPGameplayTag.h"
 #include "Net/UnrealNetwork.h"
 
@@ -77,6 +78,12 @@ void AKillerCharacter::PerformAttack()
 
     SetKillerState(EKillerState::Attacking);
     
+    // 공격 시작 시 이동 차단
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->DisableMovement();
+    }
+    
     // 1. Windup (0.35s)
     FTimerHandle WindupTimer;
     GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
@@ -84,30 +91,32 @@ void AKillerCharacter::PerformAttack()
         // 2. Active 판정 (0.4s)
         FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
         FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
-        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, KillerData->TaserActive);
+        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, 2.0f, 0, 2.0f);
 
         bool bHit = PerformAttackTrace();
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
 
-        // 3. 결과에 따른 상태 전이 및 유지 시간 적용
+        // 3. 결과에 따른 상태 전이 및 복귀 로직
+        auto RestoreMovement = [this]() {
+            if (GetCharacterMovement())
+            {
+                GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+            }
+            SetKillerState(EKillerState::Idle);
+        };
+
         if (bHit) 
         {
-            // 적중: 총 1.05s 시점에 Idle 복귀 (후딜 0.3s 반영)
-            // Attacking 상태를 유지하다가 후딜 끝날 때 Idle로
+            // 적중: 후딜 시간 뒤 이동 복구
             FTimerHandle RecoveryTimer;
-            GetWorldTimerManager().SetTimer(RecoveryTimer, [this]() { 
-                SetKillerState(EKillerState::Idle); 
-            }, KillerData->TaserRecoveryHit, false);
+            GetWorldTimerManager().SetTimer(RecoveryTimer, RestoreMovement, KillerData->TaserRecoveryHit, false);
         } 
         else 
         {
-            // 빗나감: 그로기 진입 (1.75s 동안 유지)
+            // 빗나감: 그로기 진입 후 이동 복구
             SetKillerState(EKillerState::Groggy);
-            
             FTimerHandle GroggyTimer;
-            GetWorldTimerManager().SetTimer(GroggyTimer, [this]() { 
-                SetKillerState(EKillerState::Idle); 
-            }, KillerData->TaserGroggyOnMiss, false);
+            GetWorldTimerManager().SetTimer(GroggyTimer, RestoreMovement, KillerData->TaserGroggyOnMiss, false);
         }
     }, KillerData->TaserWindup, false);
 }
@@ -115,6 +124,12 @@ void AKillerCharacter::PerformAttack()
 void AKillerCharacter::PickupSurvivor(AActor* Target)
 {
     if (!Target) return;
+    
+    if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target))
+    {
+        Survivor->SetSurvivorState(ESurvivorState::Carried);
+    }
+    
     CarriedSurvivor = Target;
 
     // 1. 살인마와 생존자 서로 간의 충돌 무시
@@ -148,6 +163,11 @@ void AKillerCharacter::DropSurvivor()
 {
     if (!CarriedSurvivor) return;
 
+    if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
+    {
+        Survivor->SetSurvivorState(ESurvivorState::Downed);
+    }
+    
     // 1. 살인마와 생존자 간 충돌 무시 해제
     GetCapsuleComponent()->IgnoreActorWhenMoving(CarriedSurvivor, false);
     if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(CarriedSurvivor->GetRootComponent()))
@@ -222,17 +242,19 @@ AActor* AKillerCharacter::FindInteractableActor(float Radius)
     FCollisionShape Sphere = FCollisionShape::MakeSphere(Radius);
     FCollisionQueryParams Params(NAME_None, false, this);
     
-    DrawDebugSphere(GetWorld(), GetActorLocation(), Radius, 12, FColor::Yellow, false, 2.0f);
-    bool bResult = GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_Pawn, Sphere, Params);
-    
-    if (bResult)
+    if (GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_Pawn, Sphere, Params))
     {
         for (const auto& Result : Overlaps)
         {
+            // 1. 생존자 감지 (Downed 상태만)
             if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Result.GetActor()))
             {
-                UE_LOG(LogTemp, Warning, TEXT("생존자 감지됨: %s"), *Survivor->GetName());
-                return Survivor;
+                if (Survivor->GetSurvivorState() == ESurvivorState::Downed) return Survivor;
+            }
+            // 2. Cage 감지 (Empty 상태만)
+            if (ACage* Cage = Cast<ACage>(Result.GetActor()))
+            {
+                if (Cage->GetCageStatus() == ECageStatus::Empty) return Cage;
             }
         }
     }
@@ -241,60 +263,36 @@ AActor* AKillerCharacter::FindInteractableActor(float Radius)
 
 bool AKillerCharacter::PerformAttackTrace()
 {
-    // 공격 박스 설정
     FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
     FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
-    DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, 2.0f, 0, 2.0f);
+    
     TArray<FOverlapResult> Overlaps;
     FCollisionShape BoxShape = FCollisionShape::MakeBox(BoxExtent);
-    FCollisionQueryParams Params(NAME_None, false, this); // 자신 제외
+    FCollisionQueryParams Params(NAME_None, false, this);
 
     bool bAnyHit = GetWorld()->OverlapMultiByChannel(Overlaps, BoxCenter, GetActorRotation().Quaternion(), ECC_Pawn, BoxShape, Params);
 
-    bool bHitSurvivor = false;
     if (bAnyHit)
     {
         for (const FOverlapResult& Overlap : Overlaps)
         {
             if (ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Overlap.GetActor()))
             {
-                UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
-                bHitSurvivor = true;
-                // [참고: 여기서 생존자에게 데미지 함수 호출]
+                // [수정] Healthy 또는 Injured 상태일 때만 공격 적중 처리
+                ESurvivorState SState = HitSurvivor->GetSurvivorState();
+                if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
+                    
+                    // 여기서 실제 데미지 로직을 호출하거나 상태를 변경하세요.
+                    // HitSurvivor->SetSurvivorState(ESurvivorState::Injured); // 예시
+                    return true;
+                }
             }
         }
     }
-    return bHitSurvivor;
-}
-
-/*bool AKillerCharacter::PerformAttackTrace()
-{
-    FHitResult Hit;
-    FVector Start = GetActorLocation();
-    FVector End = Start + (GetActorForwardVector() * KillerData->TaserRange);
-    FCollisionShape Box = FCollisionShape::MakeBox(FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f));
-
-    bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, GetActorRotation().Quaternion(), ECC_Pawn, Box);
-    
-    if (bHit && Hit.GetActor())
-    {
-        ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Hit.GetActor());
-        
-        if (HitSurvivor)
-        {
-            // ESurvivorState::Healthy, ESurvivorState::Injured 값을 직접 비교
-            
-            ESurvivorState SurvivorState = HitSurvivor->GetSurvivorState(); 
-            
-            if (SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured)
-            {
-                return true; // 공격 성공!
-            }
-        }
-    }
-    
     return false;
-}*/
+}
 
 void AKillerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -321,7 +319,8 @@ void AKillerCharacter::Server_Interact_Implementation()
 {
     if (!KillerData || bIsBusy) return;
     
-    if (CurrentState == EKillerState::Idle)
+    // 1. Idle 상태일 때: 생존자 픽업 (bCanPickup 쿨타임 체크 추가)
+    if (CurrentState == EKillerState::Idle && bCanPickup)
     {
         if (AActor* Target = FindInteractableActor(KillerData->PickupRange)) 
         {
@@ -337,18 +336,55 @@ void AKillerCharacter::Server_Interact_Implementation()
             }, KillerData->PickupDuration, false);
         }
     }
+    // 2. Carrying 상태일 때: 갈고리에 걸거나 일반 Drop
     else if (CurrentState == EKillerState::Carrying)
     {
-        bIsBusy = true;
-        SetKillerState(EKillerState::Interacting);
-        GetCharacterMovement()->DisableMovement();
+        AActor* InteractTarget = FindInteractableActor(KillerData->CageDepositRange);
+        
+        if (ACage* TargetCage = Cast<ACage>(InteractTarget))
+        {
+            bIsBusy = true;
+            SetKillerState(EKillerState::Interacting);
+            GetCharacterMovement()->DisableMovement();
 
-        FTimerHandle TimerHandle;
-        GetWorldTimerManager().SetTimer(TimerHandle, [this]() {
+            FTimerHandle TimerHandle;
+            GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
+                
+                // 생존자를 Cage에 가둠
+                if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
+                {
+                    Survivor->SetSurvivorState(ESurvivorState::Caged);
+                    Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+                    Survivor->SetActorLocation(TargetCage->GetActorLocation());
+                }
+                
+                TargetCage->SetCageStatus(ECageStatus::Occupied);
+                
+                CarriedSurvivor = nullptr;
+                GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+                bIsBusy = false;
+                SetKillerState(EKillerState::Idle);
+                
+                // [핵심] Drop 후 픽업 쿨타임 시작
+                bCanPickup = false;
+                FTimerHandle CooldownTimer;
+                GetWorldTimerManager().SetTimer(CooldownTimer, [this]() {
+                    bCanPickup = true;
+                }, 2.0f, false);
+            }, KillerData->CageDepositDuration, false);
+        }
+        else
+        {
+            // Cage가 없을 때 일반 Drop
             DropSurvivor();
-            GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-            bIsBusy = false;
-        }, KillerData->CageDepositDuration, false);
+            
+            // [핵심] Drop 후 픽업 쿨타임 시작
+            bCanPickup = false;
+            FTimerHandle CooldownTimer;
+            GetWorldTimerManager().SetTimer(CooldownTimer, [this]() {
+                bCanPickup = true;
+            }, 2.0f, false);
+        }
     }
 }
 

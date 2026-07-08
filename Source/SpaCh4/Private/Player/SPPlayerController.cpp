@@ -2,6 +2,18 @@
 
 #include "EnhancedInputSubsystems.h"
 #include "Data/SPInputConfigData.h"
+#include "Systems/SPEOSSessionSubsystem.h"
+
+void ASPPlayerController::ReturnToMainMenu()
+{
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (USPEOSSessionSubsystem* SessionSubsystem = GameInstance->GetSubsystem<USPEOSSessionSubsystem>())
+		{
+			SessionSubsystem->ReturnToMainMenu(MainMenuLevelPath);
+		}
+	}
+}
 
 void ASPPlayerController::BeginPlay()
 {
@@ -22,8 +34,6 @@ void ASPPlayerController::BeginPlay()
 	{
 		AddInputMappingContext(Entry.MappingContext, Entry.Priority);
 	}
-
-	
 }
 
 void ASPPlayerController::AddInputMappingContext(UInputMappingContext* MappingContext, int32 Priority)

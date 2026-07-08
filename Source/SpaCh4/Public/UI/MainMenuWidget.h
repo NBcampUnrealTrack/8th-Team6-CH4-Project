@@ -20,6 +20,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MainMenu")
 	void OpenKillerLobby();
 
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Online")
+	void LoginToEOS();
+
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Online")
+	void StartOnlineMatchmaking();
+
 	UFUNCTION(BlueprintCallable, Category = "MainMenu")
 	void OpenSettings();
 
@@ -66,7 +72,14 @@ private:
 	UFUNCTION()
 	void HandleQuitClicked();
 
+	UFUNCTION()
+	void HandleOnlineLoginCompleted(bool bWasSuccessful, const FString& StatusMessage);
+
+	UFUNCTION()
+	void HandleMatchmakingStatusChanged(bool bWasSuccessful, const FString& StatusMessage);
+
 	void BindMenuButtons();
+	void BindOnlineEvents();
 	void ApplyMenuLabels();
 	void ApplyMenuTitleImage();
 	void ApplyMenuButtonStyles();

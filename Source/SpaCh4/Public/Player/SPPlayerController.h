@@ -14,6 +14,9 @@ class SPACH4_API ASPPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintCallable, Category = "Online|Session")
+	void ReturnToMainMenu();
+
 	UFUNCTION(BlueprintCallable, Category = "Input")
 	void AddInputMappingContext(UInputMappingContext* MappingContext, int32 Priority = 0);
 
@@ -28,4 +31,8 @@ private:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<USPInputConfigData> InputConfig;
+
+	// 추후 게임 결과창에서 로비로 돌아갈 때 사용
+	UPROPERTY(EditDefaultsOnly, Category = "Online|Session")
+	FString MainMenuLevelPath = TEXT("/Game/Maps/L_MainMenu");
 };

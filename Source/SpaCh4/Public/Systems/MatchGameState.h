@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "GameFramework/GameStateBase.h"
+#include "Systems/LobbyGameState.h"
 #include "MatchGameState.generated.h"
 
 //게임 루프관련
@@ -43,6 +44,27 @@ struct FSurvivorMatchState
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 };
 
+USTRUCT(BlueprintType)
+struct FMatchPlayerState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
+	int32 PlayerId = INDEX_NONE;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
+	FString Nickname;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
+	ELobbyPlayerRole PlayerRole = ELobbyPlayerRole::None;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
+	bool bIsConnected = true;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
+	ESurvivorState SurvivorState = ESurvivorState::Healthy;
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchPhaseChangedSignature, EMatchPhase, MatchPhase);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchResultChangedSignature, EMatchResult, MatchResult);
@@ -58,6 +80,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHatchAvailabilityChangedSignature
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSurvivorCountChangedSignature, int32, AliveSurvivorCount, int32, EscapedSurvivorCount, int32, KilledSurvivorCount);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSurvivorStateChangedSignature, FName, SurvivorId, ESurvivorState, SurvivorState);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMatchPlayersChangedSignature);
 
 UCLASS()
 class SPACH4_API AMatchGameState : public AGameStateBase
@@ -123,7 +147,13 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
 	TArray<FSurvivorMatchState> GetSurvivorStates() const;
 
-	void ApplyBalanceSettings(float NewTimeLimit, int32 NewStationATargetValue, int32 NewStationBTargetValue, int32 NewTotalRequiredValue, int32 NewInitialSurvivorCount);
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Player")
+	TArray<FMatchPlayerState> GetMatchPlayers() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Match|Player")
+	bool GetMatchPlayerState(FName Nickname, FMatchPlayerState& OutPlayerState) const;
+
+	void ApplyBalanceSettings(float NewTimeLimit, int32 NewStationATargetValue, int32 NewStationBTargetValue, int32 NewTotalRequiredValue);
 	void SetMatchPhase(EMatchPhase NewMatchPhase);
 	void SetMatchResult(EMatchResult NewMatchResult);
 	void SetRemainingTime(float NewRemainingTime);
@@ -131,31 +161,45 @@ public:
 	void SetCanActivateEscapeGates(bool bNewCanActivateEscapeGates);
 	void SetCanSpawnHatch(bool bNewCanSpawnHatch);
 	void SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEscapedSurvivorCount, int32 NewKilledSurvivorCount);
+	void RegisterMatchPlayer(int32 PlayerId, const FString& Nickname, ELobbyPlayerRole PlayerRole);
+	void SetMatchPlayerConnected(FName Nickname, bool bNewIsConnected);
 	void SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState);
 
+	// 진행상황 갱신 EMatchPhase(진행, 탈출구, 종료)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnMatchPhaseChangedSignature OnMatchPhaseChanged;
-
+	
+	// 게임 결과 MatchResult
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnMatchResultChangedSignature OnMatchResultChanged;
 
+	// 남은 시간
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnMatchTimerChangedSignature OnMatchTimerChanged;
 
+	// 진행상황(A점수, B점수, 총점, 진행률%)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnDeliveryProgressChangedSignature OnDeliveryProgressChanged;
 
+	// 탈출구 활성화
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnEscapeGateAvailabilityChangedSignature OnEscapeGateAvailabilityChanged;
-
+	
+	// 개구멍 활성화
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnHatchAvailabilityChangedSignature OnHatchAvailabilityChanged;
 
+	// 생존자 수 변경(생존자수, 탈출자수, 사망자수 / 셋의 합은 총 플레이어수)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnSurvivorCountChangedSignature OnSurvivorCountChanged;
 
+	// 특정 플레이어의 상태 변경(생존자는 서버 - AMatchGameState::SetSurvivorState를 각자호출하고, 해당 이벤트에서 갱신하도록 함.)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
 	FOnSurvivorStateChangedSignature OnSurvivorStateChanged;
+
+	// 
+	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
+	FOnMatchPlayersChangedSignature OnMatchPlayersChanged;
 
 protected:
 	UFUNCTION()
@@ -181,9 +225,11 @@ protected:
 	void OnRep_SurvivorCounts();
 
 	UFUNCTION()
-	void OnRep_SurvivorStates();
+	void OnRep_MatchPlayers();
 
 	void BroadcastDeliveryProgressChanged();
+	void BroadcastMatchPlayersChanged();
+	void RefreshSurvivorCountsFromMatchPlayers();
 
 	UPROPERTY(ReplicatedUsing = OnRep_MatchPhase, VisibleAnywhere, BlueprintReadOnly, Category = "Match")
 	EMatchPhase MatchPhase = EMatchPhase::Waiting;
@@ -231,6 +277,6 @@ protected:
 	int32 KilledSurvivorCount = 0;
 
 	// 생존자 리스트, 상태 관리
-	UPROPERTY(ReplicatedUsing = OnRep_SurvivorStates, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
-	TArray<FSurvivorMatchState> SurvivorStates;
+	UPROPERTY(ReplicatedUsing = OnRep_MatchPlayers, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
+	TArray<FMatchPlayerState> MatchPlayers;
 };

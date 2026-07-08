@@ -1,4 +1,4 @@
-#include "Systems/MatchGameState.h"
+﻿#include "Systems/MatchGameState.h"
 
 #include "Net/UnrealNetwork.h"
 
@@ -31,7 +31,7 @@ void AMatchGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AMatchGameState, AliveSurvivorCount);
 	DOREPLIFETIME(AMatchGameState, EscapedSurvivorCount);
 	DOREPLIFETIME(AMatchGameState, KilledSurvivorCount);
-	DOREPLIFETIME(AMatchGameState, SurvivorStates);
+	DOREPLIFETIME(AMatchGameState, MatchPlayers);
 }
 
 EMatchPhase AMatchGameState::GetMatchPhase() const
@@ -146,10 +146,48 @@ int32 AMatchGameState::GetKilledSurvivorCount() const
 
 TArray<FSurvivorMatchState> AMatchGameState::GetSurvivorStates() const
 {
+	TArray<FSurvivorMatchState> SurvivorStates;
+	for (const FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (MatchPlayer.PlayerRole != ELobbyPlayerRole::Survivor)
+		{
+			continue;
+		}
+
+		FSurvivorMatchState SurvivorMatchState;
+		SurvivorMatchState.SurvivorId = FName(*MatchPlayer.Nickname);
+		SurvivorMatchState.SurvivorState = MatchPlayer.SurvivorState;
+		SurvivorStates.Add(SurvivorMatchState);
+	}
+
 	return SurvivorStates;
 }
 
-void AMatchGameState::ApplyBalanceSettings(float NewTimeLimit, int32 NewStationATargetValue, int32 NewStationBTargetValue, int32 NewTotalRequiredValue, int32 NewInitialSurvivorCount)
+TArray<FMatchPlayerState> AMatchGameState::GetMatchPlayers() const
+{
+	return MatchPlayers;
+}
+
+bool AMatchGameState::GetMatchPlayerState(FName Nickname, FMatchPlayerState& OutPlayerState) const
+{
+	if (Nickname.IsNone())
+	{
+		return false;
+	}
+
+	for (const FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (FName(*MatchPlayer.Nickname) == Nickname)
+		{
+			OutPlayerState = MatchPlayer;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void AMatchGameState::ApplyBalanceSettings(float NewTimeLimit, int32 NewStationATargetValue, int32 NewStationBTargetValue, int32 NewTotalRequiredValue)
 {
 	TimeLimit = FMath::Max(0.0f, NewTimeLimit);
 	RemainingTime = TimeLimit;
@@ -158,20 +196,11 @@ void AMatchGameState::ApplyBalanceSettings(float NewTimeLimit, int32 NewStationA
 	DeliveryStationATargetValue = FMath::Max(0, NewStationATargetValue);
 	DeliveryStationBTargetValue = FMath::Max(0, NewStationBTargetValue);
 	TotalRequiredValue = FMath::Max(0, NewTotalRequiredValue);
-	AliveSurvivorCount = FMath::Max(0, NewInitialSurvivorCount);
+	AliveSurvivorCount = 0;
 	EscapedSurvivorCount = 0;
 	KilledSurvivorCount = 0;
 
-	SurvivorStates.Reset();
-	// 임시로 Survivor_1, 2, 3이 등록되도록 함.
-	// 닉네임이나 고유 아이디 지정 및 등록한다면 이 부분을 분리해야함.
-	for (int32 SurvivorIndex = 0; SurvivorIndex < AliveSurvivorCount; ++SurvivorIndex)
-	{
-		FSurvivorMatchState SurvivorMatchState;
-		SurvivorMatchState.SurvivorId = FName(*FString::Printf(TEXT("Survivor_%d"), SurvivorIndex + 1));
-		SurvivorStates.Add(SurvivorMatchState);
-	}
-
+	MatchPlayers.Reset();
 	OnMatchTimerChanged.Broadcast(RemainingTime);
 	BroadcastDeliveryProgressChanged();
 	OnSurvivorCountChanged.Broadcast(AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
@@ -263,6 +292,54 @@ void AMatchGameState::SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEs
 	OnSurvivorCountChanged.Broadcast(AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
 }
 
+void AMatchGameState::RegisterMatchPlayer(int32 PlayerId, const FString& Nickname, ELobbyPlayerRole PlayerRole)
+{
+	const FString NormalizedNickname = Nickname.IsEmpty() ? FString::Printf(TEXT("Player_%d"), PlayerId) : Nickname;
+
+	for (FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		// 중복 접속체크
+		const bool bSamePlayerId = PlayerId != INDEX_NONE && MatchPlayer.PlayerId == PlayerId;
+		// 중복 닉네임 체크
+		const bool bSameNickname = !NormalizedNickname.IsEmpty() && MatchPlayer.Nickname == NormalizedNickname;
+		if (bSamePlayerId || bSameNickname)
+		{
+			MatchPlayer.PlayerId = PlayerId;
+			MatchPlayer.Nickname = NormalizedNickname;
+			MatchPlayer.PlayerRole = PlayerRole;
+			MatchPlayer.bIsConnected = true;
+			BroadcastMatchPlayersChanged();
+			return;
+		}
+	}
+
+	FMatchPlayerState NewMatchPlayer;
+	NewMatchPlayer.PlayerId = PlayerId;
+	NewMatchPlayer.Nickname = NormalizedNickname;
+	NewMatchPlayer.PlayerRole = PlayerRole;
+	NewMatchPlayer.bIsConnected = true;
+	MatchPlayers.Add(NewMatchPlayer);
+	BroadcastMatchPlayersChanged();
+}
+
+void AMatchGameState::SetMatchPlayerConnected(FName Nickname, bool bNewIsConnected)
+{
+	if (Nickname.IsNone())
+	{
+		return;
+	}
+
+	for (FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (FName(*MatchPlayer.Nickname) == Nickname)
+		{
+			MatchPlayer.bIsConnected = bNewIsConnected;
+			BroadcastMatchPlayersChanged();
+			return;
+		}
+	}
+}
+
 void AMatchGameState::SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState)
 {
 	if (SurvivorId.IsNone())
@@ -270,31 +347,36 @@ void AMatchGameState::SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvi
 		return;
 	}
 
-	for (FSurvivorMatchState& SurvivorState : SurvivorStates)
+	for (FMatchPlayerState& MatchPlayer : MatchPlayers)
 	{
-		if (SurvivorState.SurvivorId == SurvivorId)
+		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Survivor && FName(*MatchPlayer.Nickname) == SurvivorId)
 		{
-			SurvivorState.SurvivorState = NewSurvivorState;
-			OnSurvivorStateChanged.Broadcast(SurvivorId, NewSurvivorState);
+			const UEnum* CharStateEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("ESurvivorState"), true);
+			if (CharStateEnum)
+			{
+				FString EnumToString = CharStateEnum->GetNameStringByValue((int64)NewSurvivorState);
+				UE_LOG(LogTemp, Warning, TEXT("Set Player %s State to %s"), *SurvivorId.ToString(), *EnumToString);
+			}
+			MatchPlayer.SurvivorState = NewSurvivorState;
+			BroadcastMatchPlayersChanged();
 			return;
 		}
 	}
-	
-	// 호출한 생존자가 없다면 새로 등록함
-	FSurvivorMatchState NewMatchState;
-	NewMatchState.SurvivorId = SurvivorId;
-	NewMatchState.SurvivorState = NewSurvivorState;
-	SurvivorStates.Add(NewMatchState);
-	OnSurvivorStateChanged.Broadcast(SurvivorId, NewSurvivorState);
 }
-
 void AMatchGameState::OnRep_MatchPhase()
 {
+	UE_LOG(LogTemp, Warning, TEXT("MatchPhase()"));
 	OnMatchPhaseChanged.Broadcast(MatchPhase);
 }
 
 void AMatchGameState::OnRep_MatchResult()
-{
+{			
+	const UEnum* CharStateEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("EMatchResult"), true);
+	if (CharStateEnum)
+	{
+		FString EnumToString = CharStateEnum->GetNameStringByValue((int64)MatchResult);
+		UE_LOG(LogTemp, Warning, TEXT("MatchResult id %s"), *EnumToString);
+	}
 	OnMatchResultChanged.Broadcast(MatchResult);
 }
 
@@ -310,29 +392,84 @@ void AMatchGameState::OnRep_DeliveryProgress()
 
 void AMatchGameState::OnRep_EscapeGateAvailability()
 {
+	UE_LOG(LogTemp, Warning, TEXT("EscapeGateAvailability()"));
 	OnEscapeGateAvailabilityChanged.Broadcast(bCanActivateEscapeGates);
 }
 
 void AMatchGameState::OnRep_HatchAvailability()
 {
-	
+	UE_LOG(LogTemp, Warning, TEXT("HatchAvailability()"));
 	OnHatchAvailabilityChanged.Broadcast(bCanSpawnHatch);
 }
 
 void AMatchGameState::OnRep_SurvivorCounts()
 {
+	UE_LOG(LogTemp, Warning, TEXT("SurvivorCounts(%d, %d, %d)"), AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
 	OnSurvivorCountChanged.Broadcast(AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
 }
 
-void AMatchGameState::OnRep_SurvivorStates()
+void AMatchGameState::OnRep_MatchPlayers()
 {
-	for (const FSurvivorMatchState& SurvivorState : SurvivorStates)
-	{
-		OnSurvivorStateChanged.Broadcast(SurvivorState.SurvivorId, SurvivorState.SurvivorState);
-	}
+	BroadcastMatchPlayersChanged();
 }
 
 void AMatchGameState::BroadcastDeliveryProgressChanged()
 {
+	UE_LOG(LogTemp, Warning, TEXT("DeliveryProgress(%d, %d, %d, %f)"),DeliveryStationAValue, DeliveryStationBValue, GetTotalDeliveredValue(), GetDeliveryProgress());
 	OnDeliveryProgressChanged.Broadcast(DeliveryStationAValue, DeliveryStationBValue, GetTotalDeliveredValue(), GetDeliveryProgress());
+}
+
+void AMatchGameState::BroadcastMatchPlayersChanged()
+{
+	RefreshSurvivorCountsFromMatchPlayers();
+	OnMatchPlayersChanged.Broadcast();
+
+	for (const FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Survivor)
+		{
+			OnSurvivorStateChanged.Broadcast(FName(*MatchPlayer.Nickname), MatchPlayer.SurvivorState);
+		}
+	}
+}
+
+void AMatchGameState::RefreshSurvivorCountsFromMatchPlayers()
+{
+	int32 NewAliveSurvivorCount = 0;
+	int32 NewEscapedSurvivorCount = 0;
+	int32 NewKilledSurvivorCount = 0;
+
+	for (const FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (MatchPlayer.PlayerRole != ELobbyPlayerRole::Survivor)
+		{
+			continue;
+		}
+
+		if (MatchPlayer.SurvivorState == ESurvivorState::Escaped)
+		{
+			++NewEscapedSurvivorCount;
+		}
+		else if (MatchPlayer.SurvivorState == ESurvivorState::Dead)
+		{
+			++NewKilledSurvivorCount;
+		}
+		else
+		{
+			++NewAliveSurvivorCount;
+		}
+	}
+
+	const bool bCountsChanged = AliveSurvivorCount != NewAliveSurvivorCount
+		|| EscapedSurvivorCount != NewEscapedSurvivorCount
+		|| KilledSurvivorCount != NewKilledSurvivorCount;
+
+	AliveSurvivorCount = NewAliveSurvivorCount;
+	EscapedSurvivorCount = NewEscapedSurvivorCount;
+	KilledSurvivorCount = NewKilledSurvivorCount;
+
+	if (bCountsChanged)
+	{
+		OnSurvivorCountChanged.Broadcast(AliveSurvivorCount, EscapedSurvivorCount, KilledSurvivorCount);
+	}
 }

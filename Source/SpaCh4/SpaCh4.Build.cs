@@ -15,13 +15,17 @@ public class SpaCh4 : ModuleRules
 			"UMG",
 			"EnhancedInput",
 			"GameplayTags",
-			"MediaAssets"
+			"MediaAssets",
+			"OnlineBase",
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"OnlineSubsystemEOS"
 		});
 	}
 }
