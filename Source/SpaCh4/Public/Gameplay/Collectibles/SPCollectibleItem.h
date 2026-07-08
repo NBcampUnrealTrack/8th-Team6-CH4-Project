@@ -5,6 +5,8 @@
 #include "Interface/SPInteractable.h"
 #include "SPCollectibleItem.generated.h"
 
+class UTexture2D;
+
 UENUM(BlueprintType)
 enum class ECollectibleSize : uint8
 {
@@ -28,6 +30,7 @@ public:
 
 	int32 GetValue() const { return Value; }
 	ECollectibleSize GetCollectibleSize() const { return CollectibleSize; }
+	TSoftObjectPtr<UTexture2D> GetIcon() const { return Icon; }
 	void SetPickupCollisionEnabled(bool bEnabled);
 	
 protected:
@@ -39,4 +42,7 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	int32 Value = 10;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
+	TSoftObjectPtr<UTexture2D> Icon;
 };
