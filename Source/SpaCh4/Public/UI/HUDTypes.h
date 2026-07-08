@@ -4,6 +4,8 @@
 #include "Inventory/SPInventoryTypes.h"
 #include "HUDTypes.generated.h"
 
+class UTexture2D;
+
 namespace SpaCh4HUD
 {
 	static constexpr int32 InventorySlotCount = 4;
@@ -75,6 +77,9 @@ struct FInventorySlotHUDData
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD")
 	FText ItemName;
+
+	UPROPERTY(BlueprintReadOnly, Category = "HUD")
+	TSoftObjectPtr<UTexture2D> Icon;
 };
 
 USTRUCT(BlueprintType)

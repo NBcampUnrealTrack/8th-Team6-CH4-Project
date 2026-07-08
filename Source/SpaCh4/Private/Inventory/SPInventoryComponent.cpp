@@ -129,6 +129,7 @@ void USPInventoryComponent::SetCollectibleFromItem(const ASPCollectibleItem* Ite
 	Slot.ContentType = EInventorySlotContentType::Collectible;
 	Slot.CollectibleSize = Item->GetCollectibleSize();
 	Slot.CollectibleValue = Item->GetValue();
+	Slot.CollectibleIcon = Item->GetIcon();
 	BroadcastInventoryChanged();
 }
 
@@ -228,6 +229,7 @@ TArray<FInventorySlotHUDData> USPInventoryComponent::BuildInventoryHUDData() con
 			break;
 		case EInventorySlotContentType::Collectible:
 			HUDSlot.ItemName = SPInventoryText::GetCollectibleDisplayName(Slot.CollectibleSize);
+			HUDSlot.Icon = Slot.CollectibleIcon;
 			break;
 		default:
 			HUDSlot.ItemName = FText::GetEmpty();
