@@ -12,6 +12,7 @@ class UTeammateEntryWidget;
 class UWidget;
 class UMaterialInstanceDynamic;
 class AMatchGameState;
+class USPGameHUDStyleData;
 
 UCLASS(Abstract, Blueprintable)
 class SPACH4_API UGameHUDWidget : public UUserWidget
@@ -50,6 +51,10 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Preview")
 	TArray<FPerkHUDData> PreviewPerkData;
+
+	/** 미지정 시 /Game/UI/Data/DA_GameHUDStyle 또는 SPUIStyleLibrary 기본값 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Style")
+	TObjectPtr<USPGameHUDStyleData> VisualStyle;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TArray<TObjectPtr<UTeammateEntryWidget>> TeammateEntries;
@@ -141,6 +146,7 @@ private:
 	void RefreshPerkPanel();
 	void EnsurePreviewDefaults();
 	void SetupDeliveryProgressBars();
+	const USPGameHUDStyleData& GetResolvedStyle() const;
 	void UpdateDeliveryProgress(
 		UWidget* Root,
 		UImage* FrameImage,

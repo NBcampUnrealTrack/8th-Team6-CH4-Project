@@ -2,16 +2,9 @@
 
 #include "Blueprint/UserWidget.h"
 #include "UI/GameHUDWidget.h"
-#include "UObject/ConstructorHelpers.h"
 
 AGameHUD::AGameHUD()
 {
-	static ConstructorHelpers::FClassFinder<UGameHUDWidget> WidgetClassFinder(
-		TEXT("/Game/Blueprints/UI/WBP_GameHUD.WBP_GameHUD_C"));
-	if (WidgetClassFinder.Succeeded())
-	{
-		GameHUDWidgetClass = WidgetClassFinder.Class;
-	}
 }
 
 void AGameHUD::BeginPlay()
@@ -26,7 +19,7 @@ void AGameHUD::BeginPlay()
 
 	if (!GameHUDWidgetClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("AGameHUD: GameHUDWidgetClass is not set."));
+		UE_LOG(LogTemp, Warning, TEXT("AGameHUD: GameHUDWidgetClass is not set. Assign WBP_GameHUD on BP_GameHUD."));
 		return;
 	}
 
@@ -39,7 +32,6 @@ void AGameHUD::BeginPlay()
 	}
 
 	GameHUDWidget->AddToViewport();
-	GameHUDWidget->RefreshAll();
 }
 
 void AGameHUD::RefreshInventoryPanels()

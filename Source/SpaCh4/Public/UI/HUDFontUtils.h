@@ -5,17 +5,12 @@
 
 class UFontFace;
 class UTextBlock;
+class USPUIFontStyleData;
 
 namespace SpaCh4HUD
 {
-	/** Rajdhani — condensed sci-fi HUD typeface (SIL OFL) */
-	inline static const TCHAR* FontSemiBoldPath =
-		TEXT("/Game/UI/HUD/Fonts/Rajdhani-SemiBold.Rajdhani-SemiBold");
-	inline static const TCHAR* FontMediumPath =
-		TEXT("/Game/UI/HUD/Fonts/Rajdhani-Medium.Rajdhani-Medium");
-
-	UFontFace* LoadFontFace(const TCHAR* AssetPath);
-	void ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size);
+	UFontFace* LoadFontFace(const USPUIFontStyleData* StyleOverride, bool bMediumWeight = false);
+	void ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size, const USPUIFontStyleData* StyleOverride = nullptr);
 
 	inline void SetBrushImageSize(FSlateBrush& Brush, const FVector2D& Size)
 	{
