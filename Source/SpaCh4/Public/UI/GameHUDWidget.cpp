@@ -10,7 +10,14 @@
 #include "Systems/MatchGameState.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "UI/HUDFontUtils.h"
+#include "UI/Style/SPUIStyleData.h"
+#include "UI/Style/SPUIStyleLibrary.h"
 #include "UI/TeammateEntryWidget.h"
+
+const USPGameHUDStyleData& UGameHUDWidget::GetResolvedStyle() const
+{
+	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
+}
 
 void UGameHUDWidget::NativePreConstruct()
 {
@@ -30,15 +37,6 @@ void UGameHUDWidget::NativeConstruct()
 
 namespace
 {
-	UTexture2D* LoadDeliveryLabelTexture(const TCHAR* AssetName)
-	{
-		const FString Path = FString::Printf(
-			TEXT("/Game/UI/HUD/Textures/Delivery/%s.%s"),
-			AssetName,
-			AssetName);
-		return LoadObject<UTexture2D>(nullptr, *Path);
-	}
-
 	void ApplyDeliveryRowLabel(UImage* Icon, UTextBlock* Label, UTexture2D* LabelTexture)
 	{
 		if (!Icon || !LabelTexture)
@@ -59,19 +57,6 @@ namespace
 	}
 
 	using SpaCh4HUD::SetBrushImageSize;
-
-	static const TCHAR* DeliveryProgressFrameTexturePathA =
-		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Station_A.T_HUD_Delivery_Station_A");
-	static const TCHAR* DeliveryProgressFrameTexturePathB =
-		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Station_B.T_HUD_Delivery_Station_B");
-	static const TCHAR* DeliveryProgressFillMIPath =
-		TEXT("/Game/UI/HUD/Materials/MI_HUD_DeliveryProgressFill.MI_HUD_DeliveryProgressFill");
-	static const TCHAR* DeliveryProgressFillMaterialPath =
-		TEXT("/Game/UI/HUD/Materials/M_HUD_HealthBarFill.M_HUD_HealthBarFill");
-	static const TCHAR* DeliveryProgressFillTexturePath =
-		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Bar_Fill_Delivery.T_HUD_Bar_Fill_Delivery");
-	static const TCHAR* DeliveryProgressFillTextureFallbackPath =
-		TEXT("/Game/UI/HUD/Textures/Common/T_HUD_Bar_Fill.T_HUD_Bar_Fill");
 
 	/** Design reference size for SourceArt-trimmed station frames (420x76). */
 	static constexpr float DeliveryCompositeWidth = 420.0f;
@@ -158,7 +143,8 @@ namespace
 		UImage* FillImage,
 		TObjectPtr<UMaterialInstanceDynamic>& FillMID,
 		UObject* Outer,
-		const FDeliveryProgressLayout& Layout)
+		const FDeliveryProgressLayout& Layout,
+		const USPGameHUDStyleData& Style)
 	{
 		if (!FillImage)
 		{
@@ -176,10 +162,10 @@ namespace
 			return;
 		}
 
-		UMaterialInterface* FillParent = LoadObject<UMaterialInterface>(nullptr, DeliveryProgressFillMIPath);
+		UMaterialInterface* FillParent = Style.DeliveryProgressFillMaterialInstance;
 		if (!FillParent)
 		{
-			FillParent = LoadObject<UMaterialInterface>(nullptr, DeliveryProgressFillMaterialPath);
+			FillParent = Style.DeliveryProgressFillMaterial;
 		}
 
 		if (FillParent)
@@ -187,11 +173,11 @@ namespace
 			FillMID = UMaterialInstanceDynamic::Create(FillParent, Outer);
 			if (FillMID)
 			{
-				if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTexturePath))
+				if (UTexture2D* FillTexture = Style.DeliveryProgressFillTexture)
 				{
 					FillMID->SetTextureParameterValue(TEXT("FillTexture"), FillTexture);
 				}
-				else if (UTexture2D* FallbackTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTextureFallbackPath))
+				else if (UTexture2D* FallbackTexture = Style.DeliveryProgressFillTextureFallback)
 				{
 					FillMID->SetTextureParameterValue(TEXT("FillTexture"), FallbackTexture);
 				}
@@ -204,7 +190,7 @@ namespace
 			}
 		}
 
-		if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFillTexturePath))
+		if (UTexture2D* FillTexture = Style.DeliveryProgressFillTexture)
 		{
 			FillImage->SetBrushFromTexture(FillTexture, true);
 			FSlateBrush FillBrush = FillImage->GetBrush();
@@ -463,57 +449,28 @@ void UGameHUDWidget::EnsurePreviewDefaults()
 	PreviewTeammateData.Add(TeammateC);
 }
 
-namespace
-{
-	UTexture2D* LoadDeliveryProgressTexture(int32 FilledSegments)
-	{
-		const int32 Clamped = FMath::Clamp(FilledSegments, 0, SpaCh4HUD::DeliveryProgressSegmentCount);
-		const FString Path = FString::Printf(
-			TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Progress_%02d.T_HUD_Delivery_Progress_%02d"),
-			Clamped,
-			Clamped);
-
-		if (UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, *Path))
-		{
-			return Texture;
-		}
-
-		static UTexture2D* FallbackEmpty = LoadObject<UTexture2D>(
-			nullptr,
-			TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Progress_00.T_HUD_Delivery_Progress_00"));
-		if (!FallbackEmpty)
-		{
-			FallbackEmpty = LoadObject<UTexture2D>(
-				nullptr,
-				TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Progress_BG.T_HUD_Delivery_Progress_BG"));
-		}
-		return FallbackEmpty;
-	}
-}
-
 void UGameHUDWidget::SetupDeliveryProgressBars()
 {
-	auto SetupRow = [](
+	const USPGameHUDStyleData& Style = GetResolvedStyle();
+
+	auto SetupRow = [&Style](
 		UImage* FrameImage,
 		UImage* FillImage,
-		const TCHAR* FrameTexturePath,
+		UTexture2D* FrameTexture,
 		TObjectPtr<UMaterialInstanceDynamic>& FillMID,
 		UGameHUDWidget* Outer)
 	{
 		if (FrameImage)
 		{
 			FrameImage->SetColorAndOpacity(FLinearColor::White);
-			if (FrameImage->GetBrush().GetResourceObject() == nullptr)
+			if (FrameImage->GetBrush().GetResourceObject() == nullptr && FrameTexture)
 			{
-				if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, FrameTexturePath))
-				{
-					FrameImage->SetBrushFromTexture(FrameTexture, true);
-				}
+				FrameImage->SetBrushFromTexture(FrameTexture, true);
 			}
 		}
 
 		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
-		SetupDeliveryProgressFillImage(FillImage, FillMID, Outer, Layout);
+		SetupDeliveryProgressFillImage(FillImage, FillMID, Outer, Layout, Style);
 		ApplyDeliveryFillOverlaySlot(FillImage, Layout);
 	};
 
@@ -529,14 +486,14 @@ void UGameHUDWidget::SetupDeliveryProgressBars()
 
 	if (!DeliveryProgressFillA && DeliveryProgressBarA)
 	{
-		if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFrameTexturePathA))
+		if (UTexture2D* FrameTexture = Style.DeliveryStationFrameA)
 		{
 			DeliveryProgressBarA->SetBrushFromTexture(FrameTexture, true);
 		}
 	}
 	if (!DeliveryProgressFillB && DeliveryProgressBarB)
 	{
-		if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, DeliveryProgressFrameTexturePathB))
+		if (UTexture2D* FrameTexture = Style.DeliveryStationFrameB)
 		{
 			DeliveryProgressBarB->SetBrushFromTexture(FrameTexture, true);
 		}
@@ -545,13 +502,13 @@ void UGameHUDWidget::SetupDeliveryProgressBars()
 	SetupRow(
 		DeliveryProgressBGA,
 		DeliveryProgressFillA,
-		DeliveryProgressFrameTexturePathA,
+		Style.DeliveryStationFrameA,
 		DeliveryProgressFillMIDA,
 		this);
 	SetupRow(
 		DeliveryProgressBGB,
 		DeliveryProgressFillB,
-		DeliveryProgressFrameTexturePathB,
+		Style.DeliveryStationFrameB,
 		DeliveryProgressFillMIDB,
 		this);
 }
@@ -569,6 +526,8 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 	{
 		return;
 	}
+
+	const USPGameHUDStyleData& Style = GetResolvedStyle();
 
 	const int32 SegmentCount = StackWidgets.Num() > 0
 		? StackWidgets.Num()
@@ -592,7 +551,7 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		{
 			if (!DeliveryProgressFillMIDA)
 			{
-				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDA, this, Layout);
+				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDA, this, Layout, Style);
 			}
 			else
 			{
@@ -604,7 +563,7 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		{
 			if (!DeliveryProgressFillMIDB)
 			{
-				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDB, this, Layout);
+				SetupDeliveryProgressFillImage(FillImage, DeliveryProgressFillMIDB, this, Layout, Style);
 			}
 			else
 			{
@@ -652,11 +611,10 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 
 		if (bLegacyUsesMaterial)
 		{
-			const TCHAR* FrameTexturePath =
-				(LegacyBar == DeliveryProgressBarA)
-					? DeliveryProgressFrameTexturePathA
-					: DeliveryProgressFrameTexturePathB;
-			if (UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, FrameTexturePath))
+			UTexture2D* FrameTexture = (LegacyBar == DeliveryProgressBarA)
+				? Style.DeliveryStationFrameA
+				: Style.DeliveryStationFrameB;
+			if (FrameTexture)
 			{
 				LegacyBar->SetBrushFromTexture(FrameTexture, true);
 			}
@@ -665,7 +623,7 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 			LegacyBar->SetOpacity(1.0f);
 			LegacyBar->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
-		else if (UTexture2D* ProgressTexture = LoadDeliveryProgressTexture(FilledSegments))
+		else if (UTexture2D* ProgressTexture = Style.GetDeliveryProgressSegmentTexture(FilledSegments))
 		{
 			LegacyBar->SetBrushFromTexture(ProgressTexture, true);
 			LegacyBar->SetOpacity(1.0f);
@@ -687,24 +645,8 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		return;
 	}
 
-	static UTexture2D* EmptyTexture = LoadObject<UTexture2D>(
-		nullptr,
-		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Stack_Empty.T_HUD_Delivery_Stack_Empty"));
-	static UTexture2D* FilledTexture = LoadObject<UTexture2D>(
-		nullptr,
-		TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Stack_Filled.T_HUD_Delivery_Stack_Filled"));
-	if (!EmptyTexture)
-	{
-		EmptyTexture = LoadObject<UTexture2D>(
-			nullptr,
-			TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Delivery_Progress_BG.T_HUD_Delivery_Progress_BG"));
-	}
-	if (!FilledTexture)
-	{
-		FilledTexture = LoadObject<UTexture2D>(
-			nullptr,
-			TEXT("/Game/UI/HUD/Textures/Common/T_HUD_Bar_Fill.T_HUD_Bar_Fill"));
-	}
+	UTexture2D* EmptyTexture = Style.DeliveryStackEmpty ? Style.DeliveryStackEmpty : Style.DeliveryProgressBackground;
+	UTexture2D* FilledTexture = Style.DeliveryStackFilled ? Style.DeliveryStackFilled : Style.DeliveryProgressFillTextureFallback;
 
 	for (int32 Index = 0; Index < StackWidgets.Num(); ++Index)
 	{
@@ -794,23 +736,13 @@ void UGameHUDWidget::RefreshInventoryPanel()
 
 	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
 	{
-		UImage* SlotImage = InventorySlots[Index];
-		if (!SlotImage)
+		if (!InventorySlots[Index])
 		{
 			continue;
 		}
 
-		const bool bValidData = InventoryData.IsValidIndex(Index);
-		const bool bOccupied = bValidData && InventoryData[Index].bIsOccupied;
-		SlotImage->SetOpacity(bOccupied ? 1.0f : 0.45f);
-
-		if (bValidData && InventoryData[Index].ContentType == EInventorySlotContentType::Consumable)
-		{
-			continue;
-		}
-
-		UTexture2D* SlotIcon = bOccupied ? InventoryData[Index].Icon.LoadSynchronous() : nullptr;
-		SlotImage->SetBrushFromTexture(SlotIcon, false);
+		const bool bOccupied = InventoryData.IsValidIndex(Index) && InventoryData[Index].bIsOccupied;
+		InventorySlots[Index]->SetOpacity(bOccupied ? 1.0f : 0.45f);
 	}
 }
 

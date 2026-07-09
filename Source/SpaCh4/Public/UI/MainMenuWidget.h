@@ -7,6 +7,7 @@
 class UButton;
 class UImage;
 class UTextBlock;
+class USPMainMenuStyleData;
 
 UCLASS(Abstract, Blueprintable)
 class SPACH4_API UMainMenuWidget : public UUserWidget
@@ -19,12 +20,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MainMenu")
 	void OpenKillerLobby();
-
-	UFUNCTION(BlueprintCallable, Category = "MainMenu|Online")
-	void LoginToEOS();
-
-	UFUNCTION(BlueprintCallable, Category = "MainMenu|Online")
-	void StartOnlineMatchmaking();
 
 	UFUNCTION(BlueprintCallable, Category = "MainMenu")
 	void OpenSettings();
@@ -59,7 +54,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Travel")
 	FString KillerLobbyLevelPath = TEXT("/Game/Developers/qkrwl/Collections/Maps/TestLobbyLevel");
 
+	/** 미지정 시 /Game/UI/Data/DA_MainMenuStyle 또는 SPUIStyleLibrary 기본값 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Style")
+	TObjectPtr<USPMainMenuStyleData> VisualStyle;
+
 private:
+	const USPMainMenuStyleData& GetResolvedStyle() const;
+
 	UFUNCTION()
 	void HandleSurvivorClicked();
 
@@ -72,14 +73,7 @@ private:
 	UFUNCTION()
 	void HandleQuitClicked();
 
-	UFUNCTION()
-	void HandleOnlineLoginCompleted(bool bWasSuccessful, const FString& StatusMessage);
-
-	UFUNCTION()
-	void HandleMatchmakingStatusChanged(bool bWasSuccessful, const FString& StatusMessage);
-
 	void BindMenuButtons();
-	void BindOnlineEvents();
 	void ApplyMenuLabels();
 	void ApplyMenuTitleImage();
 	void ApplyMenuButtonStyles();

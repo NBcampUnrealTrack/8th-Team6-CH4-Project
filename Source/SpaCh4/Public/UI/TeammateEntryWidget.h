@@ -10,6 +10,7 @@ class UMaterialInstanceDynamic;
 class UTextBlock;
 class UTexture2D;
 class UWidget;
+class USPGameHUDStyleData;
 
 UCLASS(Abstract, Blueprintable)
 class SPACH4_API UTeammateEntryWidget : public UUserWidget
@@ -68,6 +69,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Portrait", meta = (ClampMin = "0"))
 	FVector2D PortraitFrameDisplaySize = FVector2D::ZeroVector;
 
+	/** 미지정 시 SPUIStyleLibrary 기본값 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Style")
+	TObjectPtr<USPGameHUDStyleData> VisualStyle;
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
 	void OnDisplayStateChanged(ESurvivorDisplayState NewState);
 
@@ -96,6 +101,7 @@ private:
 	void UpdateDownedHealth(float HealthPercent, bool bShowBar);
 	void UpdatePortraitFrame(ESurvivorDisplayState State);
 	void UpdatePortraitImage(ESurvivorDisplayState State);
+	const USPGameHUDStyleData& GetResolvedStyle() const;
 	UTexture2D* ResolvePortraitTexture(ESurvivorDisplayState State) const;
 	UTexture2D* ResolvePortraitSlotTexture() const;
 };

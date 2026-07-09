@@ -8,35 +8,14 @@
 #include "Engine/Texture2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
-#include "Systems/SPEOSSessionSubsystem.h"
 #include "Styling/SlateTypes.h"
 #include "UI/HUDFontUtils.h"
+#include "UI/Style/SPUIStyleData.h"
+#include "UI/Style/SPUIStyleLibrary.h"
 
-namespace
+const USPMainMenuStyleData& UMainMenuWidget::GetResolvedStyle() const
 {
-	static const TCHAR* SurvivorButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SURVIVOR.T_MainMenu_Btn_SURVIVOR");
-	static const TCHAR* KillerButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_KILLER.T_MainMenu_Btn_KILLER");
-	static const TCHAR* SettingsButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SETTINGS.T_MainMenu_Btn_SETTINGS");
-	static const TCHAR* QuitButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT.T_MainMenu_Btn_QUIT");
-	static const TCHAR* SurvivorButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SURVIVOR_Hover.T_MainMenu_Btn_SURVIVOR_Hover");
-	static const TCHAR* KillerButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_KILLER_Hover.T_MainMenu_Btn_KILLER_Hover");
-	static const TCHAR* SettingsButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SETTINGS_Hover.T_MainMenu_Btn_SETTINGS_Hover");
-	static const TCHAR* QuitButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT_Hover.T_MainMenu_Btn_QUIT_Hover");
-	static const TCHAR* TitleTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Title.T_MainMenu_Title");
-
-	UTexture2D* LoadMenuTexture(const TCHAR* AssetPath)
-	{
-		return Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, AssetPath));
-	}
+	return SPUIStyleLibrary::ResolveMainMenuStyle(VisualStyle);
 }
 
 void UMainMenuWidget::NativeConstruct()
@@ -69,12 +48,10 @@ void UMainMenuWidget::NativeConstruct()
 	}
 
 	BindMenuButtons();
-	BindOnlineEvents();
 	ApplyMenuLabels();
 	EnsureTitleOnTop();
 	ApplyMenuTitleImage();
 	ApplyMenuButtonStyles();
-	LoginToEOS();
 }
 
 void UMainMenuWidget::BindMenuButtons()
@@ -98,21 +75,6 @@ void UMainMenuWidget::BindMenuButtons()
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleQuitClicked);
 	}
-}
-
-void UMainMenuWidget::BindOnlineEvents()
-{
-	UGameInstance* GameInstance = GetGameInstance();
-	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
-	if (!SessionSubsystem)
-	{
-		return;
-	}
-
-	SessionSubsystem->OnLoginCompleted.RemoveDynamic(this, &UMainMenuWidget::HandleOnlineLoginCompleted);
-	SessionSubsystem->OnLoginCompleted.AddDynamic(this, &UMainMenuWidget::HandleOnlineLoginCompleted);
-	SessionSubsystem->OnMatchmakingStatusChanged.RemoveDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
-	SessionSubsystem->OnMatchmakingStatusChanged.AddDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
 }
 
 void UMainMenuWidget::ApplyMenuLabels()
@@ -169,7 +131,6 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 		return;
 	}
 
-	// Designer / WBP brush settings win. Only apply project fallback when nothing is assigned.
 	const FSlateBrush& ExistingBrush = TitleImage->GetBrush();
 	const FVector2D DesignerImageSize = ExistingBrush.ImageSize;
 	const bool bHasDesignerTexture = ExistingBrush.GetResourceObject() != nullptr;
@@ -186,7 +147,8 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 		return;
 	}
 
-	UTexture2D* Texture = LoadMenuTexture(TitleTexturePath);
+	const USPMainMenuStyleData& Style = GetResolvedStyle();
+	UTexture2D* Texture = Style.TitleTexture;
 	if (!Texture)
 	{
 		return;
@@ -252,30 +214,12 @@ void UMainMenuWidget::ConfigureButtonStyle(
 
 void UMainMenuWidget::ApplyMenuButtonStyles()
 {
-	ConfigureButtonStyle(
-		SurvivorButton,
-		LoadMenuTexture(SurvivorButtonTexturePath),
-		LoadMenuTexture(SurvivorButtonHoverTexturePath),
-		52.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		KillerButton,
-		LoadMenuTexture(KillerButtonTexturePath),
-		LoadMenuTexture(KillerButtonHoverTexturePath),
-		52.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		SettingsButton,
-		LoadMenuTexture(SettingsButtonTexturePath),
-		LoadMenuTexture(SettingsButtonHoverTexturePath),
-		44.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		QuitButton,
-		LoadMenuTexture(QuitButtonTexturePath),
-		LoadMenuTexture(QuitButtonHoverTexturePath),
-		44.0f,
-		1.12f);
+	const USPMainMenuStyleData& Style = GetResolvedStyle();
+
+	ConfigureButtonStyle(SurvivorButton, Style.SurvivorButtonNormal, Style.SurvivorButtonHovered, 52.0f, 1.12f);
+	ConfigureButtonStyle(KillerButton, Style.KillerButtonNormal, Style.KillerButtonHovered, 52.0f, 1.12f);
+	ConfigureButtonStyle(SettingsButton, Style.SettingsButtonNormal, Style.SettingsButtonHovered, 44.0f, 1.12f);
+	ConfigureButtonStyle(QuitButton, Style.QuitButtonNormal, Style.QuitButtonHovered, 44.0f, 1.12f);
 
 	if (UTextBlock* LegacyText = Cast<UTextBlock>(GetWidgetFromName(TEXT("SurvivorButtonText"))))
 	{
@@ -317,44 +261,12 @@ void UMainMenuWidget::HandleQuitClicked()
 
 void UMainMenuWidget::OpenSurvivorLobby()
 {
-	StartOnlineMatchmaking();
+	OpenLevelAtPath(SurvivorLobbyLevelPath);
 }
 
 void UMainMenuWidget::OpenKillerLobby()
 {
-	StartOnlineMatchmaking();
-}
-
-void UMainMenuWidget::LoginToEOS()
-{
-	UGameInstance* GameInstance = GetGameInstance();
-	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
-	if (SessionSubsystem)
-	{
-		SessionSubsystem->Login();
-	}
-}
-
-void UMainMenuWidget::StartOnlineMatchmaking()
-{
-	UGameInstance* GameInstance = GetGameInstance();
-	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
-	if (!SessionSubsystem)
-	{
-		return;
-	}
-
-	SessionSubsystem->StartMatchmaking(SurvivorLobbyLevelPath);
-}
-
-void UMainMenuWidget::HandleOnlineLoginCompleted(bool bWasSuccessful, const FString& StatusMessage)
-{
-	UE_LOG(LogTemp, Log, TEXT("MainMenu EOS login: %s (%s)"), bWasSuccessful ? TEXT("Success") : TEXT("Failed"), *StatusMessage);
-}
-
-void UMainMenuWidget::HandleMatchmakingStatusChanged(bool bWasSuccessful, const FString& StatusMessage)
-{
-	UE_LOG(LogTemp, Log, TEXT("MainMenu matchmaking: %s (%s)"), bWasSuccessful ? TEXT("Progress") : TEXT("Failed"), *StatusMessage);
+	OpenLevelAtPath(KillerLobbyLevelPath);
 }
 
 void UMainMenuWidget::OpenSettings()
