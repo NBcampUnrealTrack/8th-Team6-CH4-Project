@@ -8,6 +8,8 @@
 #include "Engine/Texture2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Player/MainMenuPlayerController.h"
+#include "Systems/LobbyGameState.h"
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "Styling/SlateTypes.h"
 #include "UI/HUDFontUtils.h"
@@ -63,6 +65,14 @@ void UMainMenuWidget::NativeConstruct()
 	{
 		QuitButton = Cast<UButton>(GetWidgetFromName(TEXT("QuitButton")));
 	}
+	if (!CancelMatchmakingButton)
+	{
+		CancelMatchmakingButton = Cast<UButton>(GetWidgetFromName(TEXT("CancelMatchmakingButton")));
+	}
+	if (!MatchmakingStatusText)
+	{
+		MatchmakingStatusText = Cast<UTextBlock>(GetWidgetFromName(TEXT("MatchmakingStatusText")));
+	}
 	if (!TitleImage)
 	{
 		TitleImage = Cast<UImage>(GetWidgetFromName(TEXT("TitleImage")));
@@ -70,10 +80,21 @@ void UMainMenuWidget::NativeConstruct()
 
 	BindMenuButtons();
 	BindOnlineEvents();
+	BindLobbyStateEvents();
 	ApplyMenuLabels();
 	EnsureTitleOnTop();
 	ApplyMenuTitleImage();
 	ApplyMenuButtonStyles();
+
+	UGameInstance* GameInstance = GetGameInstance();
+	const USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	const bool bIsMatchmaking = SessionSubsystem && SessionSubsystem->IsMatchmakingActive();
+	RefreshMatchmakingControls(bIsMatchmaking);
+	if (bIsMatchmaking)
+	{
+		UpdateMatchmakingStatus(TEXT("현재 생존자 0명, 살인마 0명 대기중"), false);
+	}
+
 	LoginToEOS();
 }
 
@@ -98,6 +119,11 @@ void UMainMenuWidget::BindMenuButtons()
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleQuitClicked);
 	}
+
+	if (CancelMatchmakingButton)
+	{
+		CancelMatchmakingButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleCancelMatchmakingClicked);
+	}
 }
 
 void UMainMenuWidget::BindOnlineEvents()
@@ -113,6 +139,25 @@ void UMainMenuWidget::BindOnlineEvents()
 	SessionSubsystem->OnLoginCompleted.AddDynamic(this, &UMainMenuWidget::HandleOnlineLoginCompleted);
 	SessionSubsystem->OnMatchmakingStatusChanged.RemoveDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
 	SessionSubsystem->OnMatchmakingStatusChanged.AddDynamic(this, &UMainMenuWidget::HandleMatchmakingStatusChanged);
+}
+
+void UMainMenuWidget::BindLobbyStateEvents()
+{
+	ALobbyGameState* LobbyGameState = GetWorld() ? GetWorld()->GetGameState<ALobbyGameState>() : nullptr;
+	if (!LobbyGameState)
+	{
+		return;
+	}
+
+	LobbyGameState->OnLobbyRoleCountChanged.RemoveDynamic(this, &UMainMenuWidget::HandleLobbyRoleCountChanged);
+	LobbyGameState->OnLobbyRoleCountChanged.AddDynamic(this, &UMainMenuWidget::HandleLobbyRoleCountChanged);
+	LobbyGameState->OnLobbyPhaseChanged.RemoveDynamic(this, &UMainMenuWidget::HandleLobbyPhaseChanged);
+	LobbyGameState->OnLobbyPhaseChanged.AddDynamic(this, &UMainMenuWidget::HandleLobbyPhaseChanged);
+	LobbyGameState->OnLobbyCountdownChanged.RemoveDynamic(this, &UMainMenuWidget::HandleLobbyCountdownChanged);
+	LobbyGameState->OnLobbyCountdownChanged.AddDynamic(this, &UMainMenuWidget::HandleLobbyCountdownChanged);
+
+	HandleLobbyRoleCountChanged(LobbyGameState->GetSurvivorCount(), LobbyGameState->GetKillerCount());
+	HandleLobbyPhaseChanged(LobbyGameState->GetLobbyPhase());
 }
 
 void UMainMenuWidget::ApplyMenuLabels()
@@ -297,11 +342,13 @@ void UMainMenuWidget::ApplyMenuButtonStyles()
 
 void UMainMenuWidget::HandleSurvivorClicked()
 {
+	SelectedMatchmakingRole = ELobbyPlayerRole::Survivor;
 	OpenSurvivorLobby();
 }
 
 void UMainMenuWidget::HandleKillerClicked()
 {
+	SelectedMatchmakingRole = ELobbyPlayerRole::Killer;
 	OpenKillerLobby();
 }
 
@@ -315,14 +362,19 @@ void UMainMenuWidget::HandleQuitClicked()
 	QuitGame();
 }
 
+void UMainMenuWidget::HandleCancelMatchmakingClicked()
+{
+	CancelOnlineMatchmaking();
+}
+
 void UMainMenuWidget::OpenSurvivorLobby()
 {
-	StartOnlineMatchmaking();
+	StartOnlineMatchmakingAsRole(ELobbyPlayerRole::Survivor);
 }
 
 void UMainMenuWidget::OpenKillerLobby()
 {
-	StartOnlineMatchmaking();
+	StartOnlineMatchmakingAsRole(ELobbyPlayerRole::Killer);
 }
 
 void UMainMenuWidget::LoginToEOS()
@@ -337,6 +389,11 @@ void UMainMenuWidget::LoginToEOS()
 
 void UMainMenuWidget::StartOnlineMatchmaking()
 {
+	StartOnlineMatchmakingAsRole(SelectedMatchmakingRole);
+}
+
+void UMainMenuWidget::StartOnlineMatchmakingAsRole(ELobbyPlayerRole SelectedRole)
+{
 	UGameInstance* GameInstance = GetGameInstance();
 	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
 	if (!SessionSubsystem)
@@ -344,7 +401,35 @@ void UMainMenuWidget::StartOnlineMatchmaking()
 		return;
 	}
 
-	SessionSubsystem->StartMatchmaking(SurvivorLobbyLevelPath);
+	SelectedMatchmakingRole = SelectedRole;
+	RefreshMatchmakingControls(true);
+	UpdateMatchmakingStatus(TEXT("세션 찾는중"), false);
+	SessionSubsystem->StartMatchmaking(SelectedRole, MainMenuLevelPath);
+}
+
+void UMainMenuWidget::CancelOnlineMatchmaking()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (SessionSubsystem)
+	{
+		SessionSubsystem->CancelMatchmaking();
+	}
+
+	SelectedMatchmakingRole = ELobbyPlayerRole::None;
+	RefreshMatchmakingControls(false);
+}
+
+void UMainMenuWidget::UpdateMatchmakingStatus(const FString& StatusMessage, bool bIsError)
+{
+	if (MatchmakingStatusText)
+	{
+		MatchmakingStatusText->SetText(FText::FromString(StatusMessage));
+		MatchmakingStatusText->SetVisibility(StatusMessage.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+		MatchmakingStatusText->SetColorAndOpacity(bIsError ? FSlateColor(FLinearColor::Red) : FSlateColor(FLinearColor::White));
+	}
+
+	OnMainMenuMatchmakingStatusChanged.Broadcast(!bIsError, StatusMessage);
 }
 
 void UMainMenuWidget::HandleOnlineLoginCompleted(bool bWasSuccessful, const FString& StatusMessage)
@@ -355,6 +440,39 @@ void UMainMenuWidget::HandleOnlineLoginCompleted(bool bWasSuccessful, const FStr
 void UMainMenuWidget::HandleMatchmakingStatusChanged(bool bWasSuccessful, const FString& StatusMessage)
 {
 	UE_LOG(LogTemp, Log, TEXT("MainMenu matchmaking: %s (%s)"), bWasSuccessful ? TEXT("Progress") : TEXT("Failed"), *StatusMessage);
+	UpdateMatchmakingStatus(StatusMessage, !bWasSuccessful);
+	if (!bWasSuccessful)
+	{
+		RefreshMatchmakingControls(false);
+	}
+}
+
+void UMainMenuWidget::HandleLobbyRoleCountChanged(int32 SurvivorCount, int32 KillerCount)
+{
+	UpdateRoleCountStatus(SurvivorCount, KillerCount);
+	OnMainMenuMatchmakingRoleCountChanged.Broadcast(SurvivorCount, KillerCount);
+}
+
+void UMainMenuWidget::HandleLobbyPhaseChanged(ELobbyPhase NewPhase)
+{
+	if (NewPhase == ELobbyPhase::Traveling)
+	{
+		UpdateMatchmakingStatus(TEXT("게임 입장중"), false);
+		return;
+	}
+
+	if (NewPhase == ELobbyPhase::Countdown)
+	{
+		UpdateMatchmakingStatus(TEXT("역할 정원 충족. 게임 입장 준비중"), false);
+	}
+}
+
+void UMainMenuWidget::HandleLobbyCountdownChanged(int32 CountdownRemainingTime)
+{
+	if (CountdownRemainingTime > 0)
+	{
+		UpdateMatchmakingStatus(FString::Printf(TEXT("게임 입장까지 %d초"), CountdownRemainingTime), false);
+	}
 }
 
 void UMainMenuWidget::OpenSettings()
@@ -370,6 +488,49 @@ void UMainMenuWidget::OpenLevelAtPath(const FString& LevelPath)
 	}
 
 	UGameplayStatics::OpenLevel(this, FName(*LevelPath));
+}
+
+void UMainMenuWidget::RefreshMatchmakingControls(bool bIsMatchmaking)
+{
+	if (SurvivorButton)
+	{
+		SurvivorButton->SetIsEnabled(!bIsMatchmaking);
+	}
+	if (KillerButton)
+	{
+		KillerButton->SetIsEnabled(!bIsMatchmaking);
+	}
+	if (CancelMatchmakingButton)
+	{
+		CancelMatchmakingButton->SetVisibility(bIsMatchmaking ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UMainMenuWidget::UpdateRoleCountStatus(int32 SurvivorCount, int32 KillerCount)
+{
+	const ALobbyGameState* LobbyGameState = GetWorld() ? GetWorld()->GetGameState<ALobbyGameState>() : nullptr;
+	if (!LobbyGameState || !MatchmakingStatusText)
+	{
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	const USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if ((!SessionSubsystem || !SessionSubsystem->IsMatchmakingActive()) && SelectedMatchmakingRole == ELobbyPlayerRole::None)
+	{
+		return;
+	}
+
+	if (LobbyGameState->GetLobbyPhase() == ELobbyPhase::WaitingForPlayers)
+	{
+		MatchmakingStatusText->SetText(FText::FromString(FString::Printf(
+			TEXT("현재 생존자 %d/%d명, 살인마 %d/%d명 대기중"),
+			SurvivorCount,
+			LobbyGameState->GetSurvivorLimit(),
+			KillerCount,
+			LobbyGameState->GetKillerLimit())));
+		MatchmakingStatusText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
 }
 
 void UMainMenuWidget::QuitGame()
