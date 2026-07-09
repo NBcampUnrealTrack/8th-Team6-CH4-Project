@@ -28,6 +28,8 @@ public:
 	virtual bool IsInteractable_Implementation() const override;
 
 	bool IsActivated() const { return bIsActivated; }
+	float GetOpenProgress() const { return OpenProgress; }
+	float GetOpenDuration() const { return OpenDuration; }
 
 	void SetOpener(ASurvivorCharacter* Opener);
 	void ClearOpener(ASurvivorCharacter* Opener);

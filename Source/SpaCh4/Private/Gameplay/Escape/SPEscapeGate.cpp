@@ -1,6 +1,7 @@
 #include "Gameplay/Escape/SPEscapeGate.h"
 
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/SPEscapeLeverComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -91,6 +92,10 @@ void ASPEscapeGate::Tick(float DeltaSeconds)
 
 		if (ASurvivorCharacter* Opener = CurrentOpener.Get())
 		{
+			if (USPEscapeLeverComponent* LeverComponent = Opener->GetEscapeLeverComponent())
+			{
+				LeverComponent->EndLeverChannel(true);
+			}
 			Opener->EndEscapeChanneling();
 		}
 		CurrentOpener = nullptr;
