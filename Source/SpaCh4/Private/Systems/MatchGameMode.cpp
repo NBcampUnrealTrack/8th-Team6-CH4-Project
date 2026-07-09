@@ -240,7 +240,7 @@ bool AMatchGameMode::CanSpawnHatch() const
 	return IsValid(MatchGameState) && MatchGameState->CanSpawnHatch();
 }
 
-void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorId)
+void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorNickname)
 {
 	if (!HasAuthority())
 	{
@@ -253,13 +253,13 @@ void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorId)
 		return;
 	}
 
-	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Escaped);
+	RegisterSurvivorStateChanged(SurvivorNickname, ESurvivorState::Escaped);
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
 
-void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorId)
+void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorNickname)
 {
 	if (!HasAuthority())
 	{
@@ -272,13 +272,13 @@ void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorId)
 		return;
 	}
 
-	RegisterSurvivorStateChanged(SurvivorId, ESurvivorState::Dead);
+	RegisterSurvivorStateChanged(SurvivorNickname, ESurvivorState::Dead);
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
 
-void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorId, ESurvivorState NewSurvivorState)
+void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorNickname, ESurvivorState NewSurvivorState)
 {
 	if (!HasAuthority())
 	{
@@ -291,7 +291,7 @@ void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorId, ESurvivorSta
 		return;
 	}
 
-	MatchGameState->SetSurvivorState(SurvivorId, NewSurvivorState);
+	MatchGameState->SetSurvivorState(SurvivorNickname, NewSurvivorState);
 }
 
 EMatchResult AMatchGameMode::CalculateMatchResult() const

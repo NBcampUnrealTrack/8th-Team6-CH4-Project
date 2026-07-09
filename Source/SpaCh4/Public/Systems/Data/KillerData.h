@@ -9,7 +9,7 @@
 /**
  * 
  */
-UCLASS()
+UCLASS(BlueprintType)
 class SPACH4_API UKillerData : public UDataAsset
 {
 	GENERATED_BODY()

@@ -37,8 +37,12 @@ struct FSurvivorMatchState
 	
 	// 생존자 이름(닉네임)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
-	FName SurvivorId = NAME_None;
-
+	FName Nickname = NAME_None;
+	
+	// Cage 횟수
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
+	int32 CagedCount = 0;
+	
 	// 생존자 상태
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
@@ -63,6 +67,10 @@ struct FMatchPlayerState
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
+	
+	// Cage 횟수
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
+	int32 CagedCount = 0;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMatchPhaseChangedSignature, EMatchPhase, MatchPhase);
@@ -128,7 +136,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Delivery")
 	float GetDeliveryProgress() const;
-
+	
+	
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Escape")
 	bool CanActivateEscapeGates() const;
 
@@ -143,6 +152,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
 	int32 GetKilledSurvivorCount() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
+	int32 GetPlayerCagedCount(FName SurvivorNickname) const;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
 	TArray<FSurvivorMatchState> GetSurvivorStates() const;
@@ -163,7 +175,7 @@ public:
 	void SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEscapedSurvivorCount, int32 NewKilledSurvivorCount);
 	void RegisterMatchPlayer(int32 PlayerId, const FString& Nickname, ELobbyPlayerRole PlayerRole);
 	void SetMatchPlayerConnected(FName Nickname, bool bNewIsConnected);
-	void SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState);
+	void SetSurvivorState(FName SurvivorNickname, ESurvivorState NewSurvivorState);
 
 	// 진행상황 갱신 EMatchPhase(진행, 탈출구, 종료)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")
