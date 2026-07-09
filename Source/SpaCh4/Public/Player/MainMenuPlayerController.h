@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Systems/LobbyGameState.h"
 #include "MainMenuPlayerController.generated.h"
 
 UCLASS()
@@ -11,6 +12,21 @@ class SPACH4_API AMainMenuPlayerController : public APlayerController
 
 public:
 	AMainMenuPlayerController();
+
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Matchmaking")
+	void SubmitPendingMatchmakingRole();
+
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Matchmaking")
+	void SubmitMatchmakingRole(ELobbyPlayerRole SelectedRole, const FString& Nickname);
+
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Matchmaking")
+	void CancelMainMenuMatchmaking();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSubmitMainMenuMatchmakingRole(ELobbyPlayerRole SelectedRole, const FString& Nickname);
+
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveMainMenuMatchmakingStatus(bool bWasSuccessful, const FString& StatusMessage);
 
 protected:
 	virtual void BeginPlay() override;

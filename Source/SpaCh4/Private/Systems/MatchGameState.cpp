@@ -144,6 +144,18 @@ int32 AMatchGameState::GetKilledSurvivorCount() const
 	return KilledSurvivorCount;
 }
 
+int32 AMatchGameState::GetPlayerCagedCount(FName SurvivorNickname) const
+{
+	for (const FMatchPlayerState& MatchPlayer : MatchPlayers)
+	{
+		if (MatchPlayer.Nickname == SurvivorNickname)
+		{
+			return MatchPlayer.CagedCount;
+		}
+	}
+	return 0;
+}
+
 TArray<FSurvivorMatchState> AMatchGameState::GetSurvivorStates() const
 {
 	TArray<FSurvivorMatchState> SurvivorStates;
@@ -155,7 +167,8 @@ TArray<FSurvivorMatchState> AMatchGameState::GetSurvivorStates() const
 		}
 
 		FSurvivorMatchState SurvivorMatchState;
-		SurvivorMatchState.SurvivorId = FName(*MatchPlayer.Nickname);
+		SurvivorMatchState.Nickname = FName(*MatchPlayer.Nickname);
+		SurvivorMatchState.CagedCount = MatchPlayer.CagedCount;
 		SurvivorMatchState.SurvivorState = MatchPlayer.SurvivorState;
 		SurvivorStates.Add(SurvivorMatchState);
 	}
@@ -340,24 +353,27 @@ void AMatchGameState::SetMatchPlayerConnected(FName Nickname, bool bNewIsConnect
 	}
 }
 
-void AMatchGameState::SetSurvivorState(FName SurvivorId, ESurvivorState NewSurvivorState)
+void AMatchGameState::SetSurvivorState(FName SurvivorNickname, ESurvivorState NewSurvivorState)
 {
-	if (SurvivorId.IsNone())
+	if (SurvivorNickname.IsNone())
 	{
 		return;
 	}
 
 	for (FMatchPlayerState& MatchPlayer : MatchPlayers)
 	{
-		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Survivor && FName(*MatchPlayer.Nickname) == SurvivorId)
+		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Survivor && FName(*MatchPlayer.Nickname) == SurvivorNickname)
 		{
 			const UEnum* CharStateEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("ESurvivorState"), true);
 			if (CharStateEnum)
 			{
 				FString EnumToString = CharStateEnum->GetNameStringByValue((int64)NewSurvivorState);
-				UE_LOG(LogTemp, Warning, TEXT("Set Player %s State to %s"), *SurvivorId.ToString(), *EnumToString);
+				UE_LOG(LogTemp, Warning, TEXT("Set Player %s State to %s"), *SurvivorNickname.ToString(), *EnumToString);
 			}
 			MatchPlayer.SurvivorState = NewSurvivorState;
+			// 감금당할떄 카운트 1 증가.
+			if (NewSurvivorState == ESurvivorState::Caged)
+				MatchPlayer.CagedCount+=1;
 			BroadcastMatchPlayersChanged();
 			return;
 		}

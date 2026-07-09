@@ -33,7 +33,6 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Balance|Escape")
 	int32 GetHatchRequiredDeliveredValue() const;
 
-	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Balance|Players")
 	int32 InitialSurvivorCount = 3;
 	
