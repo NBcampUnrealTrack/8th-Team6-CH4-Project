@@ -192,7 +192,30 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		{
 			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ASurvivorCharacter::ToggleCrouch);
 		}
+
+		if (InputConfig)
+		{
+			for (int32 SlotIndex = 0; SlotIndex < InputConfig->SelectSlotActions.Num(); ++SlotIndex)
+			{
+				if (UInputAction* SlotAction = InputConfig->SelectSlotActions[SlotIndex].Get())
+				{
+					EnhancedInput->BindAction(SlotAction, ETriggerEvent::Started, this, &ASurvivorCharacter::SelectSlot, SlotIndex);
+				}
+			}
+		}
 	}
+}
+
+void ASurvivorCharacter::SelectSlot(int32 Index)
+{
+	SelectedSlotIndex = Index;
+	Server_SelectSlot(Index);
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::Server_SelectSlot_Implementation(int32 Index)
+{
+	SelectedSlotIndex = Index;
 }
 
 void ASurvivorCharacter::PossessedBy(AController* NewController)

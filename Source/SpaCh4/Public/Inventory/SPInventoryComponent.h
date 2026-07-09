@@ -35,10 +35,17 @@ public:
 	bool RemoveConsumable(EConsumableItemType ItemType);
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
-	void SetCollectibleFromItem(const ASPCollectibleItem* Item);
+	void SetCollectibleFromItem(ASPCollectibleItem* Item);
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	void ClearCollectible();
+
+	bool HasFreeSlot() const;
+	bool HasAnyCollectible() const;
+	bool IsSlotOccupied(int32 Index) const;
+	bool IsSlotCollectible(int32 Index) const;
+	bool DropSlot(int32 Index, ASPCollectibleItem*& OutSourceItem);
+	bool DeliverSlot(int32 Index, int32& OutValue, ASPCollectibleItem*& OutSourceItem);
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	bool EquipPerk(EPerkType PerkType);
@@ -68,6 +75,7 @@ protected:
 
 	int32 FindFirstEmptySlotIndex() const;
 	int32 FindCollectibleSlotIndex() const;
+	int32 FindLastCollectibleSlotIndex() const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_InventorySlots, VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TArray<FInventorySlotEntry> InventorySlots;

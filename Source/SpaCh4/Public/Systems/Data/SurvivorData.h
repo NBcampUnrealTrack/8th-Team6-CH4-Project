@@ -43,7 +43,10 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float CarrySlowHazardous = 0.90;
-	
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float MinCarrySpeedMultiplier = 0.40;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float PickupRange = 150;
 	

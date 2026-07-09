@@ -53,6 +53,9 @@ struct FInventorySlotEntry
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
 	TSoftObjectPtr<UTexture2D> CollectibleIcon;
 
+	UPROPERTY()
+	TObjectPtr<ASPCollectibleItem> SourceItem;
+
 	bool IsOccupied() const { return ContentType != EInventorySlotContentType::Empty; }
 
 	void Clear()
@@ -62,6 +65,7 @@ struct FInventorySlotEntry
 		CollectibleSize = ECollectibleSize::Small;
 		CollectibleValue = 0;
 		CollectibleIcon = nullptr;
+		SourceItem = nullptr;
 	}
 };
 

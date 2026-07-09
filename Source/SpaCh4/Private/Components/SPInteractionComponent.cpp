@@ -27,7 +27,6 @@ void USPInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(USPInteractionComponent, CarriedItem);
 	DOREPLIFETIME(USPInteractionComponent, bIsInteract);
 }
 
@@ -51,6 +50,13 @@ const USurvivorData* USPInteractionComponent::GetSurvivorData() const
 {
 	const ASurvivorCharacter* Survivor = GetSurvivor();
 	return Survivor ? Survivor->GetSurvivorData() : nullptr;
+}
+
+bool USPInteractionComponent::IsCarrying() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	return Inventory && Inventory->HasAnyCollectible();
 }
 
 void USPInteractionComponent::RequestInteract()
@@ -130,10 +136,6 @@ bool USPInteractionComponent::TraceInteractable(FHitResult& OutHit) const
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(Survivor);
-	if (CarriedItem)
-	{
-		Params.AddIgnoredActor(CarriedItem);
-	}
 
 	const bool bHit = GetWorld()->SweepSingleByChannel(
 		OutHit, Start, End, FQuat::Identity, ECC_GameTraceChannel1,
@@ -169,10 +171,7 @@ void USPInteractionComponent::Server_Interact_Implementation()
 		return;
 	}
 
-	if (IsCarrying())
-	{
-		BeginDrop();
-	}
+	BeginDrop();
 }
 
 void USPInteractionComponent::FaceInteractTarget(const AActor* Target)
@@ -236,7 +235,13 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const USurvivorData* Data = GetSurvivorData();
-	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || IsCarrying() || !Item || !Data)
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Item || !Data)
+	{
+		return;
+	}
+
+	const USPInventoryComponent* Inventory = Survivor->GetInventoryComponent();
+	if (!Inventory || !Inventory->HasFreeSlot())
 	{
 		return;
 	}
@@ -265,25 +270,31 @@ void USPInteractionComponent::CompletePickup()
 		return;
 	}
 
-	CarriedItem = CurrentPickupItem.Get();
+	ASPCollectibleItem* Item = CurrentPickupItem.Get();
 	CurrentPickupItem = nullptr;
 
-	CarriedItem->SetPickupCollisionEnabled(false);
-	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	if (!Inv || !Inv->HasFreeSlot())
 	{
-		CarriedItem->AttachToComponent(Survivor->GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, CarrySocketName);
-		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
-		{
-			Inv->SetCollectibleFromItem(CarriedItem);
-		}
+		return;
 	}
+
+	Inv->SetCollectibleFromItem(Item);
+	Item->Multicast_SetStored(true, FVector::ZeroVector);
 }
 
 void USPInteractionComponent::BeginDrop()
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const USurvivorData* Data = GetSurvivorData();
-	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !IsCarrying() || !Data)
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Data)
+	{
+		return;
+	}
+
+	USPInventoryComponent* Inv = Survivor->GetInventoryComponent();
+	if (!Inv || !Inv->IsSlotOccupied(Survivor->GetSelectedSlotIndex()))
 	{
 		return;
 	}
@@ -299,25 +310,23 @@ void USPInteractionComponent::BeginDrop()
 void USPInteractionComponent::CompleteDrop()
 {
 	bIsInteract = false;
-	if (!CarriedItem)
+
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	if (!Inv)
 	{
 		return;
 	}
 
-	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	ASPCollectibleItem* Item = nullptr;
+	if (!Inv->DropSlot(Survivor->GetSelectedSlotIndex(), Item))
 	{
-		CarriedItem->SetActorLocation(Survivor->GetActorLocation());
+		return;
 	}
-	CarriedItem->SetPickupCollisionEnabled(true);
-	CarriedItem = nullptr;
 
-	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	if (Item)
 	{
-		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
-		{
-			Inv->ClearCollectible();
-		}
+		Item->Multicast_SetStored(false, Survivor->GetActorLocation());
 	}
 }
 
@@ -325,7 +334,13 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const USurvivorData* Data = GetSurvivorData();
-	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !IsCarrying() || !Data)
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Data)
+	{
+		return;
+	}
+
+	USPInventoryComponent* Inv = Survivor->GetInventoryComponent();
+	if (!Inv || !Inv->IsSlotCollectible(Survivor->GetSelectedSlotIndex()))
 	{
 		return;
 	}
@@ -359,23 +374,28 @@ void USPInteractionComponent::CompleteDelivery()
 	ASPDeliveryStation* Station = CurrentDeliveryStation.Get();
 	CurrentDeliveryStation = nullptr;
 
-	if (!Station || !CarriedItem)
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	if (!Station || !Inv)
 	{
 		return;
 	}
 
-	Station->SubmitValue(CarriedItem->GetValue());
-
-	CarriedItem->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	CarriedItem->Destroy();
-	CarriedItem = nullptr;
-
-	if (const ASurvivorCharacter* Survivor = GetSurvivor())
+	int32 Value = 0;
+	ASPCollectibleItem* Item = nullptr;
+	if (!Inv->DeliverSlot(Survivor->GetSelectedSlotIndex(), Value, Item))
 	{
-		if (USPInventoryComponent* Inv = Survivor->GetInventoryComponent())
-		{
-			Inv->ClearCollectible();
-		}
+		return;
+	}
+
+	if (Value > 0)
+	{
+		Station->SubmitValue(Value);
+	}
+
+	if (Item)
+	{
+		Item->Destroy();
 	}
 }
 

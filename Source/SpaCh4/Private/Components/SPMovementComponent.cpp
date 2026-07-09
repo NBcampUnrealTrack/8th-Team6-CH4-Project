@@ -1,7 +1,7 @@
 #include "Components/SPMovementComponent.h"
 
 #include "Characters/Survivor/SurvivorCharacter.h"
-#include "Components/SPInteractionComponent.h"
+#include "Inventory/SPInventoryComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Systems/Data/SurvivorData.h"
@@ -117,21 +117,31 @@ float USPMovementComponent::GetCarryMoveSpeedMultiplier() const
 		return 1.f;
 	}
 
-	const USPInteractionComponent* Interaction = Survivor->GetInteractionComponent();
-	const ASPCollectibleItem* CarriedItem = Interaction ? Interaction->GetCarriedItem() : nullptr;
-	if (!CarriedItem)
+	const USPInventoryComponent* Inventory = Survivor->GetInventoryComponent();
+	if (!Inventory)
 	{
 		return 1.f;
 	}
 
-	switch (CarriedItem->GetCollectibleSize())
+	float TotalPenalty = 0.f;
+	for (const FInventorySlotEntry& Slot : Inventory->GetInventorySlots())
 	{
-	case ECollectibleSize::Small:     return Data->CarrySlowSmall;
-	case ECollectibleSize::Medium:    return Data->CarrySlowMedium;
-	case ECollectibleSize::Large:     return Data->CarrySlowLarge;
-	case ECollectibleSize::Hazardous: return Data->CarrySlowHazardous;
-	default:                          return 1.f;
+		if (Slot.ContentType != EInventorySlotContentType::Collectible)
+		{
+			continue;
+		}
+
+		switch (Slot.CollectibleSize)
+		{
+		case ECollectibleSize::Small:     TotalPenalty += 1.f - Data->CarrySlowSmall;     break;
+		case ECollectibleSize::Medium:    TotalPenalty += 1.f - Data->CarrySlowMedium;    break;
+		case ECollectibleSize::Large:     TotalPenalty += 1.f - Data->CarrySlowLarge;     break;
+		case ECollectibleSize::Hazardous: TotalPenalty += 1.f - Data->CarrySlowHazardous; break;
+		default: break;
+		}
 	}
+
+	return FMath::Max(Data->MinCarrySpeedMultiplier, 1.f - TotalPenalty);
 }
 
 float USPMovementComponent::GetSprintSpeedForState(ESurvivorState State) const

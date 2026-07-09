@@ -34,9 +34,8 @@ public:
 	void CompleteHatchEscape();
 	void CancelInteract();
 
-	bool IsCarrying() const { return CarriedItem != nullptr; }
+	bool IsCarrying() const;
 	bool IsInteracting() const { return bIsInteract; }
-	ASPCollectibleItem* GetCarriedItem() const { return CarriedItem; }
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
 
@@ -78,14 +77,8 @@ private:
 	bool bDrawDebug{false};
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	FName CarrySocketName{"CarrySocket"};
-
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	bool bInstantPickup{false};
 	
-	UPROPERTY(Replicated)
-	TObjectPtr<ASPCollectibleItem> CarriedItem;
-
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
 

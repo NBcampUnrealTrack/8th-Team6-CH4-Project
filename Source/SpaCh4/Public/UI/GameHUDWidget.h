@@ -115,6 +115,9 @@ protected:
 	TArray<TObjectPtr<UImage>> InventorySlots;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TArray<TObjectPtr<UImage>> InventoryIcons;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TArray<TObjectPtr<UImage>> PerkSlots;
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")
@@ -134,6 +137,7 @@ protected:
 	virtual void NativeConstruct() override;
 
 private:
+	void BindInventoryWidgets();
 	void ApplyDeliveryRowLabels();
 	void RefreshTeammateEntries();
 	void RefreshDeliveryPanel();
@@ -150,6 +154,7 @@ private:
 		int32 CurrentValue,
 		int32 TargetValue);
 	AMatchGameState* GetMatchGameState() const;
+	int32 GetSelectedInventorySlot() const;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> DeliveryProgressFillMIDA;

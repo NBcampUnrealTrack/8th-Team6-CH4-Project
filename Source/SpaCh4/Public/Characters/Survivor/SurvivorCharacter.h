@@ -50,6 +50,7 @@ public:
 	bool IsParkouring() const;
 	bool IsCarrying() const;
 	int GetCagedCount() const { return CagedCount; }
+	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
@@ -97,6 +98,11 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
+	void SelectSlot(int32 Index);
+
+	UFUNCTION(Server, Reliable)
+	void Server_SelectSlot(int32 Index);
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
@@ -120,6 +126,8 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
 	int32 CagedCount = 0;
+
+	int32 SelectedSlotIndex = -1;
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
