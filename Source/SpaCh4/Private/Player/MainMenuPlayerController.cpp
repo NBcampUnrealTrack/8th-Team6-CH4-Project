@@ -5,6 +5,8 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Player/MainMenuExposureCameraModifier.h"
+#include "Systems/MainMenuGameMode.h"
+#include "Systems/SPEOSSessionSubsystem.h"
 #include "UI/MainMenuWidget.h"
 
 AMainMenuPlayerController::AMainMenuPlayerController()
@@ -29,6 +31,68 @@ void AMainMenuPlayerController::BeginPlay()
 	FocusMainMenuCamera();
 	InstallExposureLockModifier();
 	ShowMainMenuWidget();
+	SubmitPendingMatchmakingRole();
+}
+
+void AMainMenuPlayerController::SubmitPendingMatchmakingRole()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (!SessionSubsystem || !SessionSubsystem->IsMatchmakingActive())
+	{
+		return;
+	}
+
+	const ELobbyPlayerRole PendingRole = SessionSubsystem->GetPendingMatchmakingRole();
+	if (PendingRole == ELobbyPlayerRole::None)
+	{
+		return;
+	}
+
+	SubmitMatchmakingRole(PendingRole, SessionSubsystem->GetCachedNickname());
+}
+
+void AMainMenuPlayerController::SubmitMatchmakingRole(ELobbyPlayerRole SelectedRole, const FString& Nickname)
+{
+	if (SelectedRole == ELobbyPlayerRole::None)
+	{
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("역할이 선택되지 않았습니다."));
+		return;
+	}
+
+	ServerSubmitMainMenuMatchmakingRole(SelectedRole, Nickname);
+}
+
+void AMainMenuPlayerController::CancelMainMenuMatchmaking()
+{
+	UGameInstance* GameInstance = GetGameInstance();
+	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
+	if (SessionSubsystem)
+	{
+		SessionSubsystem->CancelMatchmaking();
+	}
+}
+
+void AMainMenuPlayerController::ServerSubmitMainMenuMatchmakingRole_Implementation(ELobbyPlayerRole SelectedRole, const FString& Nickname)
+{
+	AMainMenuGameMode* MainMenuGameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMainMenuGameMode>() : nullptr;
+	if (!MainMenuGameMode)
+	{
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("메인 메뉴 매치메이킹 서버가 없습니다."));
+		return;
+	}
+
+	FString StatusMessage;
+	const bool bWasSubmitted = MainMenuGameMode->SubmitMatchmakingRole(this, Nickname, SelectedRole, StatusMessage);
+	ClientReceiveMainMenuMatchmakingStatus(bWasSubmitted, StatusMessage);
+}
+
+void AMainMenuPlayerController::ClientReceiveMainMenuMatchmakingStatus_Implementation(bool bWasSuccessful, const FString& StatusMessage)
+{
+	if (MainMenuWidgetInstance)
+	{
+		MainMenuWidgetInstance->UpdateMatchmakingStatus(StatusMessage, !bWasSuccessful);
+	}
 }
 
 void AMainMenuPlayerController::FocusMainMenuCamera()

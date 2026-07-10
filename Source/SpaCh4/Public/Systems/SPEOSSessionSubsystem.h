@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "Systems/LobbyGameState.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "TimerManager.h"
 #include "SPEOSSessionSubsystem.generated.h"
@@ -25,7 +26,10 @@ public:
 
 	// 세션을 찾고, 없으면 생성
 	UFUNCTION(BlueprintCallable, Category = "Online|Session")
-	void StartMatchmaking(const FString& LobbyLevelPath);
+	void StartMatchmaking(ELobbyPlayerRole SelectedRole, const FString& MainMenuLevelPath);
+
+	UFUNCTION(BlueprintCallable, Category = "Online|Session")
+	void CancelMatchmaking();
 	
 	UFUNCTION(BlueprintCallable, Category = "Online|Session")
 	void EndSession();
@@ -39,6 +43,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Online|Login")
 	FString GetCachedNickname() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Online|Session")
+	ELobbyPlayerRole GetPendingMatchmakingRole() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Online|Session")
+	bool IsMatchmakingActive() const;
 
 	// 초기 실행직후 로그인 시
 	UPROPERTY(BlueprintAssignable, Category = "Online|Events")
@@ -62,9 +72,10 @@ private:
 	void BeginCreateSession();
 	void BeginJoinSession(const FOnlineSessionSearchResult& SearchResult);
 	void DestroyCurrentSession(bool bTravelToMainMenu, bool bCreateSessionAfterDestroy);
-	void OpenLobbyAsListenServer() const;
+	void OpenMainMenuAsListenServer() const;
 	void OpenPendingMainMenuLevel();
 	void BroadcastMatchmakingStatus(bool bWasSuccessful, const FString& StatusMessage) const;
+	FString ResolveMainMenuLevelPath(const FString& MainMenuLevelPath) const;
 
 	void HandleLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
 	void HandleFindSessionsComplete(bool bWasSuccessful);
@@ -81,9 +92,10 @@ private:
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;
 	FTimerHandle FindSessionsRetryTimerHandle;
 
-	FString PendingLobbyLevelPath;
+	FString PendingMatchmakingLevelPath;
 	FString PendingMainMenuLevelPath;
 	FString CachedNickname;
+	ELobbyPlayerRole PendingMatchmakingRole = ELobbyPlayerRole::None;
 
 	int32 FindSessionAttemptCount = 0;
 
@@ -91,6 +103,7 @@ private:
 	bool bTravelToMainMenuAfterDestroy = false;
 	bool bCreateSessionAfterDestroy = false;
 	bool bCreateSessionIfSearchStillEmpty = false;
+	bool bIsMatchmakingActive = false;
 
 	static constexpr int32 LocalUserNum = 0;
 	static constexpr int32 MaxSessionPlayers = 4;

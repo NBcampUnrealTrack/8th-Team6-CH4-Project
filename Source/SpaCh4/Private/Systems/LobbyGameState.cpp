@@ -233,6 +233,7 @@ bool ALobbyGameState::SetPlayerRole(int32 PlayerId, ELobbyPlayerRole NewRole)
 
 bool ALobbyGameState::SetPlayerReady(int32 PlayerId, bool bNewReady)
 {
+	
 	for (FLobbyPlayerInfo& PlayerInfo : LobbyPlayers)
 	{
 		if (PlayerInfo.PlayerId == PlayerId)

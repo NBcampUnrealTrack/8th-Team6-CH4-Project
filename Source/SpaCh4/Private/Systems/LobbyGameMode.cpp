@@ -19,7 +19,7 @@ ALobbyGameMode::ALobbyGameMode()
 void ALobbyGameMode::BeginPlay()
 {
 	Super::BeginPlay();
-
+	
 	ApplyBalanceRules();
 }
 

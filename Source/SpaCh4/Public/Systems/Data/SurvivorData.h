@@ -9,7 +9,7 @@
 /**
  * 
  */
-UCLASS()
+UCLASS(BlueprintType)
 class SPACH4_API USurvivorData : public UDataAsset
 {
 	GENERATED_BODY()
@@ -19,6 +19,9 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorWalkSpeed = 350;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float SurvivorRunSpeed = 500;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorSprintSpeed = 650;
@@ -68,17 +71,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float RescueDurationStage2 = 4.00;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
-	float CageRescueDuration = 4.0f;
-	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float EscapeGateOpenDuration = 8.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
-	float WalkNoiseRadius = 1000;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float HatchEscapeDuration = 3.0f;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
+	float WalkNoiseRadius = 1000;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
+	float RunNoiseRadius = 1300;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float SprintNoiseRadius = 1500;
@@ -88,6 +91,7 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float ChannelNoiseRadius = 1000;
+	
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Items")
 	float MedkitDuration = 3.00;
@@ -106,6 +110,12 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Items")
 	float SpeedFatigueDuration = 3.00;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
+	float SprintPerkBoostDuration = 3.00;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
+	float SprintPerkCooldown = 30.00;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
 	float FieldMedicTimeReduction = 1.00;
@@ -114,7 +124,7 @@ public:
 	float DeliveryProPenaltyReduction = 0.50;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
-	float SilentRollNoiseReduction = 0.70;
+	float SilentRollNoiseReduction = 0.30;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Perks")
 	float StageTwoRescueReduction = 1.00;

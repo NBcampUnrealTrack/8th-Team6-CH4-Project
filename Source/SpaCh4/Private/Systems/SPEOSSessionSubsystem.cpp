@@ -94,10 +94,19 @@ void USPEOSSessionSubsystem::Login()
 	}
 }
 
-void USPEOSSessionSubsystem::StartMatchmaking(const FString& LobbyLevelPath)
+void USPEOSSessionSubsystem::StartMatchmaking(ELobbyPlayerRole SelectedRole, const FString& MainMenuLevelPath)
 {
-	PendingLobbyLevelPath = LobbyLevelPath;
+	if (SelectedRole == ELobbyPlayerRole::None)
+	{
+		BroadcastMatchmakingStatus(false, TEXT("매치메이킹 역할이 선택되지 않았습니다."));
+		return;
+	}
+
+	PendingMatchmakingRole = SelectedRole;
+	PendingMatchmakingLevelPath = ResolveMainMenuLevelPath(MainMenuLevelPath);
+	PendingMainMenuLevelPath = PendingMatchmakingLevelPath;
 	bStartMatchmakingAfterLogin = true;
+	bIsMatchmakingActive = true;
 	FindSessionAttemptCount = 0;
 	bCreateSessionIfSearchStillEmpty = false;
 
@@ -106,21 +115,67 @@ void USPEOSSessionSubsystem::StartMatchmaking(const FString& LobbyLevelPath)
 		World->GetTimerManager().ClearTimer(FindSessionsRetryTimerHandle);
 	}
 
-	if (PendingLobbyLevelPath.IsEmpty())
+	if (PendingMatchmakingLevelPath.IsEmpty())
 	{
-		BroadcastMatchmakingStatus(false, TEXT("Lobby level path is empty."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("메인 메뉴 레벨 경로가 비어 있습니다."));
 		return;
 	}
 
 	if (!IsLoggedIn())
 	{
-		BroadcastMatchmakingStatus(true, TEXT("Logging in to EOS."));
+		BroadcastMatchmakingStatus(true, TEXT("EOS 로그인 중입니다."));
 		Login();
 		return;
 	}
 
 	CacheLocalAccountInfo();
 	BeginFindSessions();
+}
+
+void USPEOSSessionSubsystem::CancelMatchmaking()
+{
+	bStartMatchmakingAfterLogin = false;
+	bCreateSessionIfSearchStillEmpty = false;
+	bIsMatchmakingActive = false;
+	PendingMatchmakingRole = ELobbyPlayerRole::None;
+	FindSessionAttemptCount = 0;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FindSessionsRetryTimerHandle);
+	}
+
+	if (IOnlineSessionPtr SessionInterface = GetSessionInterface())
+	{
+		if (FindSessionsCompleteDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
+			FindSessionsCompleteDelegateHandle.Reset();
+		}
+		if (JoinSessionCompleteDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
+			JoinSessionCompleteDelegateHandle.Reset();
+		}
+		if (CreateSessionCompleteDelegateHandle.IsValid())
+		{
+			SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
+			CreateSessionCompleteDelegateHandle.Reset();
+		}
+	}
+
+	BroadcastMatchmakingStatus(true, TEXT("매치메이킹을 취소했습니다."));
+
+	IOnlineSessionPtr SessionInterface = GetSessionInterface();
+	if (SessionInterface.IsValid() && SessionInterface->GetNamedSession(NAME_GameSession))
+	{
+		DestroyCurrentSession(true, false);
+	}
+	else
+	{
+		OnSessionEnded.Broadcast(true, TEXT("매치메이킹을 취소했습니다."));
+	}
 }
 
 void USPEOSSessionSubsystem::EndSession()
@@ -143,6 +198,16 @@ bool USPEOSSessionSubsystem::IsLoggedIn() const
 FString USPEOSSessionSubsystem::GetCachedNickname() const
 {
 	return CachedNickname;
+}
+
+ELobbyPlayerRole USPEOSSessionSubsystem::GetPendingMatchmakingRole() const
+{
+	return PendingMatchmakingRole;
+}
+
+bool USPEOSSessionSubsystem::IsMatchmakingActive() const
+{
+	return bIsMatchmakingActive;
 }
 
 IOnlineIdentityPtr USPEOSSessionSubsystem::GetIdentityInterface() const
@@ -199,7 +264,7 @@ void USPEOSSessionSubsystem::BeginFindSessions()
 		FOnFindSessionsCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleFindSessionsComplete));
 
 	++FindSessionAttemptCount;
-	BroadcastMatchmakingStatus(true, FString::Printf(TEXT("Finding EOS sessions. Attempt %d/%d."), FindSessionAttemptCount, MaxFindSessionAttempts));
+	BroadcastMatchmakingStatus(true, TEXT("세션 찾는중"));
 	if (!SessionInterface->FindSessions(LocalUserNum, SessionSearch.ToSharedRef()))
 	{
 		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
@@ -219,18 +284,19 @@ void USPEOSSessionSubsystem::HandleFindSessionsRetry()
 			UWorld* World = GetWorld();
 			if (!World)
 			{
-				BroadcastMatchmakingStatus(false, TEXT("World is not available for final session search."));
+				bIsMatchmakingActive = false;
+				BroadcastMatchmakingStatus(false, TEXT("최종 세션 검색을 위한 월드가 없습니다."));
 				return;
 			}
 
 			const float BackoffDelay = FMath::FRandRange(MinCreateSessionBackoff, MaxCreateSessionBackoff);
-			BroadcastMatchmakingStatus(true, FString::Printf(TEXT("No EOS session found. Final search before hosting in %.1f seconds."), BackoffDelay));
+			BroadcastMatchmakingStatus(true, TEXT("세션 찾는중"));
 			World->GetTimerManager().SetTimer(FindSessionsRetryTimerHandle, this, &USPEOSSessionSubsystem::BeginFindSessions, BackoffDelay, false);
 			return;
 		}
 
 		bCreateSessionIfSearchStillEmpty = false;
-		BroadcastMatchmakingStatus(true, TEXT("No joinable EOS session found after final search. Creating host session."));
+		BroadcastMatchmakingStatus(true, TEXT("세션이 없어 호스트 세션을 생성합니다."));
 		BeginCreateSession();
 		return;
 	}
@@ -238,11 +304,12 @@ void USPEOSSessionSubsystem::HandleFindSessionsRetry()
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		BroadcastMatchmakingStatus(false, TEXT("World is not available for session retry."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("세션 재검색을 위한 월드가 없습니다."));
 		return;
 	}
 
-	BroadcastMatchmakingStatus(true, TEXT("No EOS session found yet. Retrying session search."));
+	BroadcastMatchmakingStatus(true, TEXT("세션 찾는중"));
 	World->GetTimerManager().SetTimer(FindSessionsRetryTimerHandle, this, &USPEOSSessionSubsystem::BeginFindSessions, FindSessionRetryDelay, false);
 }
 
@@ -272,7 +339,7 @@ void USPEOSSessionSubsystem::BeginCreateSession()
 	SessionSettings.bUsesPresence = true;
 	SessionSettings.bUseLobbiesIfAvailable = true;
 	SessionSettings.BuildUniqueId = 1;
-	SessionSettings.Set(SETTING_MAPNAME, PendingLobbyLevelPath, EOnlineDataAdvertisementType::ViaOnlineService);
+	SessionSettings.Set(SETTING_MAPNAME, PendingMatchmakingLevelPath, EOnlineDataAdvertisementType::ViaOnlineService);
 	SessionSettings.Set(SPEOSSession::MatchSessionKey, SPEOSSession::MatchSessionValue, EOnlineDataAdvertisementType::ViaOnlineService);
 
 	if (CreateSessionCompleteDelegateHandle.IsValid())
@@ -283,11 +350,12 @@ void USPEOSSessionSubsystem::BeginCreateSession()
 	CreateSessionCompleteDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(
 		FOnCreateSessionCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleCreateSessionComplete));
 
-	BroadcastMatchmakingStatus(true, TEXT("Creating EOS session."));
+	BroadcastMatchmakingStatus(true, TEXT("세션 생성중"));
 	if (!SessionInterface->CreateSession(LocalUserNum, NAME_GameSession, SessionSettings))
 	{
 		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
 		CreateSessionCompleteDelegateHandle.Reset();
+		bIsMatchmakingActive = false;
 		BroadcastMatchmakingStatus(false, TEXT("Failed to start session creation."));
 	}
 }
@@ -309,11 +377,12 @@ void USPEOSSessionSubsystem::BeginJoinSession(const FOnlineSessionSearchResult& 
 	JoinSessionCompleteDelegateHandle = SessionInterface->AddOnJoinSessionCompleteDelegate_Handle(
 		FOnJoinSessionCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleJoinSessionComplete));
 
-	BroadcastMatchmakingStatus(true, TEXT("Joining EOS session."));
+	BroadcastMatchmakingStatus(true, TEXT("세션 참가중"));
 	if (!SessionInterface->JoinSession(LocalUserNum, NAME_GameSession, SearchResult))
 	{
 		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
 		JoinSessionCompleteDelegateHandle.Reset();
+		bIsMatchmakingActive = false;
 		BroadcastMatchmakingStatus(false, TEXT("Failed to start session join."));
 	}
 }
@@ -353,15 +422,15 @@ void USPEOSSessionSubsystem::DestroyCurrentSession(bool bTravelToMainMenu, bool 
 	}
 }
 
-void USPEOSSessionSubsystem::OpenLobbyAsListenServer() const
+void USPEOSSessionSubsystem::OpenMainMenuAsListenServer() const
 {
 	UWorld* World = GetWorld();
-	if (!World || PendingLobbyLevelPath.IsEmpty())
+	if (!World || PendingMatchmakingLevelPath.IsEmpty())
 	{
 		return;
 	}
 
-	UGameplayStatics::OpenLevel(World, FName(*PendingLobbyLevelPath), true, TEXT("listen"));
+	UGameplayStatics::OpenLevel(World, FName(*PendingMatchmakingLevelPath), true, TEXT("listen"));
 }
 
 void USPEOSSessionSubsystem::OpenPendingMainMenuLevel()
@@ -387,6 +456,17 @@ void USPEOSSessionSubsystem::BroadcastMatchmakingStatus(bool bWasSuccessful, con
 	OnMatchmakingStatusChanged.Broadcast(bWasSuccessful, StatusMessage);
 }
 
+FString USPEOSSessionSubsystem::ResolveMainMenuLevelPath(const FString& MainMenuLevelPath) const
+{
+	if (!MainMenuLevelPath.IsEmpty())
+	{
+		return MainMenuLevelPath;
+	}
+
+	const UWorld* World = GetWorld();
+	return World && World->GetOutermost() ? World->GetOutermost()->GetName() : FString();
+}
+
 void USPEOSSessionSubsystem::HandleLoginComplete(int32 LocalUserNumber, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error)
 {
 	IOnlineIdentityPtr IdentityInterface = GetIdentityInterface();
@@ -402,6 +482,7 @@ void USPEOSSessionSubsystem::HandleLoginComplete(int32 LocalUserNumber, bool bWa
 		OnLoginCompleted.Broadcast(false, Message);
 		BroadcastMatchmakingStatus(false, Message);
 		bStartMatchmakingAfterLogin = false;
+		bIsMatchmakingActive = false;
 		return;
 	}
 
@@ -465,12 +546,13 @@ void USPEOSSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool
 
 	if (!bWasSuccessful)
 	{
-		BroadcastMatchmakingStatus(false, TEXT("EOS session creation failed."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 생성에 실패했습니다."));
 		return;
 	}
 
-	BroadcastMatchmakingStatus(true, TEXT("EOS session created. Opening lobby as listen server."));
-	OpenLobbyAsListenServer();
+	BroadcastMatchmakingStatus(true, TEXT("세션 생성 완료. 메인 메뉴 대기방을 엽니다."));
+	OpenMainMenuAsListenServer();
 }
 
 void USPEOSSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
@@ -485,25 +567,28 @@ void USPEOSSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoi
 
 	if (Result != EOnJoinSessionCompleteResult::Success || !SessionInterface.IsValid())
 	{
-		BroadcastMatchmakingStatus(false, TEXT("EOS session join failed."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 참가에 실패했습니다."));
 		return;
 	}
 
 	FString ConnectString;
 	if (!SessionInterface->GetResolvedConnectString(NAME_GameSession, ConnectString) || ConnectString.IsEmpty())
 	{
-		BroadcastMatchmakingStatus(false, TEXT("Failed to resolve EOS session connect string."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 접속 주소를 가져오지 못했습니다."));
 		return;
 	}
 
 	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, LocalUserNum);
 	if (!PlayerController)
 	{
-		BroadcastMatchmakingStatus(false, TEXT("Local player controller is not available."));
+		bIsMatchmakingActive = false;
+		BroadcastMatchmakingStatus(false, TEXT("로컬 플레이어 컨트롤러가 없습니다."));
 		return;
 	}
 
-	BroadcastMatchmakingStatus(true, TEXT("EOS session joined. Traveling to host."));
+	BroadcastMatchmakingStatus(true, TEXT("게임 입장중"));
 	PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
 }
 
