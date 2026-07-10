@@ -9,10 +9,7 @@
 #include "Camera/CameraComponent.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
-#include "Components/MeshComponent.h"
-#include "Components/SkeletalMeshComponent.h"
-#include "Engine/SkeletalMesh.h"
-#include "GameFramework/SpringArmComponent.h"
+#include "Components/SPKillerFirstPersonMeshComponent.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Type/SPGameplayTag.h"
 #include "Net/UnrealNetwork.h"
@@ -21,176 +18,32 @@ AKillerCharacter::AKillerCharacter()
 {
     PrimaryActorTick.bCanEverTick = false;
 
-    if (SpringArm)
-    {
-        SpringArm->TargetArmLength = 0.f;
-        SpringArm->bDoCollisionTest = false;
-        SpringArm->bUsePawnControlRotation = true;
-        SpringArm->bEnableCameraLag = false;
-        SpringArm->bInheritRoll = false;
-    }
-    
     bUseControllerRotationYaw = true;         
     if (GetCharacterMovement())
     {
         GetCharacterMovement()->bOrientRotationToMovement = false;
     }
     
-    charTag.AddTag(SPGameplayTags::Character::Survivor);
+    charTag.AddTag(SPGameplayTags::Character::Killer);
 
-    FirstPersonArmsMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FirstPersonArmsMesh"));
-    FirstPersonArmsMesh->SetupAttachment(GetMesh());
-    FirstPersonArmsMesh->SetOnlyOwnerSee(true);
-    FirstPersonArmsMesh->SetCastShadow(false);
-    FirstPersonArmsMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    FirstPersonArmsMesh->SetVisibility(false, true);
-    FirstPersonArmsMesh->SetGenerateOverlapEvents(false);
+    FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
 }
+
+void AKillerCharacter::NotifyControllerChanged()
+{
+    Super::NotifyControllerChanged();
+    if (FirstPersonMeshComp)
+    {
+        FirstPersonMeshComp->ScheduleSetup();
+    }
+}
+
 void AKillerCharacter::PostInitializeComponents()
 {
     Super::PostInitializeComponents();
-    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-}
-
-void AKillerCharacter::ApplyFirstPersonArmVisibility(
-    USkeletalMeshComponent* TargetMesh,
-    const TArray<FName>& VisibleRootBones) const
-{
-    const USkeletalMesh* SkeletalMeshAsset = TargetMesh ? TargetMesh->GetSkeletalMeshAsset() : nullptr;
-    if (!SkeletalMeshAsset)
+    if (GetCharacterMovement())
     {
-        return;
-    }
-
-    const FReferenceSkeleton& RefSkel = SkeletalMeshAsset->GetRefSkeleton();
-    TSet<FName> VisibleRoots;
-    for (const FName& BoneName : VisibleRootBones)
-    {
-        if (!BoneName.IsNone())
-        {
-            VisibleRoots.Add(BoneName);
-        }
-    }
-
-    if (VisibleRoots.IsEmpty())
-    {
-        static const FName DefaultRoots[] = {
-            TEXT("clavicle_l"), TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"),
-            TEXT("clavicle_r"), TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"),
-        };
-        for (const FName& BoneName : DefaultRoots)
-        {
-            VisibleRoots.Add(BoneName);
-        }
-    }
-
-    auto IsBoneVisible = [&](int32 BoneIndex) -> bool
-    {
-        int32 Current = BoneIndex;
-        while (Current != INDEX_NONE)
-        {
-            if (VisibleRoots.Contains(RefSkel.GetBoneName(Current)))
-            {
-                return true;
-            }
-            Current = RefSkel.GetParentIndex(Current);
-        }
-        return false;
-    };
-
-    for (int32 BoneIndex = 0; BoneIndex < RefSkel.GetNum(); ++BoneIndex)
-    {
-        const FName BoneName = RefSkel.GetBoneName(BoneIndex);
-        if (!IsBoneVisible(BoneIndex))
-        {
-            TargetMesh->HideBoneByName(BoneName, EPhysBodyOp::PBO_None);
-        }
-        else
-        {
-            TargetMesh->UnHideBoneByName(BoneName);
-        }
-    }
-}
-
-void AKillerCharacter::SetupKillerFirstPersonCamera()
-{
-    USkeletalMeshComponent* SkelMesh = GetMesh();
-    if (!SkelMesh || !SpringArm)
-    {
-        return;
-    }
-
-    FName AttachName = CameraAttachBoneName;
-    if (AttachName.IsNone() || !SkelMesh->DoesSocketExist(AttachName))
-    {
-        static const FName FallbackBones[] = {
-            TEXT("head"), TEXT("Head"), TEXT("neck_01"), TEXT("Neck"),
-        };
-        for (const FName& Candidate : FallbackBones)
-        {
-            if (SkelMesh->DoesSocketExist(Candidate))
-            {
-                AttachName = Candidate;
-                break;
-            }
-        }
-    }
-
-    if (!AttachName.IsNone() && SkelMesh->DoesSocketExist(AttachName))
-    {
-        SpringArm->AttachToComponent(
-            SkelMesh,
-            FAttachmentTransformRules::SnapToTargetNotIncludingScale,
-            AttachName);
-        SpringArm->SetRelativeLocation(CameraRelativeOffset);
-    }
-
-    if (!IsLocallyControlled())
-    {
-        if (FirstPersonArmsMesh)
-        {
-            FirstPersonArmsMesh->SetVisibility(false, true);
-        }
-        return;
-    }
-
-    SkelMesh->SetOwnerNoSee(bShowFirstPersonArmsOnly);
-    if (bHideOwnerShadow)
-    {
-        SkelMesh->SetCastShadow(false);
-    }
-
-    for (UMeshComponent* MeshComp : OwnerHiddenMeshComponents)
-    {
-        if (MeshComp)
-        {
-            MeshComp->SetOwnerNoSee(true);
-            if (bHideOwnerShadow)
-            {
-                MeshComp->SetCastShadow(false);
-            }
-        }
-    }
-
-    if (bShowFirstPersonArmsOnly && FirstPersonArmsMesh)
-    {
-        USkeletalMesh* BodyMeshAsset = SkelMesh->GetSkeletalMeshAsset();
-        USkeletalMesh* ArmsMeshAsset = FirstPersonArmsSkeletalMesh ? FirstPersonArmsSkeletalMesh.Get() : BodyMeshAsset;
-        if (ArmsMeshAsset)
-        {
-            FirstPersonArmsMesh->SetSkeletalMesh(ArmsMeshAsset);
-            FirstPersonArmsMesh->SetLeaderPoseComponent(SkelMesh);
-            FirstPersonArmsMesh->SetCastShadow(false);
-            FirstPersonArmsMesh->SetVisibility(true, true);
-            if (ArmsMeshAsset == BodyMeshAsset)
-            {
-                ApplyFirstPersonArmVisibility(FirstPersonArmsMesh, OwnerVisibleArmBones);
-            }
-        }
-    }
-    else if (FirstPersonArmsMesh)
-    {
-        FirstPersonArmsMesh->SetVisibility(false, true);
+        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     }
 }
 
@@ -198,9 +51,9 @@ void AKillerCharacter::PossessedBy(AController* NewController)
 {
     Super::PossessedBy(NewController);
 
-    if (IsLocallyControlled())
+    if (IsLocallyControlled() && FirstPersonMeshComp)
     {
-        SetupKillerFirstPersonCamera();
+        FirstPersonMeshComp->ScheduleSetup();
     }
 }
 
@@ -208,12 +61,16 @@ void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (Camera)
+    if (UCameraComponent* FollowCamera = GetCameraComponent())
     {
-        Camera->SetProjectionMode(ECameraProjectionMode::Perspective);
+        FollowCamera->SetProjectionMode(ECameraProjectionMode::Perspective);
     }
 
-    SetupKillerFirstPersonCamera();
+    if (FirstPersonMeshComp)
+    {
+        FirstPersonMeshComp->ScheduleSetup();
+        FirstPersonMeshComp->EnsureAnimationSetup();
+    }
     
     if (APlayerController* PC = Cast<APlayerController>(GetController()))
     {

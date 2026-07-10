@@ -11,7 +11,7 @@
 #include "UI/Style/SPUIStyleData.h"
 #include "UI/Style/SPUIStyleLibrary.h"
 
-namespace
+namespace TeammateEntryWidgetPrivate
 {
 	static constexpr float DefaultPortraitFrameSize = 100.0f;
 	static constexpr float PortraitIconInsetRatio = 0.68f;
@@ -84,6 +84,8 @@ namespace
 		return IsValid(Image) && Image->GetBrush().GetResourceObject() != nullptr;
 	}
 }
+
+using namespace TeammateEntryWidgetPrivate;
 
 const USPGameHUDStyleData& UTeammateEntryWidget::GetResolvedStyle() const
 {
