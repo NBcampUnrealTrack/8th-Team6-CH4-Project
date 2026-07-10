@@ -8,6 +8,7 @@
 class UButton;
 class UImage;
 class UTextBlock;
+class USPMainMenuStyleData;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FMainMenuMatchmakingStatusSignature, bool, bWasSuccessful, const FString&, StatusMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FMainMenuMatchmakingRoleCountSignature, int32, SurvivorCount, int32, KillerCount);
@@ -78,7 +79,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Travel")
 	FString MainMenuLevelPath;
 
+	/** 미지정 시 /Game/UI/Data/DA_MainMenuStyle 또는 SPUIStyleLibrary 기본값 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Style")
+	TObjectPtr<USPMainMenuStyleData> VisualStyle;
+
 private:
+	const USPMainMenuStyleData& GetResolvedStyle() const;
+
 	UFUNCTION()
 	void HandleSurvivorClicked();
 

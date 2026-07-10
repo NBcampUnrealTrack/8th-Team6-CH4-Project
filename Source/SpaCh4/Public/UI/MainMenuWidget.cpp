@@ -13,32 +13,12 @@
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "Styling/SlateTypes.h"
 #include "UI/HUDFontUtils.h"
+#include "UI/Style/SPUIStyleData.h"
+#include "UI/Style/SPUIStyleLibrary.h"
 
-namespace
+const USPMainMenuStyleData& UMainMenuWidget::GetResolvedStyle() const
 {
-	static const TCHAR* SurvivorButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SURVIVOR.T_MainMenu_Btn_SURVIVOR");
-	static const TCHAR* KillerButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_KILLER.T_MainMenu_Btn_KILLER");
-	static const TCHAR* SettingsButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SETTINGS.T_MainMenu_Btn_SETTINGS");
-	static const TCHAR* QuitButtonTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT.T_MainMenu_Btn_QUIT");
-	static const TCHAR* SurvivorButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SURVIVOR_Hover.T_MainMenu_Btn_SURVIVOR_Hover");
-	static const TCHAR* KillerButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_KILLER_Hover.T_MainMenu_Btn_KILLER_Hover");
-	static const TCHAR* SettingsButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_SETTINGS_Hover.T_MainMenu_Btn_SETTINGS_Hover");
-	static const TCHAR* QuitButtonHoverTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT_Hover.T_MainMenu_Btn_QUIT_Hover");
-	static const TCHAR* TitleTexturePath =
-		TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Title.T_MainMenu_Title");
-
-	UTexture2D* LoadMenuTexture(const TCHAR* AssetPath)
-	{
-		return Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, AssetPath));
-	}
+	return SPUIStyleLibrary::ResolveMainMenuStyle(VisualStyle);
 }
 
 void UMainMenuWidget::NativeConstruct()
@@ -214,7 +194,6 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 		return;
 	}
 
-	// Designer / WBP brush settings win. Only apply project fallback when nothing is assigned.
 	const FSlateBrush& ExistingBrush = TitleImage->GetBrush();
 	const FVector2D DesignerImageSize = ExistingBrush.ImageSize;
 	const bool bHasDesignerTexture = ExistingBrush.GetResourceObject() != nullptr;
@@ -231,7 +210,8 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 		return;
 	}
 
-	UTexture2D* Texture = LoadMenuTexture(TitleTexturePath);
+	const USPMainMenuStyleData& Style = GetResolvedStyle();
+	UTexture2D* Texture = Style.TitleTexture;
 	if (!Texture)
 	{
 		return;
@@ -297,30 +277,12 @@ void UMainMenuWidget::ConfigureButtonStyle(
 
 void UMainMenuWidget::ApplyMenuButtonStyles()
 {
-	ConfigureButtonStyle(
-		SurvivorButton,
-		LoadMenuTexture(SurvivorButtonTexturePath),
-		LoadMenuTexture(SurvivorButtonHoverTexturePath),
-		52.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		KillerButton,
-		LoadMenuTexture(KillerButtonTexturePath),
-		LoadMenuTexture(KillerButtonHoverTexturePath),
-		52.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		SettingsButton,
-		LoadMenuTexture(SettingsButtonTexturePath),
-		LoadMenuTexture(SettingsButtonHoverTexturePath),
-		44.0f,
-		1.12f);
-	ConfigureButtonStyle(
-		QuitButton,
-		LoadMenuTexture(QuitButtonTexturePath),
-		LoadMenuTexture(QuitButtonHoverTexturePath),
-		44.0f,
-		1.12f);
+	const USPMainMenuStyleData& Style = GetResolvedStyle();
+
+	ConfigureButtonStyle(SurvivorButton, Style.SurvivorButtonNormal, Style.SurvivorButtonHovered, 52.0f, 1.12f);
+	ConfigureButtonStyle(KillerButton, Style.KillerButtonNormal, Style.KillerButtonHovered, 52.0f, 1.12f);
+	ConfigureButtonStyle(SettingsButton, Style.SettingsButtonNormal, Style.SettingsButtonHovered, 44.0f, 1.12f);
+	ConfigureButtonStyle(QuitButton, Style.QuitButtonNormal, Style.QuitButtonHovered, 44.0f, 1.12f);
 
 	if (UTextBlock* LegacyText = Cast<UTextBlock>(GetWidgetFromName(TEXT("SurvivorButtonText"))))
 	{

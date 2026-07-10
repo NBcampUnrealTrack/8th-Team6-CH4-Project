@@ -12,6 +12,7 @@ class UTeammateEntryWidget;
 class UWidget;
 class UMaterialInstanceDynamic;
 class AMatchGameState;
+class USPGameHUDStyleData;
 
 UCLASS(Abstract, Blueprintable)
 class SPACH4_API UGameHUDWidget : public UUserWidget
@@ -38,9 +39,9 @@ public:
 	TArray<FPerkHUDData> GatherPerkData() const;
 
 protected:
-	/** L_UI_Test 등 레이아웃 작업용. 게임플레이 연동 전까지 true 유지 */
+	/** true면 MatchGameState 없을 때만 Preview 데이터 사용 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Preview")
-	bool bUsePreviewData = true;
+	bool bUsePreviewData = false;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Preview")
 	TArray<FTeammateHUDData> PreviewTeammateData;
@@ -50,6 +51,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Preview")
 	TArray<FPerkHUDData> PreviewPerkData;
+
+	/** 미지정 시 /Game/UI/Data/DA_GameHUDStyle 또는 SPUIStyleLibrary 기본값 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Style")
+	TObjectPtr<USPGameHUDStyleData> VisualStyle;
+
+	/** 0이면 DeliveryProgressFill A/B 각 Image의 Brush Image Size 사용. A/B 동일 크기 강제 시 여기 지정 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Delivery", meta = (ClampMin = "0"))
+	FVector2D DeliveryFillMaxSizeOverride = FVector2D::ZeroVector;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TArray<TObjectPtr<UTeammateEntryWidget>> TeammateEntries;
@@ -132,6 +141,16 @@ protected:
 
 	virtual void NativePreConstruct() override;
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
+
+	UFUNCTION()
+	void HandleDeliveryProgressChanged(int32 StationAValue, int32 StationBValue, int32 TotalDeliveredValue, float DeliveryProgress);
+
+	UFUNCTION()
+	void HandleMatchPlayersChanged();
+
+	UFUNCTION()
+	void HandleSurvivorStateChanged(FName SurvivorId, ESurvivorState SurvivorState);
 
 private:
 	void ApplyDeliveryRowLabels();
@@ -141,12 +160,26 @@ private:
 	void RefreshPerkPanel();
 	void EnsurePreviewDefaults();
 	void SetupDeliveryProgressBars();
+	void FinalizeDeliveryProgressSetup();
+	void ClearDeliveryProgressSetupTimer();
+	void CacheDesignerDeliveryFillSizes();
+	void BindMatchStateDelegates();
+	void UnbindMatchStateDelegates();
+	bool CanRunDeferredSetup() const;
+	FVector2D ResolveDeliveryFillMaxSize(UImage* FillImage, const FVector2D& FallbackMaxSize) const;
+	const USPGameHUDStyleData& GetResolvedStyle() const;
 	void UpdateDeliveryProgress(
 		UWidget* Root,
 		UImage* FrameImage,
 		UImage* FillImage,
 		UImage* LegacyBar,
 		const TArray<TObjectPtr<UImage>>& StackWidgets,
+		int32 CurrentValue,
+		int32 TargetValue);
+
+	void UpdateDeliveryProgressBar(
+		UProgressBar* ProgressBar,
+		UImage* FillImage,
 		int32 CurrentValue,
 		int32 TargetValue);
 	AMatchGameState* GetMatchGameState() const;
@@ -156,4 +189,15 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> DeliveryProgressFillMIDB;
+
+	UPROPERTY(Transient)
+	FVector2D CachedDeliveryFillMaxSizeA = FVector2D::ZeroVector;
+
+	UPROPERTY(Transient)
+	FVector2D CachedDeliveryFillMaxSizeB = FVector2D::ZeroVector;
+
+	FTimerHandle DeliveryProgressSetupTimerHandle;
+	FTimerHandle TeammateRefreshTimerHandle;
+
+	bool bMatchDelegatesBound = false;
 };
