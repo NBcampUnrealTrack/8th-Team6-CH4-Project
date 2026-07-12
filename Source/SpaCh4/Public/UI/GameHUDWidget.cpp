@@ -640,7 +640,8 @@ TArray<FTeammateHUDData> UGameHUDWidget::BuildTeammateDataFromGameplay_Implement
 		if (const ASurvivorCharacter* Survivor = GameHUDWidgetPrivate::FindSurvivorByNickname(World, MatchPlayer.Nickname))
 		{
 			Entry.DisplayState = GameHUDWidgetPrivate::ToDisplayState(Survivor->GetSurvivorState());
-			Entry.DownedHealthPercent = Survivor->GetDownedHealthPercent();
+			// <---------------------------- 빌드 안돼서 주석 처리 ---------------------------------->
+			//Entry.DownedHealthPercent = Survivor->GetDownedHealthPercent();
 			if (Survivor->GetSurvivorState() == ESurvivorState::Caged)
 			{
 				Entry.CageStack = FMath::Max(Entry.CageStack, 1);

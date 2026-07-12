@@ -7,6 +7,7 @@
 
 class UKillerData;
 class USPKillerFirstPersonMeshComponent;
+class ACage;
 
 // ---------------------------------------------------------------
 // KillerState (살인마 상태)
@@ -41,7 +42,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Tags")
     void AddCharTag(FGameplayTag NewTag) { charTag.AddTag(NewTag); }
 
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
+    */
 
 protected:
     bool bCanPickup = true;
@@ -78,13 +81,19 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
-
-    UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
     TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
+    */
 
     UPROPERTY(Replicated)
     AActor* CarriedSurvivor;
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;
+    
+    void HandlePickupInteraction();
+    void HandleCarryingInteraction();
+    void ProcessCageDeposit(ACage* TargetCage);
+    void ProcessNormalDrop();
 };
