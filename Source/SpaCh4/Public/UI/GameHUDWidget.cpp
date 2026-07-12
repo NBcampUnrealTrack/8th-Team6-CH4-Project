@@ -16,6 +16,7 @@
 #include "TimerManager.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "EngineUtils.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Systems/MatchGameState.h"
 
@@ -115,6 +116,8 @@ void UGameHUDWidget::NativePreConstruct()
 void UGameHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	BindInventoryWidgets();
 
 	ClearDeliveryProgressSetupTimer();
 	DeliveryProgressFillMIDA = nullptr;
@@ -1191,19 +1194,86 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 		DeliveryValueB);
 }
 
+void UGameHUDWidget::BindInventoryWidgets()
+{
+	if (InventorySlots.Num() == 0)
+	{
+		for (int32 Index = 0; Index < SpaCh4HUD::InventorySlotCount; ++Index)
+		{
+			const FName WidgetName = *FString::Printf(TEXT("InventorySlots_%d"), Index);
+			if (UImage* SlotImage = Cast<UImage>(GetWidgetFromName(WidgetName)))
+			{
+				InventorySlots.Add(SlotImage);
+			}
+		}
+	}
+
+	if (InventoryIcons.Num() == 0)
+	{
+		for (int32 Index = 0; Index < SpaCh4HUD::InventorySlotCount; ++Index)
+		{
+			const FName WidgetName = *FString::Printf(TEXT("InventoryIcons_%d"), Index);
+			if (UImage* IconImage = Cast<UImage>(GetWidgetFromName(WidgetName)))
+			{
+				InventoryIcons.Add(IconImage);
+			}
+		}
+	}
+
+	if (PerkSlots.Num() == 0)
+	{
+		for (int32 Index = 0; Index < SpaCh4HUD::PerkSlotCount; ++Index)
+		{
+			const FName WidgetName = *FString::Printf(TEXT("PerkSlots_%d"), Index);
+			if (UImage* PerkImage = Cast<UImage>(GetWidgetFromName(WidgetName)))
+			{
+				PerkSlots.Add(PerkImage);
+			}
+		}
+	}
+}
+
+int32 UGameHUDWidget::GetSelectedInventorySlot() const
+{
+	if (const APlayerController* PlayerController = GetOwningPlayer())
+	{
+		if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(PlayerController->GetPawn()))
+		{
+			return Survivor->GetSelectedSlotIndex();
+		}
+	}
+	return 0;
+}
+
 void UGameHUDWidget::RefreshInventoryPanel()
 {
 	const TArray<FInventorySlotHUDData> InventoryData = GatherInventoryData();
+	const int32 SelectedIndex = GetSelectedInventorySlot();
 
 	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
 	{
-		if (!InventorySlots[Index])
+		UImage* SlotFrame = InventorySlots[Index];
+		if (!SlotFrame)
 		{
 			continue;
 		}
 
-		const bool bOccupied = InventoryData.IsValidIndex(Index) && InventoryData[Index].bIsOccupied;
-		InventorySlots[Index]->SetOpacity(bOccupied ? 1.0f : 0.45f);
+		const bool bValidData = InventoryData.IsValidIndex(Index);
+		const bool bOccupied = bValidData && InventoryData[Index].bIsOccupied;
+		SlotFrame->SetOpacity(Index == SelectedIndex ? 1.0f : 0.6f);
+
+		UImage* IconImage = InventoryIcons.IsValidIndex(Index) ? InventoryIcons[Index] : nullptr;
+		if (!IconImage)
+		{
+			continue;
+		}
+
+		const bool bShowIcon = bOccupied && bValidData
+			&& InventoryData[Index].ContentType == EInventorySlotContentType::Collectible;
+
+		UTexture2D* Icon = bShowIcon ? InventoryData[Index].Icon.LoadSynchronous() : nullptr;
+		IconImage->SetBrushFromTexture(Icon, false);
+		IconImage->SetOpacity(Icon ? 1.0f : 0.0f);
 	}
 }
 

@@ -32,6 +32,16 @@ void ASPCollectibleItem::SetPickupCollisionEnabled(bool bEnabled)
 	SetActorEnableCollision(bEnabled);
 }
 
+void ASPCollectibleItem::Multicast_SetStored_Implementation(bool bStored, FVector DropLocation)
+{
+	if (!bStored)
+	{
+		SetActorLocation(DropLocation);
+	}
+	SetActorHiddenInGame(bStored);
+	SetActorEnableCollision(!bStored);
+}
+
 void ASPCollectibleItem::SetHighlight_Implementation(bool bEnabled)
 {
 	Mesh->SetRenderCustomDepth(bEnabled);

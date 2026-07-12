@@ -32,7 +32,10 @@ public:
 	ECollectibleSize GetCollectibleSize() const { return CollectibleSize; }
 	TSoftObjectPtr<UTexture2D> GetIcon() const { return Icon; }
 	void SetPickupCollisionEnabled(bool bEnabled);
-	
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_SetStored(bool bStored, FVector DropLocation);
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	TObjectPtr<UStaticMeshComponent> Mesh;
