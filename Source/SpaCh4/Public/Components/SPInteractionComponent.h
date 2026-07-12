@@ -11,6 +11,7 @@ class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
+class UAnimMontage;
 
 
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
@@ -51,6 +52,12 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_FaceInteractTarget(float TargetYaw);
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayInteractMontage(UAnimMontage* Montage);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StopInteractMontage();
+
 private:
 	ASurvivorCharacter* GetSurvivor() const;
 	const USurvivorData* GetSurvivorData() const;
@@ -63,6 +70,8 @@ private:
 	void CompleteDrop();
 	void CompleteDelivery();
 	void FaceInteractTarget(const AActor* Target);
+	void PlayInteractMontage(UAnimMontage* Montage);
+	void StopInteractMontage();
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	float InteractReach{200.f};

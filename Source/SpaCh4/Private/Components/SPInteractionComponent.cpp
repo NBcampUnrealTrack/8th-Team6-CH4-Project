@@ -1,5 +1,6 @@
 #include "Components/SPInteractionComponent.h"
 
+#include "Animation/AnimInstance.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -198,6 +199,40 @@ void USPInteractionComponent::Multicast_FaceInteractTarget_Implementation(float 
 	}
 }
 
+void USPInteractionComponent::PlayInteractMontage(UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return;
+	}
+	Multicast_PlayInteractMontage(Montage);
+}
+
+void USPInteractionComponent::StopInteractMontage()
+{
+	Multicast_StopInteractMontage();
+}
+
+void USPInteractionComponent::Multicast_PlayInteractMontage_Implementation(UAnimMontage* Montage)
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	USkeletalMeshComponent* Mesh = Survivor ? Survivor->GetMesh() : nullptr;
+	if (UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->Montage_Play(Montage);
+	}
+}
+
+void USPInteractionComponent::Multicast_StopInteractMontage_Implementation()
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	USkeletalMeshComponent* Mesh = Survivor ? Survivor->GetMesh() : nullptr;
+	if (UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->Montage_Stop(0.2f);
+	}
+}
+
 void USPInteractionComponent::CancelInteract()
 {
 	if (!bIsInteract)
@@ -212,6 +247,7 @@ void USPInteractionComponent::CancelInteract()
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
+	StopInteractMontage();
 
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (ASPEscapeGate* Gate = CurrentEscapeGate.Get())
@@ -255,6 +291,7 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	bIsInteract = true;
+	PlayInteractMontage(Data->PickupMontage);
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -265,6 +302,7 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 void USPInteractionComponent::CompletePickup()
 {
 	bIsInteract = false;
+	StopInteractMontage();
 	if (!CurrentPickupItem.IsValid())
 	{
 		return;
@@ -300,6 +338,7 @@ void USPInteractionComponent::BeginDrop()
 	}
 
 	bIsInteract = true;
+	PlayInteractMontage(Data->DropMontage);
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -310,6 +349,7 @@ void USPInteractionComponent::BeginDrop()
 void USPInteractionComponent::CompleteDrop()
 {
 	bIsInteract = false;
+	StopInteractMontage();
 
 	const ASurvivorCharacter* Survivor = GetSurvivor();
 	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
@@ -351,6 +391,7 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 
 	CurrentDeliveryStation = Station;
 	bIsInteract = true;
+	PlayInteractMontage(Data->DeliveryMontage);
 
 	if (!bCancelInteractOnMove)
 	{
@@ -370,6 +411,7 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 void USPInteractionComponent::CompleteDelivery()
 {
 	bIsInteract = false;
+	StopInteractMontage();
 
 	ASPDeliveryStation* Station = CurrentDeliveryStation.Get();
 	CurrentDeliveryStation = nullptr;
@@ -415,6 +457,10 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 
 	CurrentEscapeGate = Gate;
 	bIsInteract = true;
+	if (const USurvivorData* Data = GetSurvivorData())
+	{
+		PlayInteractMontage(Data->EscapeLeverMontage);
+	}
 	Gate->SetOpener(Survivor);
 }
 
@@ -422,6 +468,7 @@ void USPInteractionComponent::EndEscapeChanneling()
 {
 	bIsInteract = false;
 	CurrentEscapeGate = nullptr;
+	StopInteractMontage();
 }
 
 void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
@@ -438,6 +485,10 @@ void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
 
 	CurrentHatch = Hatch;
 	bIsInteract = true;
+	if (const USurvivorData* Data = GetSurvivorData())
+	{
+		PlayInteractMontage(Data->HatchEscapeMontage);
+	}
 	Hatch->SetEscaper(Survivor);
 }
 
@@ -445,6 +496,7 @@ void USPInteractionComponent::CompleteHatchEscape()
 {
 	bIsInteract = false;
 	CurrentHatch = nullptr;
+	StopInteractMontage();
 	if (ASurvivorCharacter* Survivor = GetSurvivor())
 	{
 		Survivor->SetSurvivorState(ESurvivorState::Escaped);
