@@ -5,6 +5,8 @@
 #include "Engine/FontFace.h"
 #include "Fonts/CompositeFont.h"
 #include "Fonts/SlateFontInfo.h"
+#include "UI/Style/SPUIStyleData.h"
+#include "UI/Style/SPUIStyleLibrary.h"
 #include "UObject/Package.h"
 
 namespace
@@ -43,9 +45,10 @@ namespace
 	}
 }
 
-UFontFace* SpaCh4HUD::LoadFontFace(const TCHAR* AssetPath)
+UFontFace* SpaCh4HUD::LoadFontFace(const USPUIFontStyleData* StyleOverride, bool bMediumWeight)
 {
-	UFontFace* FontFace = LoadObject<UFontFace>(nullptr, AssetPath);
+	const USPUIFontStyleData& Style = SPUIStyleLibrary::ResolveFontStyle(StyleOverride);
+	UFontFace* FontFace = bMediumWeight ? Style.FontMedium : Style.FontSemiBold;
 	if (FontFace)
 	{
 		FontFace->ConditionalPostLoad();
@@ -53,7 +56,7 @@ UFontFace* SpaCh4HUD::LoadFontFace(const TCHAR* AssetPath)
 	return FontFace;
 }
 
-void SpaCh4HUD::ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size)
+void SpaCh4HUD::ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size, const USPUIFontStyleData* StyleOverride)
 {
 	if (!Text || Size <= 0)
 	{
@@ -61,7 +64,7 @@ void SpaCh4HUD::ApplyTextFont(UTextBlock* Text, UFontFace* FontFace, int32 Size)
 	}
 
 	const float FontSize = static_cast<float>(Size);
-	UFontFace* ResolvedFace = FontFace ? FontFace : LoadFontFace(FontSemiBoldPath);
+	UFontFace* ResolvedFace = FontFace ? FontFace : LoadFontFace(StyleOverride, false);
 
 	if (UFont* CompositeFont = GetOrCreateCompositeFont(ResolvedFace))
 	{

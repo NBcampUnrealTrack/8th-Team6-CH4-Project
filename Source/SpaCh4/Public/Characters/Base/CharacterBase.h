@@ -17,6 +17,8 @@ class SPACH4_API ACharacterBase : public ACharacter
 
 public:
 	ACharacterBase();
+	UFUNCTION(BlueprintPure, Category = "SP|Camera")
+	UCameraComponent* GetCameraComponent() const { return Camera; }
 
 protected:
 	virtual void BeginPlay() override;
