@@ -90,6 +90,14 @@ void ASurvivorCharacter::JumpOver()
 	}
 }
 
+void ASurvivorCharacter::OnRep_Controller()
+{
+	Super::OnRep_Controller();
+	
+	BindInventoryHudRefresh();
+	RefreshLocalInventoryHud();
+}
+
 void ASurvivorCharacter::ToggleCrouch()
 {
 	if (bIsCrouched)

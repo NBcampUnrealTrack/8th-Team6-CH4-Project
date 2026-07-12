@@ -87,7 +87,8 @@ protected:
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
-
+	
+	virtual void OnRep_Controller() override;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
@@ -133,7 +134,7 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
 	int32 CagedCount = 0;
 
-	int32 SelectedSlotIndex = -1;
+	int32 SelectedSlotIndex = 0;
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;

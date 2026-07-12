@@ -1242,7 +1242,7 @@ int32 UGameHUDWidget::GetSelectedInventorySlot() const
 			return Survivor->GetSelectedSlotIndex();
 		}
 	}
-	return INDEX_NONE;
+	return 0;
 }
 
 void UGameHUDWidget::RefreshInventoryPanel()
