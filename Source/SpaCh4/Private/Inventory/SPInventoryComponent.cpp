@@ -61,6 +61,86 @@ int32 USPInventoryComponent::FindCollectibleSlotIndex() const
 	return INDEX_NONE;
 }
 
+int32 USPInventoryComponent::FindLastCollectibleSlotIndex() const
+{
+	for (int32 Index = InventorySlots.Num() - 1; Index >= 0; --Index)
+	{
+		if (InventorySlots[Index].ContentType == EInventorySlotContentType::Collectible)
+		{
+			return Index;
+		}
+	}
+	return INDEX_NONE;
+}
+
+bool USPInventoryComponent::HasFreeSlot() const
+{
+	return FindFirstEmptySlotIndex() != INDEX_NONE;
+}
+
+bool USPInventoryComponent::HasAnyCollectible() const
+{
+	return FindCollectibleSlotIndex() != INDEX_NONE;
+}
+
+bool USPInventoryComponent::IsSlotOccupied(int32 Index) const
+{
+	return InventorySlots.IsValidIndex(Index) && InventorySlots[Index].IsOccupied();
+}
+
+bool USPInventoryComponent::IsSlotCollectible(int32 Index) const
+{
+	return InventorySlots.IsValidIndex(Index) && InventorySlots[Index].ContentType == EInventorySlotContentType::Collectible;
+}
+
+bool USPInventoryComponent::DropSlot(int32 Index, ASPCollectibleItem*& OutSourceItem)
+{
+	OutSourceItem = nullptr;
+
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !InventorySlots.IsValidIndex(Index))
+	{
+		return false;
+	}
+
+	FInventorySlotEntry& Slot = InventorySlots[Index];
+	if (!Slot.IsOccupied())
+	{
+		return false;
+	}
+
+	if (Slot.ContentType == EInventorySlotContentType::Collectible)
+	{
+		OutSourceItem = Slot.SourceItem;
+	}
+
+	Slot.Clear();
+	BroadcastInventoryChanged();
+	return true;
+}
+
+bool USPInventoryComponent::DeliverSlot(int32 Index, int32& OutValue, ASPCollectibleItem*& OutSourceItem)
+{
+	OutValue = 0;
+	OutSourceItem = nullptr;
+
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !InventorySlots.IsValidIndex(Index))
+	{
+		return false;
+	}
+
+	FInventorySlotEntry& Slot = InventorySlots[Index];
+	if (Slot.ContentType != EInventorySlotContentType::Collectible)
+	{
+		return false;
+	}
+
+	OutValue = Slot.CollectibleValue;
+	OutSourceItem = Slot.SourceItem;
+	Slot.Clear();
+	BroadcastInventoryChanged();
+	return true;
+}
+
 bool USPInventoryComponent::TryAddConsumable(const EConsumableItemType ItemType)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority() || ItemType == EConsumableItemType::None)
@@ -109,14 +189,12 @@ bool USPInventoryComponent::RemoveConsumable(const EConsumableItemType ItemType)
 	return false;
 }
 
-void USPInventoryComponent::SetCollectibleFromItem(const ASPCollectibleItem* Item)
+void USPInventoryComponent::SetCollectibleFromItem(ASPCollectibleItem* Item)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority() || !Item)
 	{
 		return;
 	}
-
-	ClearCollectible();
 
 	const int32 EmptyIndex = FindFirstEmptySlotIndex();
 	if (EmptyIndex == INDEX_NONE)
@@ -130,6 +208,7 @@ void USPInventoryComponent::SetCollectibleFromItem(const ASPCollectibleItem* Ite
 	Slot.CollectibleSize = Item->GetCollectibleSize();
 	Slot.CollectibleValue = Item->GetValue();
 	Slot.CollectibleIcon = Item->GetIcon();
+	Slot.SourceItem = Item;
 	BroadcastInventoryChanged();
 }
 

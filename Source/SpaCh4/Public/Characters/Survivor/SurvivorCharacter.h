@@ -50,6 +50,7 @@ public:
 	bool IsParkouring() const;
 	bool IsCarrying() const;
 	int GetCagedCount() const { return CagedCount; }
+	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
@@ -86,7 +87,8 @@ protected:
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
-
+	
+	virtual void OnRep_Controller() override;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
@@ -97,6 +99,17 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
+	void SelectSlot(int32 Index);
+
+	UFUNCTION(Server, Reliable)
+	void Server_SelectSlot(int32 Index);
+
+	void StartRun();
+	void StopRun();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetWantsToRun(bool bNewWantsToRun);
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
@@ -106,7 +119,7 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
-	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component",  meta = (AllowPrivateAccess = true))
 	TObjectPtr<USPMovementComponent> MovementComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
@@ -120,6 +133,8 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
 	int32 CagedCount = 0;
+
+	int32 SelectedSlotIndex = 0;
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;

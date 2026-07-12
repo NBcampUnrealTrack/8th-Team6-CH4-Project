@@ -1,4 +1,4 @@
-﻿#include "Characters/Killer/KillerCharacter.h"
+#include "Characters/Killer/KillerCharacter.h"
 #include "Systems/Data/KillerData.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "DrawDebugHelpers.h"
@@ -9,6 +9,9 @@
 #include "Camera/CameraComponent.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
+/*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+#include "Components/SPKillerFirstPersonMeshComponent.h"
+*/
 #include "GameFramework/SpringArmComponent.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Type/SPGameplayTag.h"
@@ -18,41 +21,75 @@ AKillerCharacter::AKillerCharacter()
 {
     PrimaryActorTick.bCanEverTick = false;
 
-    if (SpringArm) 
-    {
-        SpringArm->TargetArmLength = 0.f;
-        SpringArm->bDoCollisionTest = false;       // 카메라 충돌 방지
-        SpringArm->bUsePawnControlRotation = true; // 컨트롤러 회전 사용
-    }
-    
     bUseControllerRotationYaw = true;         
     if (GetCharacterMovement())
     {
         GetCharacterMovement()->bOrientRotationToMovement = false;
     }
     
-    charTag.AddTag(SPGameplayTags::Character::Survivor);
+    charTag.AddTag(SPGameplayTags::Character::Killer);
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
+    */
 }
+
+void AKillerCharacter::NotifyControllerChanged()
+{
+    Super::NotifyControllerChanged();
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    if (FirstPersonMeshComp)
+    {
+        FirstPersonMeshComp->ScheduleSetup();
+    }
+    */
+}
+
 void AKillerCharacter::PostInitializeComponents()
 {
     Super::PostInitializeComponents();
-    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }
+}
+
+void AKillerCharacter::PossessedBy(AController* NewController)
+{
+    Super::PossessedBy(NewController);
+
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    if (IsLocallyControlled() && FirstPersonMeshComp)
+    {
+        FirstPersonMeshComp->ScheduleSetup();
+    }*/
 }
 
 void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();
-    
-    // 살인마의 카메라가 너무 가까운 메쉬를 뚫지 않게 설정
-    if (Camera)
+
+    if (UCameraComponent* FollowCamera = GetCameraComponent())
     {
-        Camera->SetProjectionMode(ECameraProjectionMode::Perspective);
+        FollowCamera->SetProjectionMode(ECameraProjectionMode::Perspective);
     }
 
-    // 1인칭에서는 자신의 메쉬가 보이지 않게 처리
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    if (FirstPersonMeshComp)
+    {
+        FirstPersonMeshComp->ScheduleSetup();
+        FirstPersonMeshComp->EnsureAnimationSetup();
+    }*/
+    
+    if (GetMesh() && SpringArm)
+    {
+        SpringArm->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("head"));
+        SpringArm->SetRelativeLocation(FVector(0, 0, 0)); // 오프셋 조정 필요
+    }
+
+    // 2. 1인칭 메쉬 설정
     if (GetMesh())
     {
-        GetMesh()->SetOwnerNoSee(true);
+        GetMesh()->SetOwnerNoSee(true); // 내 몸은 안 보이게
     }
     
     if (APlayerController* PC = Cast<APlayerController>(GetController()))
@@ -70,6 +107,16 @@ void AKillerCharacter::BeginPlay()
     }
     
     if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    UpdateMovementSpeed();
+    
+    if (APlayerController* PC = Cast<APlayerController>(GetController()))
+    {
+        // 최소 Pitch와 최대 Pitch 설정
+        // -45도(위) ~ +45도(아래) 범위로 제한하려면 아래와 같이 설정
+        PC->PlayerCameraManager->ViewPitchMin = -45.0f;
+        PC->PlayerCameraManager->ViewPitchMax = 45.0f;
+        UE_LOG(LogTemp, Warning, TEXT("Pitch 제한 설정 완료: Min=%f, Max=%f"), PC->PlayerCameraManager->ViewPitchMin, PC->PlayerCameraManager->ViewPitchMax);
+    }
 }
 
 void AKillerCharacter::PerformAttack()
@@ -196,15 +243,20 @@ void AKillerCharacter::DropSurvivor()
         Comp->SetCollisionResponseToAllChannels(ECR_Block); // 기본 상태 복구
     }
 
-    // 5. 무브먼트 복구
-    if (auto* MoveComp = CarriedSurvivor->FindComponentByClass<UCharacterMovementComponent>())
+    // 5. 살인마 자신의 움직임 복구
+    if (GetCharacterMovement())
     {
-        MoveComp->SetMovementMode(MOVE_Walking);
-        MoveComp->SetComponentTickEnabled(true);
+        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        GetCharacterMovement()->StopMovementImmediately(); // 관성 제거
     }
 
     CarriedSurvivor = nullptr;
+    
+    // 상태를 Idle로 변경
     SetKillerState(EKillerState::Idle);
+    
+    // bIsBusy 해제 (중요)
+    bIsBusy = false;
 }
 
 void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -320,71 +372,18 @@ void AKillerCharacter::Server_Interact_Implementation()
     if (!KillerData || bIsBusy) return;
     
     // 1. Idle 상태일 때: 생존자 픽업 (bCanPickup 쿨타임 체크 추가)
-    if (CurrentState == EKillerState::Idle && bCanPickup)
+    switch (CurrentState)
     {
-        if (AActor* Target = FindInteractableActor(KillerData->PickupRange)) 
-        {
-            bIsBusy = true;
-            SetKillerState(EKillerState::PickingUp);
-            GetCharacterMovement()->DisableMovement();
-
-            FTimerHandle TimerHandle;
-            GetWorldTimerManager().SetTimer(TimerHandle, [this, Target]() {
-                PickupSurvivor(Target);
-                GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-                bIsBusy = false;
-            }, KillerData->PickupDuration, false);
-        }
-    }
-    // 2. Carrying 상태일 때: 갈고리에 걸거나 일반 Drop
-    else if (CurrentState == EKillerState::Carrying)
-    {
-        AActor* InteractTarget = FindInteractableActor(KillerData->CageDepositRange);
+    case EKillerState::Idle:
+        HandlePickupInteraction();
+        break;
         
-        if (ACage* TargetCage = Cast<ACage>(InteractTarget))
-        {
-            bIsBusy = true;
-            SetKillerState(EKillerState::Interacting);
-            GetCharacterMovement()->DisableMovement();
-
-            FTimerHandle TimerHandle;
-            GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
-                
-                // 생존자를 Cage에 가둠
-                if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
-                {
-                    Survivor->SetSurvivorState(ESurvivorState::Caged);
-                    Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-                    Survivor->SetActorLocation(TargetCage->GetActorLocation());
-                }
-                
-                TargetCage->SetCageStatus(ECageStatus::Occupied);
-                
-                CarriedSurvivor = nullptr;
-                GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-                bIsBusy = false;
-                SetKillerState(EKillerState::Idle);
-                
-                // [핵심] Drop 후 픽업 쿨타임 시작
-                bCanPickup = false;
-                FTimerHandle CooldownTimer;
-                GetWorldTimerManager().SetTimer(CooldownTimer, [this]() {
-                    bCanPickup = true;
-                }, 2.0f, false);
-            }, KillerData->CageDepositDuration, false);
-        }
-        else
-        {
-            // Cage가 없을 때 일반 Drop
-            DropSurvivor();
-            
-            // [핵심] Drop 후 픽업 쿨타임 시작
-            bCanPickup = false;
-            FTimerHandle CooldownTimer;
-            GetWorldTimerManager().SetTimer(CooldownTimer, [this]() {
-                bCanPickup = true;
-            }, 2.0f, false);
-        }
+    case EKillerState::Carrying:
+        HandleCarryingInteraction();
+        break;
+        
+    default:
+        break;
     }
 }
 
@@ -401,4 +400,82 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
             OnRep_CurrentState();
         }
     }
+}
+
+// 상태별 처리 함수 분리
+void AKillerCharacter::HandlePickupInteraction()
+{
+    if (!bCanPickup) return;
+
+    AActor* Target = FindInteractableActor(KillerData->PickupRange);
+    if (!Target) return;
+
+    bIsBusy = true;
+    SetKillerState(EKillerState::PickingUp);
+    GetCharacterMovement()->DisableMovement();
+
+    FTimerHandle TimerHandle;
+    GetWorldTimerManager().SetTimer(TimerHandle, [this, Target]() {
+        PickupSurvivor(Target);
+        if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        bIsBusy = false;
+    }, KillerData->PickupDuration, false);
+}
+
+void AKillerCharacter::HandleCarryingInteraction()
+{
+    AActor* InteractTarget = FindInteractableActor(KillerData->CageDepositRange);
+    ACage* TargetCage = Cast<ACage>(InteractTarget);
+
+    if (TargetCage)
+    {
+        ProcessCageDeposit(TargetCage);
+    }
+    else
+    {
+        ProcessNormalDrop();
+    }
+}
+
+void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
+{
+    bIsBusy = true;
+    SetKillerState(EKillerState::Interacting);
+    GetCharacterMovement()->DisableMovement();
+
+    FTimerHandle TimerHandle;
+    GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
+        if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
+        {
+            Survivor->SetSurvivorState(ESurvivorState::Caged);
+            Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+            Survivor->SetActorLocation(TargetCage->GetActorLocation());
+        }
+        
+        TargetCage->SetCageStatus(ECageStatus::Occupied);
+        CarriedSurvivor = nullptr;
+        
+        SetKillerState(EKillerState::Idle);
+        bIsBusy = false;
+        if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        
+        // 쿨타임 시작 로직...
+    }, KillerData->CageDepositDuration, false);
+}
+
+void AKillerCharacter::ProcessNormalDrop()
+{
+    bIsBusy = true;
+    SetKillerState(EKillerState::Interacting);
+    GetCharacterMovement()->DisableMovement();
+
+    // 1초 대기 후 Drop 실행
+    FTimerHandle DropTimer;
+    GetWorldTimerManager().SetTimer(DropTimer, [this]() {
+        DropSurvivor();
+        
+        bIsBusy = false;
+        SetKillerState(EKillerState::Idle);
+        if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }, 1.0f, false);
 }

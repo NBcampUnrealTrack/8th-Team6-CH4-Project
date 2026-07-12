@@ -11,6 +11,7 @@ class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
+class UAnimMontage;
 
 
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
@@ -34,9 +35,8 @@ public:
 	void CompleteHatchEscape();
 	void CancelInteract();
 
-	bool IsCarrying() const { return CarriedItem != nullptr; }
+	bool IsCarrying() const;
 	bool IsInteracting() const { return bIsInteract; }
-	ASPCollectibleItem* GetCarriedItem() const { return CarriedItem; }
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
 
@@ -52,6 +52,12 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_FaceInteractTarget(float TargetYaw);
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayInteractMontage(UAnimMontage* Montage);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StopInteractMontage();
+
 private:
 	ASurvivorCharacter* GetSurvivor() const;
 	const USurvivorData* GetSurvivorData() const;
@@ -64,6 +70,8 @@ private:
 	void CompleteDrop();
 	void CompleteDelivery();
 	void FaceInteractTarget(const AActor* Target);
+	void PlayInteractMontage(UAnimMontage* Montage);
+	void StopInteractMontage();
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	float InteractReach{200.f};
@@ -78,14 +86,8 @@ private:
 	bool bDrawDebug{false};
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
-	FName CarrySocketName{"CarrySocket"};
-
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	bool bInstantPickup{false};
 	
-	UPROPERTY(Replicated)
-	TObjectPtr<ASPCollectibleItem> CarriedItem;
-
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
 

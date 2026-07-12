@@ -8,7 +8,7 @@ class ASurvivorCharacter;
 class USurvivorData;
 enum class ESurvivorState : uint8;
 
-UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
+UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent), Blueprintable, BlueprintType)
 class SPACH4_API USPMovementComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -16,10 +16,16 @@ class SPACH4_API USPMovementComponent : public UActorComponent
 public:
 	USPMovementComponent();
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState);
 	void SnapToTargetSpeed();
+
+	void SetWantsToRun(bool bNewWantsToRun);
+
+	UFUNCTION(BlueprintPure, Category = "SP|Movement")
+	float GetTargetMoveSpeed() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -37,6 +43,9 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
 	float MoveSpeedInterpSpeed{8.f};
 	
+	UPROPERTY(Replicated)
+	bool bWantsToRun{false};
+
 	bool bHitEscapeSprintActive{false};
 	float HitEscapeSprintRemaining{0.f};
 	float HitEscapeSprintSpeed{0.f};

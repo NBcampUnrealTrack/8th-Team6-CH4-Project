@@ -261,13 +261,6 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	const FVector TraceEnd = TraceStart + Forward * ParkourTraceDistance;
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourTrace), false, Survivor);
-	if (const USPInteractionComponent* InteractionComponent = Survivor->GetInteractionComponent())
-	{
-		if (ASPCollectibleItem* CarriedItem = InteractionComponent->GetCarriedItem())
-		{
-			Params.AddIgnoredActor(CarriedItem);
-		}
-	}
 
 	const FCollisionObjectQueryParams ObjQuery = SPParkour::MakeObstacleObjectQuery();
 	const bool bForwardHit = GetWorld()->SweepSingleByObjectType(
@@ -728,13 +721,6 @@ void USPParkourComponent::SnapParkourLocationToGround(FVector& InOutLocation, bo
 		if (AActor* ObstacleActor = CurrentParkourObstacle.Get())
 		{
 			Params.AddIgnoredActor(ObstacleActor);
-		}
-	}
-	if (const USPInteractionComponent* InteractionComponent = Survivor->GetInteractionComponent())
-	{
-		if (ASPCollectibleItem* CarriedItem = InteractionComponent->GetCarriedItem())
-		{
-			Params.AddIgnoredActor(CarriedItem);
 		}
 	}
 

@@ -6,6 +6,8 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
+class USPKillerFirstPersonMeshComponent;
+class ACage;
 
 // ---------------------------------------------------------------
 // KillerState (살인마 상태)
@@ -30,13 +32,19 @@ public:
     AKillerCharacter();
     virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginPlay() override;
+    virtual void PossessedBy(AController* NewController) override;
     virtual void PostInitializeComponents() override;
+    virtual void NotifyControllerChanged() override;
     
     UFUNCTION(BlueprintPure, Category = "Tags")
     const FGameplayTagContainer& GetCharTags() const { return charTag; }
 
     UFUNCTION(BlueprintCallable, Category = "Tags")
     void AddCharTag(FGameplayTag NewTag) { charTag.AddTag(NewTag); }
+
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
+    */
 
 protected:
     bool bCanPickup = true;
@@ -73,10 +81,19 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
+    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
+    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
+    TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
+    */
 
     UPROPERTY(Replicated)
     AActor* CarriedSurvivor;
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;
+    
+    void HandlePickupInteraction();
+    void HandleCarryingInteraction();
+    void ProcessCageDeposit(ACage* TargetCage);
+    void ProcessNormalDrop();
 };

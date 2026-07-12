@@ -90,6 +90,14 @@ void ASurvivorCharacter::JumpOver()
 	}
 }
 
+void ASurvivorCharacter::OnRep_Controller()
+{
+	Super::OnRep_Controller();
+	
+	BindInventoryHudRefresh();
+	RefreshLocalInventoryHud();
+}
+
 void ASurvivorCharacter::ToggleCrouch()
 {
 	if (bIsCrouched)
@@ -102,6 +110,37 @@ void ASurvivorCharacter::ToggleCrouch()
 	if (bStateAllowsCrouch && CanCrouch())
 	{
 		Crouch();
+	}
+}
+
+void ASurvivorCharacter::StartRun()
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(true);
+	}
+	Server_SetWantsToRun(true);
+}
+
+void ASurvivorCharacter::StopRun()
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(false);
+	}
+	Server_SetWantsToRun(false);
+}
+
+bool ASurvivorCharacter::Server_SetWantsToRun_Validate(bool bNewWantsToRun)
+{
+	return true;
+}
+
+void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun)
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(bNewWantsToRun);
 	}
 }
 
@@ -192,7 +231,33 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		{
 			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ASurvivorCharacter::ToggleCrouch);
 		}
+		
+		EnhancedInput->BindAction(InputConfig->RunAction, ETriggerEvent::Started, this, &ASurvivorCharacter::StartRun);
+		EnhancedInput->BindAction(InputConfig->RunAction, ETriggerEvent::Completed, this, &ASurvivorCharacter::StopRun);
+
+		if (InputConfig)
+		{
+			for (int32 SlotIndex = 0; SlotIndex < InputConfig->SelectSlotActions.Num(); ++SlotIndex)
+			{
+				if (UInputAction* SlotAction = InputConfig->SelectSlotActions[SlotIndex].Get())
+				{
+					EnhancedInput->BindAction(SlotAction, ETriggerEvent::Started, this, &ASurvivorCharacter::SelectSlot, SlotIndex);
+				}
+			}
+		}
 	}
+}
+
+void ASurvivorCharacter::SelectSlot(int32 Index)
+{
+	SelectedSlotIndex = Index;
+	Server_SelectSlot(Index);
+	RefreshLocalInventoryHud();
+}
+
+void ASurvivorCharacter::Server_SelectSlot_Implementation(int32 Index)
+{
+	SelectedSlotIndex = Index;
 }
 
 void ASurvivorCharacter::PossessedBy(AController* NewController)

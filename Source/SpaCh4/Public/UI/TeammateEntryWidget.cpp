@@ -2,50 +2,24 @@
 
 #include "Components/Image.h"
 #include "Components/Overlay.h"
+#include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "TimerManager.h"
 #include "UI/HUDFontUtils.h"
+#include "UI/Style/SPUIStyleData.h"
+#include "UI/Style/SPUIStyleLibrary.h"
 
-namespace
+namespace TeammateEntryWidgetPrivate
 {
 	static constexpr float DefaultPortraitFrameSize = 100.0f;
 	static constexpr float PortraitIconInsetRatio = 0.68f;
-	static const TCHAR* PortraitSlotTexturePath = TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Slot.T_HUD_Portrait_Slot");
-	static const TCHAR* PortraitNormalTexturePath =
-		TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Placeholder.T_HUD_Portrait_Placeholder");
-	static const TCHAR* PortraitInjuredTexturePath =
-		TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Injured.T_HUD_Portrait_Injured");
-	static const TCHAR* PortraitDeadTexturePath =
-		TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Dead.T_HUD_Portrait_Dead");
-	static const TCHAR* DownedHealthBarBGTexturePath = TEXT("/Game/UI/HUD/Textures/Common/T_HUD_Bar_BG.T_HUD_Bar_BG");
-	static const TCHAR* DownedHealthFillMIPath =
-		TEXT("/Game/UI/HUD/Materials/MI_HUD_HealthBarFill_Downed.MI_HUD_HealthBarFill_Downed");
-	static const TCHAR* DownedHealthFillMaterialPath =
-		TEXT("/Game/UI/HUD/Materials/M_HUD_HealthBarFill.M_HUD_HealthBarFill");
-	static const TCHAR* DownedHealthFillTexturePath =
-		TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Bar_Fill_Downed.T_HUD_Bar_Fill_Downed");
 
 	static FLinearColor FrameTintForState(ESurvivorDisplayState State)
 	{
-		// Ornate portrait frame art carries its own color; avoid washing it with state tints.
 		(void)State;
 		return FLinearColor::White;
-	}
-
-	static const TCHAR* PortraitTexturePathForState(ESurvivorDisplayState State)
-	{
-		switch (State)
-		{
-		case ESurvivorDisplayState::Injured:
-		case ESurvivorDisplayState::Downed:
-		case ESurvivorDisplayState::Carried:
-			return PortraitInjuredTexturePath;
-		case ESurvivorDisplayState::Dead:
-			return PortraitDeadTexturePath;
-		default:
-			return PortraitNormalTexturePath;
-		}
 	}
 
 	static bool IsValidDisplaySize(const FVector2D& Size)
@@ -65,9 +39,19 @@ namespace
 		return FMath::IsNearlyEqual(Size.X, TexW, 1.0f) && FMath::IsNearlyEqual(Size.Y, TexH, 1.0f);
 	}
 
+	static bool IsImageWidgetSlateReady(const UImage* Image)
+	{
+		if (!Image || !IsValid(Image) || !Image->IsConstructed())
+		{
+			return false;
+		}
+
+		return Image->GetCachedWidget().IsValid();
+	}
+
 	static FVector2D ResolveImageWidgetDisplaySize(const UImage* Image, const FVector2D& DefaultSize)
 	{
-		if (!Image)
+		if (!IsImageWidgetSlateReady(Image))
 		{
 			return DefaultSize;
 		}
@@ -85,17 +69,27 @@ namespace
 
 	static void SetImageTextureWithDisplaySize(UImage* Image, UTexture2D* Texture, const FVector2D& DisplaySize)
 	{
-		if (!Image || !Texture || !IsValidDisplaySize(DisplaySize))
+		if (!Image || !IsValid(Image) || !Texture || !IsValid(Texture) || !IsValidDisplaySize(DisplaySize))
 		{
 			return;
 		}
 
-		FSlateBrush Brush = Image->GetBrush();
-		Brush.SetResourceObject(Texture);
-		SpaCh4HUD::SetBrushImageSize(Brush, DisplaySize);
-		Image->SetBrush(Brush);
+		Texture->ConditionalPostLoad();
+		Image->SetBrushFromTexture(Texture, true);
 		Image->SetDesiredSizeOverride(DisplaySize);
 	}
+
+	static bool HasDesignerBrushResource(const UImage* Image)
+	{
+		return IsValid(Image) && Image->GetBrush().GetResourceObject() != nullptr;
+	}
+}
+
+using namespace TeammateEntryWidgetPrivate;
+
+const USPGameHUDStyleData& UTeammateEntryWidget::GetResolvedStyle() const
+{
+	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
 }
 
 UTexture2D* UTeammateEntryWidget::ResolvePortraitTexture(ESurvivorDisplayState State) const
@@ -109,22 +103,20 @@ UTexture2D* UTeammateEntryWidget::ResolvePortraitTexture(ESurvivorDisplayState S
 		{
 			return PortraitIconInjured;
 		}
-		break;
+		return GetResolvedStyle().PortraitInjured;
 	case ESurvivorDisplayState::Dead:
 		if (PortraitIconDead)
 		{
 			return PortraitIconDead;
 		}
-		break;
+		return GetResolvedStyle().PortraitDead;
 	default:
 		if (PortraitIconHealthy)
 		{
 			return PortraitIconHealthy;
 		}
-		break;
+		return GetResolvedStyle().PortraitHealthy;
 	}
-
-	return LoadObject<UTexture2D>(nullptr, PortraitTexturePathForState(State));
 }
 
 UTexture2D* UTeammateEntryWidget::ResolvePortraitSlotTexture() const
@@ -134,7 +126,7 @@ UTexture2D* UTeammateEntryWidget::ResolvePortraitSlotTexture() const
 		return PortraitSlotTexture;
 	}
 
-	return LoadObject<UTexture2D>(nullptr, PortraitSlotTexturePath);
+	return GetResolvedStyle().PortraitSlotFrame;
 }
 
 FVector2D UTeammateEntryWidget::ResolvePortraitIconSize() const
@@ -210,82 +202,282 @@ void UTeammateEntryWidget::EnsurePortraitOverlayZOrder()
 	Overlay->AddChild(PortraitSlotFrame);
 }
 
+void UTeammateEntryWidget::CollapseLegacyDownedHealthFillIfNeeded()
+{
+	if (IsValid(DownedHealthBarProgress) && IsValid(DownedHealthBarFill))
+	{
+		DownedHealthBarFill->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+void UTeammateEntryWidget::NativePreConstruct()
+{
+	Super::NativePreConstruct();
+	CollapseLegacyDownedHealthFillIfNeeded();
+}
+
 void UTeammateEntryWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	CachePortraitLayoutSizes();
+	ResetDownedHealthBarRuntimeState();
+	CollapseLegacyDownedHealthFillIfNeeded();
 
-	if (PortraitSlotFrame)
+	CachePortraitLayoutSizes();
+	EnsurePortraitOverlayZOrder();
+
+	if (IsDesignTime())
+	{
+		if (!IsValid(DownedHealthBarProgress))
+		{
+			SetupDownedHealthBar();
+		}
+		else
+		{
+			ApplyPortraitVisuals();
+		}
+		return;
+	}
+
+	ScheduleDownedHealthBarSetup();
+}
+
+void UTeammateEntryWidget::NativeDestruct()
+{
+	ClearDownedHealthBarSetupTimer();
+	DownedHealthBarFillMID = nullptr;
+	bDownedHealthBarInitialized = false;
+	Super::NativeDestruct();
+}
+
+void UTeammateEntryWidget::ResetDownedHealthBarRuntimeState()
+{
+	ClearDownedHealthBarSetupTimer();
+	DownedHealthBarFillMID = nullptr;
+	bDownedHealthBarInitialized = false;
+	DownedHealthBarSetupRetries = 0;
+}
+
+bool UTeammateEntryWidget::CanRunDeferredSetup() const
+{
+	const UWorld* World = GetWorld();
+	return IsValid(this) && World && !World->bIsTearingDown;
+}
+
+void UTeammateEntryWidget::ClearDownedHealthBarSetupTimer()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DownedHealthBarSetupTimerHandle);
+	}
+}
+
+bool UTeammateEntryWidget::AreDownedHealthBarWidgetsReady() const
+{
+	if (IsValid(DownedHealthBarProgress))
+	{
+		return DownedHealthBarProgress->IsConstructed()
+			&& DownedHealthBarProgress->GetCachedWidget().IsValid();
+	}
+
+	if (!DownedHealthBarBG && !DownedHealthBarFill)
+	{
+		return true;
+	}
+
+	auto IsReady = [](const UImage* Image) -> bool
+	{
+		return Image
+			&& IsValid(Image)
+			&& Image->IsConstructed()
+			&& Image->GetCachedWidget().IsValid();
+	};
+
+	if (DownedHealthBarBG && !IsReady(DownedHealthBarBG))
+	{
+		return false;
+	}
+
+	if (DownedHealthBarFill && !IsReady(DownedHealthBarFill))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void UTeammateEntryWidget::ScheduleDownedHealthBarSetup()
+{
+	if (!CanRunDeferredSetup())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	World->GetTimerManager().ClearTimer(DownedHealthBarSetupTimerHandle);
+	World->GetTimerManager().SetTimer(
+		DownedHealthBarSetupTimerHandle,
+		this,
+		&UTeammateEntryWidget::SetupDownedHealthBar,
+		0.0f,
+		false);
+}
+
+void UTeammateEntryWidget::ApplyPortraitVisuals()
+{
+	if (IsValid(PortraitSlotFrame))
 	{
 		if (UTexture2D* FrameTex = ResolvePortraitSlotTexture())
 		{
-			SetImageTextureWithDisplaySize(PortraitSlotFrame, FrameTex, CachedPortraitFrameSize);
+			if (IsValid(FrameTex))
+			{
+				SetImageTextureWithDisplaySize(PortraitSlotFrame, FrameTex, CachedPortraitFrameSize);
+			}
 		}
 		UpdatePortraitFrame(ESurvivorDisplayState::Healthy);
 	}
 
 	UpdatePortraitImage(ESurvivorDisplayState::Healthy);
-
 	EnsurePortraitOverlayZOrder();
+}
 
-	SetupDownedHealthBar();
+static bool IsDownedHealthFillMIDValid(
+	const UMaterialInstanceDynamic* FillMID,
+	const UImage* FillImage)
+{
+	return IsValid(FillMID)
+		&& IsValid(FillImage)
+		&& FillMID->GetOuter() == FillImage;
 }
 
 void UTeammateEntryWidget::SetupDownedHealthBar()
 {
+	if (!CanRunDeferredSetup())
+	{
+		ClearDownedHealthBarSetupTimer();
+		return;
+	}
+
+	const bool bUsesProgressBar = IsValid(DownedHealthBarProgress);
+	const bool bHasBG = IsValid(DownedHealthBarBG);
+	const bool bHasFill = IsValid(DownedHealthBarFill);
+	if (!bUsesProgressBar && !bHasBG && !bHasFill)
+	{
+		ClearDownedHealthBarSetupTimer();
+		return;
+	}
+
+	if (!IsDesignTime() && !AreDownedHealthBarWidgetsReady())
+	{
+		constexpr int32 MaxRetries = 8;
+		if (DownedHealthBarSetupRetries < MaxRetries)
+		{
+			++DownedHealthBarSetupRetries;
+			ScheduleDownedHealthBarSetup();
+		}
+		else
+		{
+			ClearDownedHealthBarSetupTimer();
+		}
+		return;
+	}
+
+	ClearDownedHealthBarSetupTimer();
+	ApplyPortraitVisuals();
+
+	if (bDownedHealthBarInitialized)
+	{
+		return;
+	}
+
+	const bool bDesignerOwnsDownedBarLayout =
+		bUsesProgressBar
+		|| IsValid(DownedHealthBarRoot)
+		|| (bHasBG && HasDesignerBrushResource(DownedHealthBarBG));
+
+	if (bDesignerOwnsDownedBarLayout)
+	{
+		CollapseLegacyDownedHealthFillIfNeeded();
+		bDownedHealthBarInitialized = true;
+		return;
+	}
+
+	const USPGameHUDStyleData& Style = GetResolvedStyle();
 	const FVector2D BarSize(DownedHealthBarWidth, DownedHealthBarHeight);
 
-	if (DownedHealthBarBG)
+	if (bHasBG)
 	{
-		if (UTexture2D* BgTexture = LoadObject<UTexture2D>(nullptr, DownedHealthBarBGTexturePath))
+		if (UTexture2D* BgTexture = Style.DownedHealthBarBackground)
 		{
-			DownedHealthBarBG->SetBrushFromTexture(BgTexture, true);
-			FSlateBrush BgBrush = DownedHealthBarBG->GetBrush();
-			SpaCh4HUD::SetBrushImageSize(BgBrush, BarSize);
-			DownedHealthBarBG->SetBrush(BgBrush);
+			if (IsValid(BgTexture))
+			{
+				SetImageTextureWithDisplaySize(DownedHealthBarBG, BgTexture, BarSize);
+			}
 		}
 		DownedHealthBarBG->SetColorAndOpacity(FLinearColor::White);
 	}
 
-	if (!DownedHealthBarFill)
+	if (!bHasFill)
 	{
+		bDownedHealthBarInitialized = true;
+		return;
+	}
+
+	if (HasDesignerBrushResource(DownedHealthBarFill))
+	{
+		bDownedHealthBarInitialized = true;
 		return;
 	}
 
 	DownedHealthBarFill->SetColorAndOpacity(FLinearColor::White);
 
-	UMaterialInterface* FillParent = LoadObject<UMaterialInterface>(nullptr, DownedHealthFillMIPath);
-	if (!FillParent)
+	if (IsDownedHealthFillMIDValid(DownedHealthBarFillMID, DownedHealthBarFill))
 	{
-		FillParent = LoadObject<UMaterialInterface>(nullptr, DownedHealthFillMaterialPath);
+		DownedHealthBarFill->SetBrushFromMaterial(DownedHealthBarFillMID);
+		DownedHealthBarFill->SetDesiredSizeOverride(BarSize);
+		bDownedHealthBarInitialized = true;
+		return;
 	}
 
-	if (FillParent)
+	DownedHealthBarFillMID = nullptr;
+
+	UMaterialInterface* FillParent = Style.DownedHealthFillMaterialInstance;
+	if (!IsValid(FillParent))
 	{
-		DownedHealthBarFillMID = UMaterialInstanceDynamic::Create(FillParent, this);
-		if (DownedHealthBarFillMID)
+		FillParent = Style.DownedHealthFillMaterial;
+	}
+
+	if (IsValid(FillParent) && CanRunDeferredSetup())
+	{
+		FillParent->ConditionalPostLoad();
+		DownedHealthBarFillMID = UMaterialInstanceDynamic::Create(FillParent, DownedHealthBarFill);
+		if (IsValid(DownedHealthBarFillMID))
 		{
-			if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DownedHealthFillTexturePath))
+			if (UTexture2D* FillTexture = Style.DownedHealthFillTexture)
 			{
-				DownedHealthBarFillMID->SetTextureParameterValue(TEXT("FillTexture"), FillTexture);
+				if (IsValid(FillTexture))
+				{
+					FillTexture->ConditionalPostLoad();
+					DownedHealthBarFillMID->SetTextureParameterValue(TEXT("FillTexture"), FillTexture);
+				}
 			}
 
 			DownedHealthBarFill->SetBrushFromMaterial(DownedHealthBarFillMID);
-			FSlateBrush FillBrush = DownedHealthBarFill->GetBrush();
-			SpaCh4HUD::SetBrushImageSize(FillBrush, BarSize);
-			DownedHealthBarFill->SetBrush(FillBrush);
+			DownedHealthBarFill->SetDesiredSizeOverride(BarSize);
+			bDownedHealthBarInitialized = true;
 			return;
 		}
 	}
 
-	if (UTexture2D* FillTexture = LoadObject<UTexture2D>(nullptr, DownedHealthFillTexturePath))
+	if (UTexture2D* FillTexture = Style.DownedHealthFillTexture)
 	{
-		DownedHealthBarFill->SetBrushFromTexture(FillTexture, true);
-		FSlateBrush FillBrush = DownedHealthBarFill->GetBrush();
-		SpaCh4HUD::SetBrushImageSize(FillBrush, BarSize);
-		DownedHealthBarFill->SetBrush(FillBrush);
+		if (IsValid(FillTexture))
+		{
+			SetImageTextureWithDisplaySize(DownedHealthBarFill, FillTexture, BarSize);
+		}
 	}
+
+	bDownedHealthBarInitialized = true;
 }
 
 void UTeammateEntryWidget::UpdateFromData(const FTeammateHUDData& Data)
@@ -329,7 +521,7 @@ void UTeammateEntryWidget::UpdateDownedHealth(float HealthPercent, bool bShowBar
 	{
 		DownedHealthBarRoot->SetVisibility(BarVisibility);
 	}
-	else
+	else if (!IsValid(DownedHealthBarProgress))
 	{
 		if (DownedHealthBarBG)
 		{
@@ -342,7 +534,19 @@ void UTeammateEntryWidget::UpdateDownedHealth(float HealthPercent, bool bShowBar
 	}
 
 	const float ClampedPercent = FMath::Clamp(HealthPercent, 0.0f, 1.0f);
-	if (DownedHealthBarFill)
+
+	if (IsValid(DownedHealthBarProgress))
+	{
+		CollapseLegacyDownedHealthFillIfNeeded();
+
+		if (!IsDesignTime())
+		{
+			DownedHealthBarProgress->SetPercent(ClampedPercent);
+		}
+		return;
+	}
+
+	if (IsValid(DownedHealthBarFill))
 	{
 		DownedHealthBarFill->SetDesiredSizeOverride(
 			FVector2D(DownedHealthBarWidth * ClampedPercent, DownedHealthBarHeight));
