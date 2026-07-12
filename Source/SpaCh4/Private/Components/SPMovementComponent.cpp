@@ -4,11 +4,20 @@
 #include "Inventory/SPInventoryComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
 
 USPMovementComponent::USPMovementComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	SetIsReplicatedByDefault(true);
+}
+
+void USPMovementComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(USPMovementComponent, bWantsToRun);
 }
 
 void USPMovementComponent::BeginPlay()
@@ -67,6 +76,11 @@ void USPMovementComponent::SnapToTargetSpeed()
 	}
 }
 
+void USPMovementComponent::SetWantsToRun(bool bNewWantsToRun)
+{
+	bWantsToRun = bNewWantsToRun;
+}
+
 ASurvivorCharacter* USPMovementComponent::GetSurvivor() const
 {
 	return Cast<ASurvivorCharacter>(GetOwner());
@@ -76,6 +90,11 @@ const USurvivorData* USPMovementComponent::GetSurvivorData() const
 {
 	const ASurvivorCharacter* Survivor = GetSurvivor();
 	return Survivor ? Survivor->GetSurvivorData() : nullptr;
+}
+
+float USPMovementComponent::GetTargetMoveSpeed() const
+{
+	return ComputeTargetMoveSpeed();
 }
 
 float USPMovementComponent::ComputeTargetMoveSpeed() const
@@ -93,15 +112,23 @@ float USPMovementComponent::GetBaseWalkSpeed() const
 		return 0.f;
 	}
 
-	const float WalkSpeed = Survivor->bIsCrouched ? Data->SurvivorCrouchSpeed : Data->SurvivorWalkSpeed;
+	float BaseSpeed;
+	if (Survivor->bIsCrouched)
+	{
+		BaseSpeed = Data->SurvivorCrouchSpeed;
+	}
+	else
+	{
+		BaseSpeed = bWantsToRun ? Data->SurvivorRunSpeed : Data->SurvivorWalkSpeed;
+	}
 
 	switch (Survivor->GetSurvivorState())
 	{
 	case ESurvivorState::Healthy:
-		return WalkSpeed;
+		return BaseSpeed;
 
 	case ESurvivorState::Injured:
-		return WalkSpeed * Data->SurvivorInjuredSpeedMultiplier;
+		return BaseSpeed * Data->SurvivorInjuredSpeedMultiplier;
 
 	default:
 		return 0.f;

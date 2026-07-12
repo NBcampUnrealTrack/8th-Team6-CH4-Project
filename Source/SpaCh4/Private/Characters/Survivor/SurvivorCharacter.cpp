@@ -105,6 +105,37 @@ void ASurvivorCharacter::ToggleCrouch()
 	}
 }
 
+void ASurvivorCharacter::StartRun()
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(true);
+	}
+	Server_SetWantsToRun(true);
+}
+
+void ASurvivorCharacter::StopRun()
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(false);
+	}
+	Server_SetWantsToRun(false);
+}
+
+bool ASurvivorCharacter::Server_SetWantsToRun_Validate(bool bNewWantsToRun)
+{
+	return true;
+}
+
+void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun)
+{
+	if (MovementComponent)
+	{
+		MovementComponent->SetWantsToRun(bNewWantsToRun);
+	}
+}
+
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
 	if (!HasAuthority()) return;
@@ -192,6 +223,9 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		{
 			EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ASurvivorCharacter::ToggleCrouch);
 		}
+		
+		EnhancedInput->BindAction(InputConfig->RunAction, ETriggerEvent::Started, this, &ASurvivorCharacter::StartRun);
+		EnhancedInput->BindAction(InputConfig->RunAction, ETriggerEvent::Completed, this, &ASurvivorCharacter::StopRun);
 
 		if (InputConfig)
 		{

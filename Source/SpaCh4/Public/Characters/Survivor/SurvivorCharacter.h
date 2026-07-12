@@ -103,6 +103,12 @@ private:
 	UFUNCTION(Server, Reliable)
 	void Server_SelectSlot(int32 Index);
 
+	void StartRun();
+	void StopRun();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SetWantsToRun(bool bNewWantsToRun);
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
@@ -112,7 +118,7 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
-	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component",  meta = (AllowPrivateAccess = true))
 	TObjectPtr<USPMovementComponent> MovementComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")

@@ -47,5 +47,8 @@ public:
 	TObjectPtr<UInputAction> CrouchAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Action")
+	TObjectPtr<UInputAction> RunAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Action")
 	TArray<TObjectPtr<UInputAction>> SelectSlotActions;
 };
