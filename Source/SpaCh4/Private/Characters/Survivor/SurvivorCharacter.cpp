@@ -3,6 +3,7 @@
 #include "Components/SPInteractionComponent.h"
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
+#include "Components/SPScratchMarkComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -32,6 +33,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	MovementComponent = CreateDefaultSubobject<USPMovementComponent>("MovementComponent");
 	ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
+	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 

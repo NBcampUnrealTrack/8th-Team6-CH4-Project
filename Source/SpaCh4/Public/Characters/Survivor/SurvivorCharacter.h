@@ -13,6 +13,7 @@ class USurvivorData;
 class USPInteractionComponent;
 class USPMovementComponent;
 class USPParkourComponent;
+class USPScratchMarkComponent;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
@@ -124,6 +125,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPParkourComponent> ParkourComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPScratchMarkComponent> ScratchMarkComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = "OnRep_SurvivorState",  meta = (AllowPrivateAccess = true))
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
