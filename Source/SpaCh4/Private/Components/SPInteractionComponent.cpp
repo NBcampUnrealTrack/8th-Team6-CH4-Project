@@ -2,6 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -366,8 +367,41 @@ void USPInteractionComponent::CompleteDrop()
 
 	if (Item)
 	{
-		Item->Multicast_SetStored(false, Survivor->GetActorLocation());
+		Item->Multicast_SetStored(false, ResolveGroundedDropLocation(Survivor, Item));
 	}
+}
+
+FVector USPInteractionComponent::ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const
+{
+	const FVector Origin = Survivor->GetActorLocation();
+	const FVector TraceStart = Origin + Survivor->GetActorForwardVector() * DropForwardOffset;
+	const FVector TraceEnd = TraceStart - FVector(0.f, 0.f, DropTraceDistance);
+
+	float GroundZ = Origin.Z;
+	if (const UCapsuleComponent* Capsule = Survivor->GetCapsuleComponent())
+	{
+		GroundZ = Origin.Z - Capsule->GetScaledCapsuleHalfHeight();
+	}
+
+	if (const UWorld* World = GetWorld())
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(CollectibleDrop), false);
+		Params.AddIgnoredActor(Survivor);
+		Params.AddIgnoredActor(Item);
+
+		FHitResult Hit;
+		if (World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Visibility, Params))
+		{
+			GroundZ = Hit.ImpactPoint.Z;
+		}
+	}
+
+	FVector BoundsOrigin;
+	FVector BoxExtent;
+	Item->GetActorBounds(false, BoundsOrigin, BoxExtent);
+	const float PivotToBottom = Item->GetActorLocation().Z - (BoundsOrigin.Z - BoxExtent.Z);
+
+	return FVector(TraceStart.X, TraceStart.Y, GroundZ + PivotToBottom);
 }
 
 void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
