@@ -84,6 +84,7 @@ _ReSharper*/
 .claude/settings.local.json
 CLAUDE.local.md
 .claude/
+.agents/
 
 # Other agents' local caches
 .cursor/

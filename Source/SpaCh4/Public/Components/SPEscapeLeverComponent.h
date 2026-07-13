@@ -86,12 +86,21 @@ private:
 	void BlendOutWatchForReturn(UAnimInstance* AnimInstance, float BlendOutTime);
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")
+	TSoftObjectPtr<UAnimMontage> LeverPulldownMontageAsset;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")
+	TSoftObjectPtr<UAnimMontage> LeverWatchMontageAsset;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")
+	TSoftObjectPtr<UAnimMontage> LeverReturnMontageAsset;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> LeverPulldownMontage;
 
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")
+	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> LeverWatchMontage;
 
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")
+	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> LeverReturnMontage;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Escape|Lever")

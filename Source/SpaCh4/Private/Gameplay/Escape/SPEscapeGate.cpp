@@ -15,27 +15,27 @@ ASPEscapeGate::ASPEscapeGate()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
+	
+	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>("DoorMesh");
+	SetRootComponent(DoorMesh);
 
+	LeverPanelMesh = CreateDefaultSubobject<UStaticMeshComponent>("LeverPanelMesh");
+	LeverPanelMesh->SetupAttachment(DoorMesh);
+	LeverPanelMesh->SetCollisionProfileName(TEXT("Interactable"));
+	LeverPanelMesh->SetCustomDepthStencilValue(250);
+	LeverPanelMesh->SetRenderCustomDepth(false);
+	
+	LeverPivot = CreateDefaultSubobject<USceneComponent>("LeverPivot");
+	LeverPivot->SetupAttachment(LeverPanelMesh);
+	
 	SwitchMesh = CreateDefaultSubobject<UStaticMeshComponent>("Mesh");
-	SetRootComponent(SwitchMesh);
-	SwitchMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	SwitchMesh->SetCollisionProfileName(TEXT("Interactable"));
 	SwitchMesh->SetCustomDepthStencilValue(250);
 	SwitchMesh->SetRenderCustomDepth(false);
-
-	LeverPivot = CreateDefaultSubobject<USceneComponent>("LeverPivot");
-	LeverPivot->SetupAttachment(SwitchMesh);
-
-	LeverMesh = CreateDefaultSubobject<UStaticMeshComponent>("LeverMesh");
-	LeverMesh->SetupAttachment(LeverPivot);
-	LeverMesh->SetCollisionProfileName(TEXT("NoCollision"));
-	LeverMesh->SetCustomDepthStencilValue(250);
-	LeverMesh->SetRenderCustomDepth(false);
-
-	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>("DoorMesh");
-	DoorMesh->SetupAttachment(SwitchMesh);
-
+	SwitchMesh->SetupAttachment(LeverPivot);
+	
 	ExitTrigger = CreateDefaultSubobject<UBoxComponent>("ExitTrigger");
-	ExitTrigger->SetupAttachment(SwitchMesh);
+	ExitTrigger->SetupAttachment(DoorMesh);
 	ExitTrigger->SetCollisionProfileName(TEXT("Trigger"));
 }
 
@@ -44,6 +44,11 @@ void ASPEscapeGate::BeginPlay()
 	Super::BeginPlay();
 
 	ExitTrigger->OnComponentBeginOverlap.AddDynamic(this, &ASPEscapeGate::OnExitTriggerBeginOverlap);
+
+	if (LeverPivot)
+	{
+		InitialLeverPivotRotation = LeverPivot->GetRelativeRotation();
+	}
 
 	BindAvailabilityDelegate();
 }
@@ -113,7 +118,7 @@ void ASPEscapeGate::Interact_Implementation(AActor* Interactor)
 void ASPEscapeGate::SetHighlight_Implementation(bool bEnabled)
 {
 	SwitchMesh->SetRenderCustomDepth(bEnabled);
-	LeverMesh->SetRenderCustomDepth(bEnabled);
+	LeverPanelMesh->SetRenderCustomDepth(bEnabled);
 }
 
 FGameplayTag ASPEscapeGate::GetInteractableTag_Implementation() const
@@ -182,7 +187,7 @@ void ASPEscapeGate::OnRep_IsActivated()
 	if (bIsActivated)
 	{
 		SwitchMesh->SetRenderCustomDepth(false);
-		LeverMesh->SetRenderCustomDepth(false);
+		LeverPanelMesh->SetRenderCustomDepth(false);
 	}
 }
 
@@ -193,15 +198,14 @@ void ASPEscapeGate::OnEscapeAvailabilityChanged(bool bCanActivate)
 
 void ASPEscapeGate::UpdateLeverRotation(float DeltaSeconds)
 {
-	const float TargetTime = FMath::Max(LeverRotateDuration, KINDA_SMALL_NUMBER);
-	if (!bIsActivated || LeverRotateElapsed >= TargetTime)
+	if (!LeverPivot || OpenDuration <= 0.f)
 	{
 		return;
 	}
 
-	LeverRotateElapsed = FMath::Min(LeverRotateElapsed + DeltaSeconds, TargetTime);
-	const float Alpha = LeverRotateElapsed / TargetTime;
-	LeverPivot->SetRelativeRotation(FMath::Lerp(FRotator::ZeroRotator, LeverPulledRotation, Alpha));
+	const float Alpha = FMath::Clamp(OpenProgress / OpenDuration, 0.f, 1.f);
+	const FRotator PullDelta = FMath::Lerp(FRotator::ZeroRotator, LeverPulledRotation, Alpha);
+	LeverPivot->SetRelativeRotation(-InitialLeverPivotRotation.Quaternion() * PullDelta.Quaternion());
 }
 
 void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)

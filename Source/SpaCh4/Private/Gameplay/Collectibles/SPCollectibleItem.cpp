@@ -12,6 +12,8 @@ ASPCollectibleItem::ASPCollectibleItem()
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>("Mesh");
 	SetRootComponent(Mesh);
 	Mesh->SetCollisionProfileName(TEXT("Interactable"));
+	Mesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
+	Mesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECollisionResponse::ECR_Block);
 
 	Mesh->SetCustomDepthStencilValue(250);
 	Mesh->SetRenderCustomDepth(false);

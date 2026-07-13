@@ -56,7 +56,7 @@ protected:
 	TObjectPtr<USceneComponent> LeverPivot;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
-	TObjectPtr<UStaticMeshComponent> LeverMesh;
+	TObjectPtr<UStaticMeshComponent> LeverPanelMesh;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
@@ -88,4 +88,6 @@ private:
 	TWeakObjectPtr<ASurvivorCharacter> CurrentOpener;
 
 	float LeverRotateElapsed = 0.0f;
+
+	FRotator InitialLeverPivotRotation = FRotator::ZeroRotator;
 };

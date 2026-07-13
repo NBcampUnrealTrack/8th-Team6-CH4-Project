@@ -28,6 +28,7 @@ USPEscapeLeverComponent::USPEscapeLeverComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	SetIsReplicatedByDefault(true);
 
+	/*
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> PulldownFinder(SPEscapeLever::PulldownMontagePath);
 	if (PulldownFinder.Succeeded())
 	{
@@ -45,6 +46,7 @@ USPEscapeLeverComponent::USPEscapeLeverComponent()
 	{
 		LeverReturnMontage = ReturnFinder.Object;
 	}
+	*/
 }
 
 void USPEscapeLeverComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -107,15 +109,21 @@ void USPEscapeLeverComponent::EnsureMontagesLoaded()
 {
 	if (!LeverPulldownMontage)
 	{
-		LeverPulldownMontage = LoadObject<UAnimMontage>(nullptr, SPEscapeLever::PulldownMontagePath);
+		LeverPulldownMontage = LeverPulldownMontageAsset.IsNull()
+			? LoadObject<UAnimMontage>(nullptr, SPEscapeLever::PulldownMontagePath)
+			: LeverPulldownMontageAsset.LoadSynchronous();
 	}
 	if (!LeverWatchMontage)
 	{
-		LeverWatchMontage = LoadObject<UAnimMontage>(nullptr, SPEscapeLever::WatchMontagePath);
+		LeverWatchMontage = LeverWatchMontageAsset.IsNull()
+			? LoadObject<UAnimMontage>(nullptr, SPEscapeLever::WatchMontagePath)
+			: LeverWatchMontageAsset.LoadSynchronous();
 	}
 	if (!LeverReturnMontage)
 	{
-		LeverReturnMontage = LoadObject<UAnimMontage>(nullptr, SPEscapeLever::ReturnMontagePath);
+		LeverReturnMontage = LeverReturnMontageAsset.IsNull()
+			? LoadObject<UAnimMontage>(nullptr, SPEscapeLever::ReturnMontagePath)
+			: LeverReturnMontageAsset.LoadSynchronous();
 	}
 }
 
@@ -227,6 +235,8 @@ void USPEscapeLeverComponent::StartLeverChannelInternal(ASPEscapeGate* Gate)
 {
 	EnsureMontagesLoaded();
 
+	UE_LOG(LogTemp, Warning, TEXT("[LEVER] Start: Pulldown=%d Watch=%d Return=%d"), LeverPulldownMontage != nullptr, LeverWatchMontage != nullptr, LeverReturnMontage != nullptr);
+
 	CurrentGate = Gate;
 	bIsPullingLever = true;
 	bWatchTransitionTriggered = false;
@@ -241,6 +251,15 @@ void USPEscapeLeverComponent::StartLeverChannelInternal(ASPEscapeGate* Gate)
 	{
 		PlayLeverMontage(LeverPulldownMontage, ELeverAnimPhase::Pulldown);
 		SetLeverTickEnabled(true);
+
+		if (UWorld* World = GetWorld())
+		{
+			const float PulldownLength = LeverPulldownMontage->GetPlayLength();
+			const float TransitionDelay = FMath::Max(0.05f, PulldownLength - LeverPulldownToWatchBlendIn);
+			FTimerHandle WatchTransitionTimer;
+			World->GetTimerManager().SetTimer(WatchTransitionTimer, this, &USPEscapeLeverComponent::TransitionPulldownToWatch, TransitionDelay, false);
+			UE_LOG(LogTemp, Warning, TEXT("[LEVER] Pulldown length=%f, scheduled Watch in %f"), PulldownLength, TransitionDelay);
+		}
 	}
 	else if (LeverWatchMontage)
 	{
@@ -412,6 +431,7 @@ void USPEscapeLeverComponent::BlendOutWatchForReturn(UAnimInstance* AnimInstance
 
 void USPEscapeLeverComponent::TransitionPulldownToWatch()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[LEVER] Transition->Watch called: pulling=%d phase=%d watchValid=%d triggered=%d"), bIsPullingLever, (int32)CurrentPhase, LeverWatchMontage != nullptr, bWatchTransitionTriggered);
 	if (!bIsPullingLever || CurrentPhase != ELeverAnimPhase::Pulldown || !LeverWatchMontage || bWatchTransitionTriggered)
 	{
 		return;
@@ -459,18 +479,13 @@ void USPEscapeLeverComponent::PlayWatchMontage(float BlendInTime, bool bCrossfad
 	{
 		const float BlendIn = FMath::Clamp(BlendInTime, 0.05f, 0.25f);
 		const FAlphaBlendArgs BlendInArgs(BlendIn);
-		Duration = AnimInstance->Montage_PlayWithBlendIn(
-			LeverWatchMontage,
-			BlendInArgs,
-			1.f,
-			EMontagePlayReturnType::MontageLength,
-			0.f,
-			bCrossfadeFromPrevious);
+		Duration = AnimInstance->Montage_PlayWithBlendIn(LeverWatchMontage, BlendInArgs, 1.f, EMontagePlayReturnType::MontageLength, 0.f, bCrossfadeFromPrevious);
 	}
 	else
 	{
 		Duration = AnimInstance->Montage_Play(LeverWatchMontage, 1.f);
 	}
+	UE_LOG(LogTemp, Warning, TEXT("[LEVER] Watch play Duration=%f blendPath=%d"), Duration, BlendInTime > 0.f ? 1 : 0);
 
 	if (Duration <= 0.f)
 	{
@@ -588,13 +603,8 @@ void USPEscapeLeverComponent::PlayReturnMontage(float BlendInTime)
 	AnimInstance->Montage_SetEndDelegate(LeverMontageEndedDelegate, LeverReturnMontage);
 
 	const FAlphaBlendArgs BlendInArgs(BlendIn);
-	const float Duration = AnimInstance->Montage_PlayWithBlendIn(
-		LeverReturnMontage,
-		BlendInArgs,
-		1.f,
-		EMontagePlayReturnType::MontageLength,
-		0.f,
-		false);
+	const float Duration = AnimInstance->Montage_PlayWithBlendIn(LeverReturnMontage, BlendInArgs, 1.f, EMontagePlayReturnType::MontageLength, 0.f, false);
+	UE_LOG(LogTemp, Warning, TEXT("[LEVER] Return play Duration=%f"), Duration);
 
 	if (Duration <= 0.f)
 	{
@@ -743,6 +753,7 @@ void USPEscapeLeverComponent::StopAllLeverMontages(float BlendOutTime)
 
 void USPEscapeLeverComponent::OnLeverMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
+	UE_LOG(LogTemp, Warning, TEXT("[LEVER] MontageEnded: isPulldown=%d isWatch=%d isReturn=%d phase=%d interrupted=%d"), Montage == LeverPulldownMontage, Montage == LeverWatchMontage, Montage == LeverReturnMontage, (int32)CurrentPhase, bInterrupted);
 	if (Montage == LeverReturnMontage && CurrentPhase != ELeverAnimPhase::Return)
 	{
 		return;

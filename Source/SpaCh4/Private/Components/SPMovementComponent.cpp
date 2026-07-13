@@ -27,6 +27,11 @@ void USPMovementComponent::BeginPlay()
 	SnapToTargetSpeed();
 }
 
+bool USPMovementComponent::IsRunning() const
+{
+	return bWantsToRun || bHitEscapeSprintActive;
+}
+
 void USPMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);

@@ -6,12 +6,14 @@
 #include "Components/SPHealingAnimComponent.h"
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
+#include "Components/SPScratchMarkComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
@@ -37,6 +39,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	PickupAnimComponent = CreateDefaultSubobject<USPPickupAnimComponent>(TEXT("PickupAnimComponent"));
 	HealingAnimComponent = CreateDefaultSubobject<USPHealingAnimComponent>(TEXT("HealingAnimComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
+	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 
@@ -161,7 +164,7 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 	}
 
 	SetSurvivorState(ESurvivorState::Caged);
-	const float Time = (CagedCount == 1) ? Cage->StageOneDuration : Cage->StageTwoDuration;
+	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
 	GetWorldTimerManager().SetTimer(
 		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
 }
