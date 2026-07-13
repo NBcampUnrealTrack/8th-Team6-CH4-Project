@@ -19,6 +19,7 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class USPInventoryComponent;
+class ACage;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -45,11 +46,18 @@ public:
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
 
+	/** Remaining downed / bleedout health in [0,1]. Meaningful only while Downed. */
+	UFUNCTION(BlueprintPure, Category = "SP|Survivor")
+	float GetDownedHealthPercent() const { return DownedHealthPercent; }
+
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
 	bool IsParkouring() const;
 	bool IsCarrying() const;
+	bool IsPullingLever() const;
+	bool IsPlayingPickupAnim() const;
+	bool IsHealing() const;
 	int GetCagedCount() const { return CagedCount; }
 	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
@@ -66,7 +74,10 @@ public:
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
-	bool IsCarrying() const;
+
+	void EnterCaged(class ACage* Cage);
+	void RescueFromCage();
+	void ApplyHit();
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
@@ -86,6 +97,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
@@ -115,8 +127,15 @@ private:
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
+	void ApplyDownedMeshOffset();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 	void ToggleCrouch();
+	void DebugTestHealingAnimPressed();
+	void DebugTestHealingAnimReleased();
+	void RestoreDebugMovementInput();
+
+	UFUNCTION()
+	void OnCageExpired();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
@@ -139,12 +158,21 @@ private:
 	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 
+	/** Remaining bleedout health while Downed (1 = full, 0 = dead). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "SP|Survivor", meta = (AllowPrivateAccess = true))
+	float DownedHealthPercent = 1.f;
+
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
+
+	/** Cached at BeginPlay; restored when leaving Downed. */
+	FVector StandingMeshRelativeLocation = FVector::ZeroVector;
+	bool bStandingMeshLocationCached = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
 	int32 CagedCount = 0;
 
+	FTimerHandle CageTimerHandle;
 	int32 SelectedSlotIndex = 0;
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
