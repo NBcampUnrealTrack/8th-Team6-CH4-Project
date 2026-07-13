@@ -8,18 +8,10 @@
 #include "Systems/MainMenuGameMode.h"
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "UI/MainMenuWidget.h"
-#include "UObject/ConstructorHelpers.h"
 
 AMainMenuPlayerController::AMainMenuPlayerController()
 {
 	bShowMouseCursor = true;
-
-	static ConstructorHelpers::FClassFinder<UMainMenuWidget> WidgetClassFinder(
-		TEXT("/Game/Blueprints/UI/WBP_MainMenu.WBP_MainMenu_C"));
-	if (WidgetClassFinder.Succeeded())
-	{
-		MainMenuWidgetClass = WidgetClassFinder.Class;
-	}
 }
 
 void AMainMenuPlayerController::BeginPlay()
@@ -154,7 +146,7 @@ void AMainMenuPlayerController::ShowMainMenuWidget()
 {
 	if (!MainMenuWidgetClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("AMainMenuPlayerController: MainMenuWidgetClass is not set."));
+		UE_LOG(LogTemp, Warning, TEXT("AMainMenuPlayerController: MainMenuWidgetClass is not set. Assign WBP_MainMenu on the controller Blueprint."));
 		return;
 	}
 

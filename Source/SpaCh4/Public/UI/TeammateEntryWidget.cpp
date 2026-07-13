@@ -79,7 +79,7 @@ namespace TeammateEntryWidgetPrivate
 		Image->SetDesiredSizeOverride(DisplaySize);
 	}
 
-	static bool HasDesignerBrushResource(const UImage* Image)
+	static bool HasDesignerBrushResourceTE(const UImage* Image)
 	{
 		return IsValid(Image) && Image->GetBrush().GetResourceObject() != nullptr;
 	}
@@ -393,7 +393,7 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 	const bool bDesignerOwnsDownedBarLayout =
 		bUsesProgressBar
 		|| IsValid(DownedHealthBarRoot)
-		|| (bHasBG && HasDesignerBrushResource(DownedHealthBarBG));
+		|| (bHasBG && HasDesignerBrushResourceTE(DownedHealthBarBG));
 
 	if (bDesignerOwnsDownedBarLayout)
 	{
@@ -423,7 +423,7 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 		return;
 	}
 
-	if (HasDesignerBrushResource(DownedHealthBarFill))
+	if (HasDesignerBrushResourceTE(DownedHealthBarFill))
 	{
 		bDownedHealthBarInitialized = true;
 		return;

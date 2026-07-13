@@ -3,6 +3,8 @@
 #include "Animation/AnimInstance.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SPPickupAnimComponent.h"
+#include "Components/SPEscapeLeverComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -245,14 +247,26 @@ void USPInteractionComponent::CancelInteract()
 	{
 		World->GetTimerManager().ClearTimer(PickupDropTimer);
 	}
+
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	const bool bWasPickup = CurrentPickupItem.IsValid();
+
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
 	StopInteractMontage();
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (bWasPickup && Survivor && Survivor->GetPickupAnimComponent())
+	{
+		Survivor->GetPickupAnimComponent()->CancelPickupAnim();
+	}
+
 	if (ASPEscapeGate* Gate = CurrentEscapeGate.Get())
 	{
+		if (Survivor && Survivor->GetEscapeLeverComponent())
+		{
+			Survivor->GetEscapeLeverComponent()->CancelLeverChannel();
+		}
 		Gate->ClearOpener(Survivor);
 		if (GEngine)
 		{
@@ -302,6 +316,14 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 
 void USPInteractionComponent::CompletePickup()
 {
+	if (ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPPickupAnimComponent* PickupAnim = Survivor->GetPickupAnimComponent())
+		{
+			PickupAnim->EndPickupAnim();
+		}
+	}
+
 	bIsInteract = false;
 	StopInteractMontage();
 	if (!CurrentPickupItem.IsValid())
@@ -496,10 +518,23 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 		PlayInteractMontage(Data->EscapeLeverMontage);
 	}
 	Gate->SetOpener(Survivor);
+
+	if (USPEscapeLeverComponent* LeverComponent = Survivor->GetEscapeLeverComponent())
+	{
+		LeverComponent->BeginLeverChannel(Gate);
+	}
 }
 
 void USPInteractionComponent::EndEscapeChanneling()
 {
+	if (ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPEscapeLeverComponent* LeverComponent = Survivor->GetEscapeLeverComponent())
+		{
+			LeverComponent->EndLeverChannel(true);
+		}
+	}
+
 	bIsInteract = false;
 	CurrentEscapeGate = nullptr;
 	StopInteractMontage();
