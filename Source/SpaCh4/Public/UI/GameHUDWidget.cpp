@@ -98,6 +98,11 @@ const USPGameHUDStyleData& UGameHUDWidget::GetResolvedStyle() const
 	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
 }
 
+const USPGameHUDStyleData& UGameHUDWidget::GetResolvedStyle() const
+{
+	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
+}
+
 void UGameHUDWidget::NativePreConstruct()
 {
 	Super::NativePreConstruct();

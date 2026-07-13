@@ -92,6 +92,11 @@ const USPGameHUDStyleData& UTeammateEntryWidget::GetResolvedStyle() const
 	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
 }
 
+const USPGameHUDStyleData& UTeammateEntryWidget::GetResolvedStyle() const
+{
+	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
+}
+
 UTexture2D* UTeammateEntryWidget::ResolvePortraitTexture(ESurvivorDisplayState State) const
 {
 	switch (State)
