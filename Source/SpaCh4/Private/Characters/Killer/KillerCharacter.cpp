@@ -53,17 +53,6 @@ void AKillerCharacter::PostInitializeComponents()
     }
 }
 
-void AKillerCharacter::PossessedBy(AController* NewController)
-{
-    Super::PossessedBy(NewController);
-
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (IsLocallyControlled() && FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-    }*/
-}
-
 void AKillerCharacter::ApplyFirstPersonArmVisibility(
     USkeletalMeshComponent* TargetMesh,
     const TArray<FName>& VisibleRootBones) const

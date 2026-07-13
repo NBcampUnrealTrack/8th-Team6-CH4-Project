@@ -42,6 +42,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Tags")
     void AddCharTag(FGameplayTag NewTag) { charTag.AddTag(NewTag); }
 
+    UFUNCTION(BlueprintPure, Category = "Killer")
+    const UKillerData* GetKillerData() const { return KillerData; }
+
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
     */

@@ -83,10 +83,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Style")
 	TObjectPtr<USPMainMenuStyleData> VisualStyle;
 
-	/** 미지정 시 /Game/UI/Data/DA_MainMenuStyle 또는 SPUIStyleLibrary 기본값 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Style")
-	TObjectPtr<USPMainMenuStyleData> VisualStyle;
-
 private:
 	const USPMainMenuStyleData& GetResolvedStyle() const;
 
