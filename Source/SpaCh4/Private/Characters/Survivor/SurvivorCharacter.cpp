@@ -1,6 +1,9 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
 #include "Components/SPInteractionComponent.h"
+#include "Components/SPEscapeLeverComponent.h"
+#include "Components/SPPickupAnimComponent.h"
+#include "Components/SPHealingAnimComponent.h"
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "Data/SPInputConfigData.h"
@@ -8,13 +11,12 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
 #include "InputAction.h"
-#include "GameFramework/PlayerState.h"
-#include "Gameplay/Cage/Cage.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/MatchGameMode.h"
@@ -31,6 +33,9 @@ ASurvivorCharacter::ASurvivorCharacter()
 	InteractionComponent = CreateDefaultSubobject<USPInteractionComponent>("InteractionComponent");
 	MovementComponent = CreateDefaultSubobject<USPMovementComponent>("MovementComponent");
 	ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
+	EscapeLeverComponent = CreateDefaultSubobject<USPEscapeLeverComponent>(TEXT("EscapeLeverComponent"));
+	PickupAnimComponent = CreateDefaultSubobject<USPPickupAnimComponent>(TEXT("PickupAnimComponent"));
+	HealingAnimComponent = CreateDefaultSubobject<USPHealingAnimComponent>(TEXT("HealingAnimComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
@@ -57,7 +62,7 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
-	if (IsParkouring())
+	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
 	{
 		return;
 	}
@@ -246,6 +251,9 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 			}
 		}
 	}
+
+	PlayerInputComponent->BindKey(EKeys::U, IE_Pressed, this, &ASurvivorCharacter::DebugTestHealingAnimPressed);
+	PlayerInputComponent->BindKey(EKeys::U, IE_Released, this, &ASurvivorCharacter::DebugTestHealingAnimReleased);
 }
 
 void ASurvivorCharacter::SelectSlot(int32 Index)
@@ -282,8 +290,6 @@ void ASurvivorCharacter::HandleInventoryChanged()
 {
 	RefreshLocalInventoryHud();
 }
-
-
 
 void ASurvivorCharacter::RefreshLocalInventoryHud() const
 {
@@ -335,7 +341,7 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 bool ASurvivorCharacter::CanMove() const
 {
-	if (IsParkouring())
+	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
 	{
 		return false;
 	}
@@ -350,6 +356,11 @@ bool ASurvivorCharacter::CanInteract() const
 
 bool ASurvivorCharacter::CanJumpOver() const
 {
+	if (IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	{
+		return false;
+	}
+
 	return ParkourComponent && ParkourComponent->CanJumpOver();
 }
 
@@ -358,8 +369,94 @@ bool ASurvivorCharacter::IsParkouring() const
 	return ParkourComponent && ParkourComponent->IsParkouring();
 }
 
+bool ASurvivorCharacter::IsPullingLever() const
+{
+	return EscapeLeverComponent && EscapeLeverComponent->IsPullingLever();
+}
+
+bool ASurvivorCharacter::IsPlayingPickupAnim() const
+{
+	return PickupAnimComponent && PickupAnimComponent->IsPlayingPickupAnim();
+}
+
 void ASurvivorCharacter::NotifyParkourEnded()
 {
+	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::NotifyLeverChannelEnded()
+{
+	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::NotifyPickupAnimEnded()
+{
+	ApplyStateEffects();
+}
+
+bool ASurvivorCharacter::IsHealing() const
+{
+	return HealingAnimComponent && HealingAnimComponent->IsHealing();
+}
+
+void ASurvivorCharacter::NotifyHealingAnimEnded()
+{
+	if (AController* Ctrl = GetController())
+	{
+		Ctrl->ResetIgnoreMoveInput();
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		if (MoveComp->MovementMode == MOVE_None)
+		{
+			MoveComp->SetDefaultMovementMode();
+		}
+	}
+
+	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::DebugTestHealingAnimPressed()
+{
+	if (!IsLocallyControlled() || !HealingAnimComponent)
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		HealingAnimComponent->BeginHealingChannelDebug();
+	}
+}
+
+void ASurvivorCharacter::DebugTestHealingAnimReleased()
+{
+	if (!IsLocallyControlled() || !HealingAnimComponent)
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		HealingAnimComponent->CancelHealingChannelDebug();
+	}
+
+	// Return 재생 중에는 여기서 입력을 건드리지 않는다.
+	// FinishHealingChannel -> NotifyHealingAnimEnded 가 복구한다.
+	if (!HealingAnimComponent->IsHealing())
+	{
+		RestoreDebugMovementInput();
+	}
+}
+
+void ASurvivorCharacter::RestoreDebugMovementInput()
+{
+	if (AController* Ctrl = GetController())
+	{
+		Ctrl->ResetIgnoreMoveInput();
+	}
+
 	ApplyStateEffects();
 }
 
@@ -452,10 +549,6 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 
 	if (NewState == ESurvivorState::Escaped)
 	{
-		// 추후 통합 때 제대로 된 ID를 넘기는 방식으로 구현
-		const AController* SurvivorController = GetController();
-		const APlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->PlayerState : nullptr;
-		const FString SurvivorName = SurvivorPlayerState ? SurvivorPlayerState->GetPlayerName() : FString();
-		GameMode->RegisterSurvivorEscaped(SurvivorName.IsEmpty() ? NAME_None : FName(*SurvivorName));
+		GameMode->RegisterSurvivorEscaped(NAME_None);
 	}
 }

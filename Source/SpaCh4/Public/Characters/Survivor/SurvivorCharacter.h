@@ -7,12 +7,13 @@
 #include "Inventory/SPInventoryTypes.h"
 #include "SurvivorCharacter.generated.h"
 
-class AKillerCharacter;
-class ACage;
 class USurvivorData;
 class USPInteractionComponent;
 class USPMovementComponent;
 class USPParkourComponent;
+class USPEscapeLeverComponent;
+class USPPickupAnimComponent;
+class USPHealingAnimComponent;
 class ASPCollectibleItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
@@ -55,6 +56,9 @@ public:
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 	USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
+	USPEscapeLeverComponent* GetEscapeLeverComponent() const { return EscapeLeverComponent; }
+	USPPickupAnimComponent* GetPickupAnimComponent() const { return PickupAnimComponent; }
+	USPHealingAnimComponent* GetHealingAnimComponent() const { return HealingAnimComponent; }
 
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
@@ -62,19 +66,20 @@ public:
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
-	void RescueFromCage();
-	
-	/* 살인자 쪽 호출 */
-	void EnterCaged(ACage* Cage);
-	void ApplyHit();
+	bool IsCarrying() const;
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
-	FGameplayTag GetInteractableTag() const;
-	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
-	void NotifyParkourEnded();
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "SP|Inventory")
 	bool TryAcquireConsumable(EConsumableItemType ItemType);
+
+	FGameplayTag GetInteractableTag() const;
+	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
+
+	void NotifyParkourEnded();
+	void NotifyLeverChannelEnded();
+	void NotifyPickupAnimEnded();
+	void NotifyHealingAnimEnded();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
@@ -95,9 +100,6 @@ private:
 
 	UFUNCTION()
 	void HandleInventoryChanged();
-	
-	UFUNCTION()
-	void OnCageExpired();
 
 	void SelectSlot(int32 Index);
 
@@ -115,7 +117,7 @@ private:
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 	void ToggleCrouch();
-	
+
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
@@ -125,7 +127,16 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPParkourComponent> ParkourComponent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = "OnRep_SurvivorState",  meta = (AllowPrivateAccess = true))
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPPickupAnimComponent> PickupAnimComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPHealingAnimComponent> HealingAnimComponent;
+
+	UPROPERTY(ReplicatedUsing = "OnRep_SurvivorState")
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
@@ -138,7 +149,4 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
-	
-	
-	FTimerHandle CageTimerHandle;
 };
