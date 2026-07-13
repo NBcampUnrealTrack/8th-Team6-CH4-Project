@@ -64,6 +64,153 @@ void AKillerCharacter::PossessedBy(AController* NewController)
     }*/
 }
 
+void AKillerCharacter::ApplyFirstPersonArmVisibility(
+    USkeletalMeshComponent* TargetMesh,
+    const TArray<FName>& VisibleRootBones) const
+{
+    const USkeletalMesh* SkeletalMeshAsset = TargetMesh ? TargetMesh->GetSkeletalMeshAsset() : nullptr;
+    if (!SkeletalMeshAsset)
+    {
+        return;
+    }
+
+    const FReferenceSkeleton& RefSkel = SkeletalMeshAsset->GetRefSkeleton();
+    TSet<FName> VisibleRoots;
+    for (const FName& BoneName : VisibleRootBones)
+    {
+        if (!BoneName.IsNone())
+        {
+            VisibleRoots.Add(BoneName);
+        }
+    }
+
+    if (VisibleRoots.IsEmpty())
+    {
+        static const FName DefaultRoots[] = {
+            TEXT("clavicle_l"), TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"),
+            TEXT("clavicle_r"), TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"),
+        };
+        for (const FName& BoneName : DefaultRoots)
+        {
+            VisibleRoots.Add(BoneName);
+        }
+    }
+
+    auto IsBoneVisible = [&](int32 BoneIndex) -> bool
+    {
+        int32 Current = BoneIndex;
+        while (Current != INDEX_NONE)
+        {
+            if (VisibleRoots.Contains(RefSkel.GetBoneName(Current)))
+            {
+                return true;
+            }
+            Current = RefSkel.GetParentIndex(Current);
+        }
+        return false;
+    };
+
+    for (int32 BoneIndex = 0; BoneIndex < RefSkel.GetNum(); ++BoneIndex)
+    {
+        const FName BoneName = RefSkel.GetBoneName(BoneIndex);
+        if (!IsBoneVisible(BoneIndex))
+        {
+            TargetMesh->HideBoneByName(BoneName, EPhysBodyOp::PBO_None);
+        }
+        else
+        {
+            TargetMesh->UnHideBoneByName(BoneName);
+        }
+    }
+}
+
+void AKillerCharacter::SetupKillerFirstPersonCamera()
+{
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    if (!SkelMesh || !SpringArm)
+    {
+        return;
+    }
+
+    FName AttachName = CameraAttachBoneName;
+    if (AttachName.IsNone() || !SkelMesh->DoesSocketExist(AttachName))
+    {
+        static const FName FallbackBones[] = {
+            TEXT("head"), TEXT("Head"), TEXT("neck_01"), TEXT("Neck"),
+        };
+        for (const FName& Candidate : FallbackBones)
+        {
+            if (SkelMesh->DoesSocketExist(Candidate))
+            {
+                AttachName = Candidate;
+                break;
+            }
+        }
+    }
+
+    if (!AttachName.IsNone() && SkelMesh->DoesSocketExist(AttachName))
+    {
+        SpringArm->AttachToComponent(
+            SkelMesh,
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+            AttachName);
+        SpringArm->SetRelativeLocation(CameraRelativeOffset);
+    }
+
+    if (!IsLocallyControlled())
+    {
+        if (FirstPersonArmsMesh)
+        {
+            FirstPersonArmsMesh->SetVisibility(false, true);
+        }
+        return;
+    }
+
+    SkelMesh->SetOwnerNoSee(bShowFirstPersonArmsOnly);
+    if (bHideOwnerShadow)
+    {
+        SkelMesh->SetCastShadow(false);
+    }
+
+    for (UMeshComponent* MeshComp : OwnerHiddenMeshComponents)
+    {
+        if (MeshComp)
+        {
+            MeshComp->SetOwnerNoSee(true);
+            if (bHideOwnerShadow)
+            {
+                MeshComp->SetCastShadow(false);
+            }
+        }
+    }
+
+    if (bShowFirstPersonArmsOnly && FirstPersonArmsMesh)
+    {
+        if (USkeletalMesh* BodyMeshAsset = SkelMesh->GetSkeletalMeshAsset())
+        {
+            FirstPersonArmsMesh->SetSkeletalMesh(BodyMeshAsset);
+            FirstPersonArmsMesh->SetLeaderPoseComponent(SkelMesh);
+            FirstPersonArmsMesh->SetCastShadow(false);
+            FirstPersonArmsMesh->SetVisibility(true, true);
+            ApplyFirstPersonArmVisibility(FirstPersonArmsMesh, OwnerVisibleArmBones);
+        }
+    }
+    else if (FirstPersonArmsMesh)
+    {
+        FirstPersonArmsMesh->SetVisibility(false, true);
+    }
+}
+
+void AKillerCharacter::PossessedBy(AController* NewController)
+{
+    Super::PossessedBy(NewController);
+
+    if (IsLocallyControlled())
+    {
+        SetupKillerFirstPersonCamera();
+    }
+}
+
 void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();

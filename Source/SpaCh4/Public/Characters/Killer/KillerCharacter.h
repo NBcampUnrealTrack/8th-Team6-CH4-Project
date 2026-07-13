@@ -71,6 +71,8 @@ protected:
     void PerformAttack();
     void SetKillerState(EKillerState NewState);
     void UpdateMovementSpeed();
+    void SetupKillerFirstPersonCamera();
+    void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
     
     // 로직
     bool PerformAttackTrace();
@@ -85,6 +87,36 @@ protected:
     /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
     TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
     */
+
+    /** Bone (or socket) on the killer mesh where the first-person camera is anchored. */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    FName CameraAttachBoneName = TEXT("head");
+
+    /** Eye offset from CameraAttachBoneName (local space). */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    FVector CameraRelativeOffset = FVector(10.f, 0.f, 0.f);
+
+    /** Hide the locally controlled killer's shadow on this client. */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    bool bHideOwnerShadow = true;
+
+    /** Show only arms/hands to the owner via a leader-pose mesh; body stays visible to others. */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    bool bShowFirstPersonArmsOnly = true;
+
+    /**
+     * Root bones kept visible on the first-person mesh (children included).
+     * Leave empty to use standard clavicle/arm/hand names.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    TArray<FName> OwnerVisibleArmBones;
+
+    /** Extra meshes hidden from owner only (e.g. hood). */
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    TArray<TObjectPtr<UMeshComponent>> OwnerHiddenMeshComponents;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
+    TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
     UPROPERTY(Replicated)
     AActor* CarriedSurvivor;
