@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Player/SPPlayerLoadout.h"
 #include "Systems/LobbyGameState.h"
 #include "MainMenuPlayerController.generated.h"
 
@@ -22,8 +23,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MainMenu|Matchmaking")
 	void CancelMainMenuMatchmaking();
 
+	UFUNCTION(BlueprintCallable, Category = "MainMenu|Loadout")
+	void SavePlayerLoadout(const FSPPlayerLoadout& NewLoadout);
+
 	UFUNCTION(Server, Reliable)
 	void ServerSubmitMainMenuMatchmakingRole(ELobbyPlayerRole SelectedRole, const FString& Nickname);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSavePlayerLoadout(const FSPPlayerLoadout& NewLoadout);
 
 	UFUNCTION(Client, Reliable)
 	void ClientReceiveMainMenuMatchmakingStatus(bool bWasSuccessful, const FString& StatusMessage);
@@ -49,4 +56,5 @@ protected:
 	void FocusMainMenuCamera();
 	void InstallExposureLockModifier();
 	void ShowMainMenuWidget();
+	void SubmitCachedPlayerLoadout();
 };
