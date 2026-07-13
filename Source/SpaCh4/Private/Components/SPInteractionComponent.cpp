@@ -306,7 +306,7 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(Data->PickupMontage);
+	PlayInteractMontage(PickupMontage.LoadSynchronous());
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -361,7 +361,7 @@ void USPInteractionComponent::BeginDrop()
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(Data->DropMontage);
+	PlayInteractMontage(DropMontage.LoadSynchronous());
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -447,7 +447,7 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 
 	CurrentDeliveryStation = Station;
 	bIsInteract = true;
-	PlayInteractMontage(Data->DeliveryMontage);
+	PlayInteractMontage(DeliveryMontage.LoadSynchronous());
 
 	if (!bCancelInteractOnMove)
 	{
@@ -513,10 +513,6 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 
 	CurrentEscapeGate = Gate;
 	bIsInteract = true;
-	if (const USurvivorData* Data = GetSurvivorData())
-	{
-		PlayInteractMontage(Data->EscapeLeverMontage);
-	}
 	Gate->SetOpener(Survivor);
 
 	if (USPEscapeLeverComponent* LeverComponent = Survivor->GetEscapeLeverComponent())
@@ -554,10 +550,7 @@ void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
 
 	CurrentHatch = Hatch;
 	bIsInteract = true;
-	if (const USurvivorData* Data = GetSurvivorData())
-	{
-		PlayInteractMontage(Data->HatchEscapeMontage);
-	}
+	PlayInteractMontage(HatchEscapeMontage.LoadSynchronous());
 	Hatch->SetEscaper(Survivor);
 }
 

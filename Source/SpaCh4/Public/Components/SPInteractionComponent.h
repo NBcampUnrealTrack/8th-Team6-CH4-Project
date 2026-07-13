@@ -94,6 +94,18 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Drop")
 	float DropTraceDistance{300.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> PickupMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> DropMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> DeliveryMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> HatchEscapeMontage;
 	
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
