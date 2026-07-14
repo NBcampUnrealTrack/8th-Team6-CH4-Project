@@ -293,6 +293,7 @@ void AKillerCharacter::PerformAttack()
             // 적중: 후딜 시간 뒤 이동 복구
             FTimerHandle RecoveryTimer;
             GetWorldTimerManager().SetTimer(RecoveryTimer, RestoreMovement, KillerData->TaserRecoveryHit, false);
+            
         } 
         else 
         {
@@ -471,9 +472,7 @@ bool AKillerCharacter::PerformAttackTrace()
                 if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
                 {
                     UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
-                    
-                    // 여기서 실제 데미지 로직을 호출하거나 상태를 변경하세요.
-                    // HitSurvivor->SetSurvivorState(ESurvivorState::Injured); // 예시
+                    HitSurvivor->ApplyHit(); 
                     return true;
                 }
             }
