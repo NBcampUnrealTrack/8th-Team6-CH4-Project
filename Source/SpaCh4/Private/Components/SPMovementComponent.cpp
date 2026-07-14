@@ -135,6 +135,9 @@ float USPMovementComponent::GetBaseWalkSpeed() const
 	case ESurvivorState::Injured:
 		return BaseSpeed * Data->SurvivorInjuredSpeedMultiplier;
 
+	case ESurvivorState::Downed:
+		return Data->SurvivorDownedCrawlSpeed;
+
 	default:
 		return 0.f;
 	}

@@ -35,7 +35,7 @@ public:
 	void CompleteHatchEscape();
 	void CancelInteract();
 
-	bool IsCarrying() const;
+	bool IsCarrying() const { return CarriedItem != nullptr; }
 	bool IsInteracting() const { return bIsInteract; }
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
@@ -110,6 +110,11 @@ private:
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
 
+	UPROPERTY(Replicated)
+	TObjectPtr<ASPCollectibleItem> CarriedItem;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
+	FName CarrySocketName{TEXT("hand_r_Socket")};
 
 	FTimerHandle PickupDropTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;

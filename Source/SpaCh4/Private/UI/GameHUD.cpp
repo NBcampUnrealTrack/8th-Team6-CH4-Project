@@ -32,6 +32,7 @@ void AGameHUD::BeginPlay()
 	}
 
 	GameHUDWidget->AddToViewport();
+	UE_LOG(LogTemp, Warning, TEXT("AGameHUD: Created HUD widget %s"), *GetNameSafe(GameHUDWidget));
 }
 
 void AGameHUD::RefreshInventoryPanels()

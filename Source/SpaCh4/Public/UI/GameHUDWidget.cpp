@@ -1,11 +1,15 @@
 #include "UI/GameHUDWidget.h"
 
+#include "Blueprint/WidgetTree.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/Image.h"
+#include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
+#include "Components/PanelWidget.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
+#include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Systems/MatchGameState.h"
 #include "Inventory/SPInventoryComponent.h"
@@ -25,6 +29,12 @@ namespace GameHUDWidgetPrivate
 	static bool HasDesignerBrushResource(const UImage* Image)
 	{
 		return IsValid(Image) && Image->GetBrush().GetResourceObject() != nullptr;
+	}
+
+	static bool ProgressBarHasFillResource(const UProgressBar* ProgressBar)
+	{
+		return IsValid(ProgressBar)
+			&& ProgressBar->GetWidgetStyle().FillImage.GetResourceObject() != nullptr;
 	}
 
 	static FVector2D ReadFillBrushImageSize(const UImage* Image)
@@ -91,6 +101,41 @@ namespace GameHUDWidgetPrivate
 
 		return nullptr;
 	}
+
+	static const ASurvivorCharacter* FindSurvivorForMatchPlayer(const UWorld* World, const FMatchPlayerState& MatchPlayer)
+	{
+		if (!World)
+		{
+			return nullptr;
+		}
+
+		if (const ASurvivorCharacter* ByName = FindSurvivorByNickname(World, MatchPlayer.Nickname))
+		{
+			return ByName;
+		}
+
+		if (MatchPlayer.PlayerId == INDEX_NONE)
+		{
+			return nullptr;
+		}
+
+		for (TActorIterator<ASurvivorCharacter> It(World); It; ++It)
+		{
+			const ASurvivorCharacter* Survivor = *It;
+			if (!IsValid(Survivor))
+			{
+				continue;
+			}
+
+			const APlayerState* PS = Survivor->GetPlayerState();
+			if (PS && PS->GetPlayerId() == MatchPlayer.PlayerId)
+			{
+				return Survivor;
+			}
+		}
+
+		return nullptr;
+	}
 }
 
 const USPGameHUDStyleData& UGameHUDWidget::GetResolvedStyle() const
@@ -117,11 +162,17 @@ void UGameHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	UE_LOG(LogTemp, Warning, TEXT("HUD NativeConstruct world=%s design=%d"),
+		*GetNameSafe(GetWorld()),
+		IsDesignTime() ? 1 : 0);
+
 	BindInventoryWidgets();
 
 	ClearDeliveryProgressSetupTimer();
 	DeliveryProgressFillMIDA = nullptr;
 	DeliveryProgressFillMIDB = nullptr;
+	bDeliveryProgressBarARaised = false;
+	bDeliveryProgressBarBRaised = false;
 	CacheDesignerDeliveryFillSizes();
 
 	ApplyDeliveryRowLabels();
@@ -132,27 +183,37 @@ void UGameHUDWidget::NativeConstruct()
 		return;
 	}
 
-	if (CanRunDeferredSetup())
+	// Immediate setup — a 0s deferred timer was skipping bind in some PIE timings.
+	FinalizeDeliveryProgressSetup();
+
+	if (UWorld* World = GetWorld())
 	{
-		GetWorld()->GetTimerManager().SetTimer(
-			DeliveryProgressSetupTimerHandle,
+		World->GetTimerManager().SetTimer(
+			TeammateRefreshTimerHandle,
 			this,
-			&UGameHUDWidget::FinalizeDeliveryProgressSetup,
-			0.0f,
-			false);
-	}
-	else
-	{
-		FinalizeDeliveryProgressSetup();
+			&UGameHUDWidget::RefreshMatchHudPanels,
+			0.2f,
+			true);
 	}
 }
 
 void UGameHUDWidget::NativeDestruct()
 {
+	// Clear refresh timers even when MatchGS bind never succeeded (early Unbind return).
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TeammateRefreshTimerHandle);
+		World->GetTimerManager().ClearTimer(MatchDelegateBindRetryTimerHandle);
+	}
+	TeammateRefreshTimerHandle.Invalidate();
+	MatchDelegateBindRetryTimerHandle.Invalidate();
+
 	UnbindMatchStateDelegates();
 	ClearDeliveryProgressSetupTimer();
 	DeliveryProgressFillMIDA = nullptr;
 	DeliveryProgressFillMIDB = nullptr;
+	bDeliveryProgressBarARaised = false;
+	bDeliveryProgressBarBRaised = false;
 	Super::NativeDestruct();
 }
 
@@ -166,7 +227,22 @@ void UGameHUDWidget::BindMatchStateDelegates()
 	AMatchGameState* MatchGS = GetMatchGameState();
 	if (!MatchGS)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("HUD BindMatchStateDelegates: MatchGameState not ready, retry"));
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(
+				MatchDelegateBindRetryTimerHandle,
+				this,
+				&UGameHUDWidget::BindMatchStateDelegates,
+				0.25f,
+				false);
+		}
 		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MatchDelegateBindRetryTimerHandle);
 	}
 
 	MatchGS->OnDeliveryProgressChanged.AddDynamic(this, &UGameHUDWidget::HandleDeliveryProgressChanged);
@@ -174,19 +250,22 @@ void UGameHUDWidget::BindMatchStateDelegates()
 	MatchGS->OnSurvivorStateChanged.AddDynamic(this, &UGameHUDWidget::HandleSurvivorStateChanged);
 	bMatchDelegatesBound = true;
 
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			TeammateRefreshTimerHandle,
-			this,
-			&UGameHUDWidget::RefreshTeammateEntries,
-			0.2f,
-			true);
-	}
+	UE_LOG(LogTemp, Warning, TEXT("HUD Bound MatchGS delegates (Delivery/Players/Survivor) gs=%s"),
+		*GetNameSafe(MatchGS));
+
+	// Sync current values in case broadcasts fired before we bound.
+	RefreshDeliveryPanel();
+	RefreshTeammateEntries();
 }
 
 void UGameHUDWidget::UnbindMatchStateDelegates()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MatchDelegateBindRetryTimerHandle);
+		World->GetTimerManager().ClearTimer(TeammateRefreshTimerHandle);
+	}
+
 	if (!bMatchDelegatesBound)
 	{
 		return;
@@ -199,11 +278,6 @@ void UGameHUDWidget::UnbindMatchStateDelegates()
 		MatchGS->OnSurvivorStateChanged.RemoveDynamic(this, &UGameHUDWidget::HandleSurvivorStateChanged);
 	}
 
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(TeammateRefreshTimerHandle);
-	}
-
 	bMatchDelegatesBound = false;
 }
 
@@ -213,11 +287,55 @@ void UGameHUDWidget::HandleDeliveryProgressChanged(
 	int32 TotalDeliveredValue,
 	float DeliveryProgress)
 {
-	(void)StationAValue;
-	(void)StationBValue;
 	(void)TotalDeliveredValue;
 	(void)DeliveryProgress;
-	RefreshDeliveryPanel();
+
+	ResolveDeliveryWidgetBindings();
+	EnsureDeliveryFillWidgets();
+	ApplyDeliveryRowLabels();
+
+	const AMatchGameState* MatchGS = GetMatchGameState();
+	const int32 TargetA = MatchGS
+		? MatchGS->GetDeliveryStationTargetValueByID(FName(TEXT("A")))
+		: 200;
+	const int32 TargetB = MatchGS
+		? MatchGS->GetDeliveryStationTargetValueByID(FName(TEXT("B")))
+		: 200;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("HUD DeliveryVisual A=%d/%d ProgressA=%s PreferPB=%d FillA=%s | B=%d/%d ProgressB=%s PreferPB=%d FillB=%s"),
+		StationAValue, TargetA,
+		*GetNameSafe(DeliveryProgressA),
+		ShouldPreferDesignerProgressBar(DeliveryProgressA, DeliveryProgressFillA) ? 1 : 0,
+		*GetNameSafe(DeliveryProgressFillA),
+		StationBValue, TargetB,
+		*GetNameSafe(DeliveryProgressB),
+		ShouldPreferDesignerProgressBar(DeliveryProgressB, DeliveryProgressFillB) ? 1 : 0,
+		*GetNameSafe(DeliveryProgressFillB));
+
+	ApplyDeliveryStationVisuals(
+		StationAValue,
+		TargetA,
+		DeliveryProgressA,
+		DeliveryProgressRootA,
+		DeliveryProgressBGA,
+		DeliveryProgressFillA,
+		DeliveryProgressBarA,
+		DeliveryStackA,
+		DeliveryValueA);
+
+	ApplyDeliveryStationVisuals(
+		StationBValue,
+		TargetB,
+		DeliveryProgressB,
+		DeliveryProgressRootB,
+		DeliveryProgressBGB,
+		DeliveryProgressFillB,
+		DeliveryProgressBarB,
+		DeliveryStackB,
+		DeliveryValueB);
+
+	OnDeliveryDataUpdated(GatherDeliveryData());
 }
 
 void UGameHUDWidget::HandleMatchPlayersChanged()
@@ -255,10 +373,194 @@ void UGameHUDWidget::FinalizeDeliveryProgressSetup()
 	}
 
 	ClearDeliveryProgressSetupTimer();
+	ResolveDeliveryWidgetBindings();
+	EnsureDeliveryFillWidgets();
 	CacheDesignerDeliveryFillSizes();
 	BindMatchStateDelegates();
 	SetupDeliveryProgressBars();
 	RefreshAll();
+}
+
+void UGameHUDWidget::ResolveDeliveryWidgetBindings()
+{
+	if (!WidgetTree)
+	{
+		return;
+	}
+
+	auto ResolveImage = [this](TObjectPtr<UImage>& Field, const TCHAR* Name)
+	{
+		if (!IsValid(Field))
+		{
+			Field = Cast<UImage>(WidgetTree->FindWidget(Name));
+		}
+	};
+	auto ResolveText = [this](TObjectPtr<UTextBlock>& Field, const TCHAR* Name)
+	{
+		if (!IsValid(Field))
+		{
+			Field = Cast<UTextBlock>(WidgetTree->FindWidget(Name));
+		}
+	};
+	auto ResolveWidget = [this](TObjectPtr<UWidget>& Field, const TCHAR* Name)
+	{
+		if (!IsValid(Field))
+		{
+			Field = WidgetTree->FindWidget(Name);
+		}
+	};
+	auto ResolveProgress = [this](TObjectPtr<UProgressBar>& Field, const TCHAR* Name)
+	{
+		if (!IsValid(Field))
+		{
+			Field = Cast<UProgressBar>(WidgetTree->FindWidget(Name));
+		}
+	};
+
+	ResolveImage(DeliveryProgressFillA, TEXT("DeliveryProgressFillA"));
+	ResolveImage(DeliveryProgressFillB, TEXT("DeliveryProgressFillB"));
+	ResolveImage(DeliveryProgressBGA, TEXT("DeliveryProgressBGA"));
+	ResolveImage(DeliveryProgressBGB, TEXT("DeliveryProgressBGB"));
+	ResolveImage(DeliveryProgressBarA, TEXT("DeliveryProgressBarA"));
+	ResolveImage(DeliveryProgressBarB, TEXT("DeliveryProgressBarB"));
+	ResolveImage(DeliveryIconA, TEXT("DeliveryIconA"));
+	ResolveImage(DeliveryIconB, TEXT("DeliveryIconB"));
+	ResolveText(DeliveryValueA, TEXT("DeliveryValueA"));
+	ResolveText(DeliveryValueB, TEXT("DeliveryValueB"));
+	ResolveText(DeliveryLabelA, TEXT("DeliveryLabelA"));
+	ResolveText(DeliveryLabelB, TEXT("DeliveryLabelB"));
+	ResolveWidget(DeliveryProgressRootA, TEXT("DeliveryProgressRootA"));
+	ResolveWidget(DeliveryProgressRootB, TEXT("DeliveryProgressRootB"));
+	ResolveProgress(DeliveryProgressA, TEXT("DeliveryProgressA"));
+	ResolveProgress(DeliveryProgressB, TEXT("DeliveryProgressB"));
+
+	if (!IsValid(DeliveryProgressFillA))
+	{
+		ResolveImage(DeliveryProgressFillA, TEXT("ProgressFillA"));
+	}
+	if (!IsValid(DeliveryProgressFillB))
+	{
+		ResolveImage(DeliveryProgressFillB, TEXT("ProgressFillB"));
+	}
+	if (!IsValid(DeliveryProgressBGA))
+	{
+		ResolveImage(DeliveryProgressBGA, TEXT("ProgressBGA"));
+	}
+	if (!IsValid(DeliveryProgressBGB))
+	{
+		ResolveImage(DeliveryProgressBGB, TEXT("ProgressBGB"));
+	}
+
+	// WBP uses DeliveryProgressStack* container names (not DeliveryStack* array).
+	if (DeliveryStackA.Num() == 0)
+	{
+		if (UWidget* StackRoot = WidgetTree->FindWidget(TEXT("DeliveryProgressStackA")))
+		{
+			if (UPanelWidget* Panel = Cast<UPanelWidget>(StackRoot))
+			{
+				const int32 ChildCount = Panel->GetChildrenCount();
+				for (int32 Index = 0; Index < ChildCount; ++Index)
+				{
+					if (UImage* Segment = Cast<UImage>(Panel->GetChildAt(Index)))
+					{
+						DeliveryStackA.Add(Segment);
+					}
+				}
+			}
+		}
+	}
+	if (DeliveryStackB.Num() == 0)
+	{
+		if (UWidget* StackRoot = WidgetTree->FindWidget(TEXT("DeliveryProgressStackB")))
+		{
+			if (UPanelWidget* Panel = Cast<UPanelWidget>(StackRoot))
+			{
+				const int32 ChildCount = Panel->GetChildrenCount();
+				for (int32 Index = 0; Index < ChildCount; ++Index)
+				{
+					if (UImage* Segment = Cast<UImage>(Panel->GetChildAt(Index)))
+					{
+						DeliveryStackB.Add(Segment);
+					}
+				}
+			}
+		}
+	}
+}
+
+void UGameHUDWidget::EnsureDeliveryFillWidgets()
+{
+	if (!WidgetTree)
+	{
+		return;
+	}
+
+	auto EnsureFill = [this](TObjectPtr<UImage>& FillField, UWidget* Root, UImage* Frame, FName WidgetName)
+	{
+		if (IsValid(FillField))
+		{
+			return;
+		}
+
+		FillField = Cast<UImage>(WidgetTree->FindWidget(WidgetName));
+		if (IsValid(FillField))
+		{
+			return;
+		}
+
+		UPanelWidget* Parent = nullptr;
+		if (Frame)
+		{
+			Parent = Cast<UPanelWidget>(Frame->GetParent());
+		}
+		if (!Parent)
+		{
+			Parent = Cast<UOverlay>(Root);
+		}
+		if (!Parent)
+		{
+			Parent = Cast<UPanelWidget>(Root);
+		}
+		if (!Parent)
+		{
+			return;
+		}
+
+		UImage* NewFill = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), WidgetName);
+		if (!NewFill)
+		{
+			return;
+		}
+
+		NewFill->SetVisibility(ESlateVisibility::HitTestInvisible);
+		NewFill->SetColorAndOpacity(FLinearColor::White);
+
+		if (UOverlay* Overlay = Cast<UOverlay>(Parent))
+		{
+			if (UOverlaySlot* Slot = Overlay->AddChildToOverlay(NewFill))
+			{
+				Slot->SetHorizontalAlignment(HAlign_Left);
+				Slot->SetVerticalAlignment(VAlign_Top);
+				Slot->SetPadding(FMargin(0.f));
+			}
+		}
+		else
+		{
+			Parent->AddChild(NewFill);
+		}
+
+		FillField = NewFill;
+	};
+
+	// Designer ProgressBar fill takes priority — do not fabricate Image fills that steal updates.
+	if (!ShouldPreferDesignerProgressBar(DeliveryProgressA, DeliveryProgressFillA))
+	{
+		EnsureFill(DeliveryProgressFillA, DeliveryProgressRootA, DeliveryProgressBGA, TEXT("DeliveryProgressFillA"));
+	}
+	if (!ShouldPreferDesignerProgressBar(DeliveryProgressB, DeliveryProgressFillB))
+	{
+		EnsureFill(DeliveryProgressFillB, DeliveryProgressRootB, DeliveryProgressBGB, TEXT("DeliveryProgressFillB"));
+	}
 }
 
 void UGameHUDWidget::CacheDesignerDeliveryFillSizes()
@@ -628,7 +930,8 @@ TArray<FTeammateHUDData> UGameHUDWidget::BuildTeammateDataFromGameplay_Implement
 
 	for (const FMatchPlayerState& MatchPlayer : MatchGS->GetMatchPlayers())
 	{
-		if (MatchPlayer.PlayerRole != ELobbyPlayerRole::Survivor)
+		// Lobby 미지정(None)도 UI 테스트에서 생존자로 취급. Killer만 제외.
+		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Killer)
 		{
 			continue;
 		}
@@ -640,19 +943,26 @@ TArray<FTeammateHUDData> UGameHUDWidget::BuildTeammateDataFromGameplay_Implement
 		Entry.MaxCageStack = 2;
 		Entry.DownedHealthPercent = 1.0f;
 
-		if (const ASurvivorCharacter* Survivor = GameHUDWidgetPrivate::FindSurvivorByNickname(World, MatchPlayer.Nickname))
+		if (const ASurvivorCharacter* Survivor = GameHUDWidgetPrivate::FindSurvivorForMatchPlayer(World, MatchPlayer))
 		{
 			Entry.DisplayState = GameHUDWidgetPrivate::ToDisplayState(Survivor->GetSurvivorState());
-			// <---------------------------- 빌드 안돼서 주석 처리 ---------------------------------->
-			//Entry.DownedHealthPercent = Survivor->GetDownedHealthPercent();
+			Entry.DownedHealthPercent = Survivor->GetDownedHealthPercent();
 			if (Survivor->GetSurvivorState() == ESurvivorState::Caged)
 			{
-				Entry.CageStack = FMath::Max(Entry.CageStack, 1);
+				Entry.CageStack = FMath::Max(Entry.CageStack, MatchPlayer.CagedCount > 0 ? MatchPlayer.CagedCount : 1);
+			}
+			else
+			{
+				Entry.CageStack = MatchPlayer.CagedCount;
 			}
 		}
 		else if (MatchPlayer.SurvivorState == ESurvivorState::Downed)
 		{
 			Entry.DownedHealthPercent = 1.0f;
+		}
+		else
+		{
+			Entry.CageStack = MatchPlayer.CagedCount;
 		}
 
 		Result.Add(Entry);
@@ -660,6 +970,33 @@ TArray<FTeammateHUDData> UGameHUDWidget::BuildTeammateDataFromGameplay_Implement
 		if (Result.Num() >= SpaCh4HUD::TeammateSlotCount)
 		{
 			break;
+		}
+	}
+
+	// MatchPlayers가 비었거나 역할 미등록이면 월드 생존자로 폴백.
+	if (Result.Num() == 0)
+	{
+		for (TActorIterator<ASurvivorCharacter> It(World); It; ++It)
+		{
+			const ASurvivorCharacter* Survivor = *It;
+			if (!IsValid(Survivor))
+			{
+				continue;
+			}
+
+			FTeammateHUDData Entry;
+			const APlayerState* PS = Survivor->GetPlayerState();
+			Entry.Nickname = FText::FromString(PS ? PS->GetPlayerName() : TEXT("Player"));
+			Entry.DisplayState = GameHUDWidgetPrivate::ToDisplayState(Survivor->GetSurvivorState());
+			Entry.DownedHealthPercent = Survivor->GetDownedHealthPercent();
+			Entry.CageStack = Survivor->GetCagedCount();
+			Entry.MaxCageStack = 2;
+			Result.Add(Entry);
+
+			if (Result.Num() >= SpaCh4HUD::TeammateSlotCount)
+			{
+				break;
+			}
 		}
 	}
 
@@ -751,6 +1088,22 @@ TArray<FPerkHUDData> UGameHUDWidget::GatherPerkData() const
 	return Result;
 }
 
+void UGameHUDWidget::RefreshMatchHudPanels()
+{
+	if (!IsValid(this) || !GetWorld() || !IsInGameThread())
+	{
+		return;
+	}
+
+	if (!bMatchDelegatesBound)
+	{
+		BindMatchStateDelegates();
+	}
+
+	RefreshDeliveryPanel();
+	RefreshTeammateEntries();
+}
+
 void UGameHUDWidget::RefreshTeammateEntries()
 {
 	const TArray<FTeammateHUDData> TeammateData = GatherTeammateData();
@@ -761,7 +1114,12 @@ void UGameHUDWidget::RefreshTeammateEntries()
 	for (int32 Index = 0; Index < SpaCh4HUD::TeammateSlotCount; ++Index)
 	{
 		const FName WidgetName(*FString::Printf(TEXT("TeammateEntries_%d"), Index));
-		if (UTeammateEntryWidget* Entry = Cast<UTeammateEntryWidget>(GetWidgetFromName(WidgetName)))
+		UTeammateEntryWidget* Entry = Cast<UTeammateEntryWidget>(GetWidgetFromName(WidgetName));
+		if (!Entry && WidgetTree)
+		{
+			Entry = Cast<UTeammateEntryWidget>(WidgetTree->FindWidget(WidgetName));
+		}
+		if (Entry)
 		{
 			Entries.Add(Entry);
 		}
@@ -802,7 +1160,7 @@ void UGameHUDWidget::EnsurePreviewDefaults()
 {
 	static const ESurvivorDisplayState ExpectedStates[] = {
 		ESurvivorDisplayState::Healthy,
-		ESurvivorDisplayState::Injured,
+		ESurvivorDisplayState::Downed,
 		ESurvivorDisplayState::Dead,
 	};
 	static constexpr int32 ExpectedPreviewCount = UE_ARRAY_COUNT(ExpectedStates);
@@ -835,8 +1193,9 @@ void UGameHUDWidget::EnsurePreviewDefaults()
 
 	FTeammateHUDData TeammateB;
 	TeammateB.Nickname = NSLOCTEXT("SpaCh4", "PreviewTeammateB", "Player_B");
-	TeammateB.CageStack = 1;
-	TeammateB.DisplayState = ESurvivorDisplayState::Injured;
+	TeammateB.CageStack = 0;
+	TeammateB.DisplayState = ESurvivorDisplayState::Downed;
+	TeammateB.DownedHealthPercent = 0.65f;
 	PreviewTeammateData.Add(TeammateB);
 
 	FTeammateHUDData TeammateC;
@@ -848,12 +1207,6 @@ void UGameHUDWidget::EnsurePreviewDefaults()
 
 void UGameHUDWidget::SetupDeliveryProgressBars()
 {
-	// ProgressBar가 있으면 WBP(사이즈·스타일·레이아웃) 설정을 C++가 건드리지 않음.
-	if (IsValid(DeliveryProgressA) && IsValid(DeliveryProgressB))
-	{
-		return;
-	}
-
 	const USPGameHUDStyleData& Style = GetResolvedStyle();
 
 	auto SetupRow = [&Style](
@@ -872,27 +1225,39 @@ void UGameHUDWidget::SetupDeliveryProgressBars()
 			ApplyDesignerFrameTextureIfNeeded(FrameImage, FrameTexture);
 		}
 
-		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
-		const bool bDesignerFill = HasDesignerBrushResource(FillImage);
-		SetupDeliveryProgressFillImage(FillImage, FillMID, Outer, Layout, Style);
-		if (!bDesignerFill)
+		if (!IsValid(FillImage))
 		{
-			ApplyDeliveryFillOverlaySlot(FillImage, Layout);
+			return;
 		}
+
+		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
+		SetupDeliveryProgressFillImage(FillImage, FillMID, Outer, Layout, Style);
+		// Always left-align so width/scale progress reads L→R even with designer Stretch slots.
+		ApplyDeliveryFillOverlaySlot(FillImage, Layout);
 	};
 
-	if (!IsValid(DeliveryProgressA))
+	if (ShouldPreferDesignerProgressBar(DeliveryProgressA, DeliveryProgressFillA))
+	{
+		EnsureProgressBarDesignerFillMID(DeliveryProgressA, DeliveryProgressFillMIDA);
+		if (IsValid(DeliveryProgressFillA))
+		{
+			DeliveryProgressFillA->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		if (IsValid(DeliveryProgressBGA))
+		{
+			ApplyDesignerFrameTextureIfNeeded(DeliveryProgressBGA, Style.DeliveryStationFrameA);
+		}
+	}
+	else
 	{
 		if (!DeliveryProgressFillA && DeliveryProgressBarA && DeliveryProgressFillMIDA)
 		{
 			DeliveryProgressFillMIDA = nullptr;
 		}
-
 		if (!DeliveryProgressFillA && DeliveryProgressBarA)
 		{
 			ApplyDesignerFrameTextureIfNeeded(DeliveryProgressBarA, Style.DeliveryStationFrameA);
 		}
-
 		SetupRow(
 			DeliveryProgressBGA,
 			DeliveryProgressFillA,
@@ -901,18 +1266,28 @@ void UGameHUDWidget::SetupDeliveryProgressBars()
 			this);
 	}
 
-	if (!IsValid(DeliveryProgressB))
+	if (ShouldPreferDesignerProgressBar(DeliveryProgressB, DeliveryProgressFillB))
+	{
+		EnsureProgressBarDesignerFillMID(DeliveryProgressB, DeliveryProgressFillMIDB);
+		if (IsValid(DeliveryProgressFillB))
+		{
+			DeliveryProgressFillB->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		if (IsValid(DeliveryProgressBGB))
+		{
+			ApplyDesignerFrameTextureIfNeeded(DeliveryProgressBGB, Style.DeliveryStationFrameB);
+		}
+	}
+	else
 	{
 		if (!DeliveryProgressFillB && DeliveryProgressBarB && DeliveryProgressFillMIDB)
 		{
 			DeliveryProgressFillMIDB = nullptr;
 		}
-
 		if (!DeliveryProgressFillB && DeliveryProgressBarB)
 		{
 			ApplyDesignerFrameTextureIfNeeded(DeliveryProgressBarB, Style.DeliveryStationFrameB);
 		}
-
 		SetupRow(
 			DeliveryProgressBGB,
 			DeliveryProgressFillB,
@@ -922,30 +1297,262 @@ void UGameHUDWidget::SetupDeliveryProgressBars()
 	}
 }
 
-void UGameHUDWidget::UpdateDeliveryProgressBar(
-	UProgressBar* ProgressBar,
-	UImage* FillImage,
-	int32 CurrentValue,
-	int32 TargetValue)
+void UGameHUDWidget::EnsureProgressBarHasFillBrush(UProgressBar* ProgressBar)
 {
 	if (!IsValid(ProgressBar))
 	{
 		return;
 	}
 
-	// WBP 디자이너: 사이즈·스타일·가시성·슬롯은 엔진 설정 유지. 런타임에는 Percent만 갱신.
-	if (!IsDesignTime())
+	FProgressBarStyle BarStyle = ProgressBar->GetWidgetStyle();
+	const bool bHasFill = BarStyle.FillImage.GetResourceObject() != nullptr;
+	if (bHasFill)
 	{
-		const float ProgressPercent = (TargetValue > 0)
-			? FMath::Clamp(static_cast<float>(CurrentValue) / static_cast<float>(TargetValue), 0.0f, 1.0f)
-			: 0.0f;
-
-		ProgressBar->SetPercent(ProgressPercent);
+		BarStyle.BackgroundImage.TintColor = FSlateColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+		ProgressBar->SetWidgetStyle(BarStyle);
+		return;
 	}
 
+	// Prefer already-resolved style fields; fall back to direct soft loads so we never
+	// depend on mutating DeliveryProgressSegmentTextures during HUD construct.
+	UTexture2D* FillTexture = nullptr;
+	if (IsValid(VisualStyle))
+	{
+		FillTexture = VisualStyle->DeliveryProgressFillTexture;
+		if (!IsValid(FillTexture))
+		{
+			FillTexture = VisualStyle->DeliveryProgressFillTextureFallback;
+		}
+	}
+
+	if (!IsValid(FillTexture))
+	{
+		const USPGameHUDStyleData& Style = GetResolvedStyle();
+		FillTexture = Style.DeliveryProgressFillTexture;
+		if (!IsValid(FillTexture))
+		{
+			FillTexture = Style.DeliveryProgressFillTextureFallback;
+		}
+	}
+
+	if (!IsValid(FillTexture))
+	{
+		FillTexture = LoadObject<UTexture2D>(
+			nullptr,
+			TEXT("/Game/UI/HUD/Textures/Delivery/T_HUD_Bar_Fill_Delivery.T_HUD_Bar_Fill_Delivery"));
+	}
+	if (!IsValid(FillTexture))
+	{
+		FillTexture = LoadObject<UTexture2D>(
+			nullptr,
+			TEXT("/Game/UI/HUD/Textures/Common/T_HUD_Bar_Fill.T_HUD_Bar_Fill"));
+	}
+
+	if (IsValid(FillTexture))
+	{
+		FillTexture->ConditionalPostLoad();
+		BarStyle.FillImage.SetResourceObject(FillTexture);
+		BarStyle.FillImage.ImageSize = FVector2D(
+			GameHUDWidgetPrivate::DeliveryFillDefaultWidth,
+			GameHUDWidgetPrivate::DeliveryFillDefaultHeight);
+		BarStyle.FillImage.DrawAs = ESlateBrushDrawType::Image;
+		BarStyle.FillImage.TintColor = FSlateColor(FLinearColor::White);
+		BarStyle.FillImage.Tiling = ESlateBrushTileType::NoTile;
+	}
+
+	BarStyle.BackgroundImage.TintColor = FSlateColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+	ProgressBar->SetWidgetStyle(BarStyle);
+}
+
+void UGameHUDWidget::EnsureProgressBarDesignerFillMID(
+	UProgressBar* ProgressBar,
+	TObjectPtr<UMaterialInstanceDynamic>& FillMID)
+{
+	if (!IsValid(ProgressBar))
+	{
+		FillMID = nullptr;
+		return;
+	}
+
+	FProgressBarStyle BarStyle = ProgressBar->GetWidgetStyle();
+	UObject* Resource = BarStyle.FillImage.GetResourceObject();
+
+	if (UMaterialInstanceDynamic* ExistingMID = Cast<UMaterialInstanceDynamic>(Resource))
+	{
+		FillMID = ExistingMID;
+		return;
+	}
+
+	if (UMaterialInterface* Material = Cast<UMaterialInterface>(Resource))
+	{
+		Material->ConditionalPostLoad();
+		FillMID = UMaterialInstanceDynamic::Create(Material, ProgressBar);
+		if (IsValid(FillMID))
+		{
+			// Preserve designer Image Size / Draw As / Margin; only swap resource to MID.
+			BarStyle.FillImage.SetResourceObject(FillMID);
+			BarStyle.BackgroundImage.TintColor = FSlateColor(FLinearColor(0.f, 0.f, 0.f, 0.f));
+			ProgressBar->SetWidgetStyle(BarStyle);
+		}
+		return;
+	}
+
+	FillMID = nullptr;
+	EnsureProgressBarHasFillBrush(ProgressBar);
+}
+
+bool UGameHUDWidget::ShouldPreferDesignerProgressBar(UProgressBar* ProgressBar, UImage* FillImage) const
+{
+	if (!IsValid(ProgressBar))
+	{
+		return false;
+	}
+
+	// WBP ProgressBar Fill Image (e.g. MI_HUD_DeliveryProgressFill) wins over Image fills.
+	if (GameHUDWidgetPrivate::ProgressBarHasFillResource(ProgressBar))
+	{
+		return true;
+	}
+
+	// Empty ProgressBar fill: only fall back to Image path when a designer Image fill exists.
+	if (IsValid(FillImage) && GameHUDWidgetPrivate::HasDesignerBrushResource(FillImage))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void UGameHUDWidget::UpdateDeliveryProgressBar(
+	UProgressBar* ProgressBar,
+	UImage* FillImage,
+	int32 CurrentValue,
+	int32 TargetValue,
+	TObjectPtr<UMaterialInstanceDynamic>& ProgressBarFillMID)
+{
+	if (!IsValid(ProgressBar))
+	{
+		return;
+	}
+
+	const float ProgressPercent = (TargetValue > 0)
+		? FMath::Clamp(static_cast<float>(CurrentValue) / static_cast<float>(TargetValue), 0.0f, 1.0f)
+		: 0.0f;
+
+	if (!IsDesignTime())
+	{
+		EnsureProgressBarDesignerFillMID(ProgressBar, ProgressBarFillMID);
+
+		bool bDrivenByFillAmount = false;
+		if (IsValid(ProgressBarFillMID))
+		{
+			TArray<FMaterialParameterInfo> ScalarInfos;
+			TArray<FGuid> ScalarIds;
+			ProgressBarFillMID->GetAllScalarParameterInfo(ScalarInfos, ScalarIds);
+			for (const FMaterialParameterInfo& Info : ScalarInfos)
+			{
+				if (Info.Name == TEXT("FillAmount"))
+				{
+					bDrivenByFillAmount = true;
+					break;
+				}
+			}
+
+			if (bDrivenByFillAmount)
+			{
+				ProgressBarFillMID->SetScalarParameterValue(TEXT("FillAmount"), ProgressPercent);
+			}
+		}
+
+		// FillAmount materials paint the full quad; keep Percent at 1 to avoid double-clip.
+		// Texture / non-FillAmount materials rely on ProgressBar Percent clipping.
+		ProgressBar->SetPercent(bDrivenByFillAmount ? 1.0f : ProgressPercent);
+		ProgressBar->SetFillColorAndOpacity(FLinearColor::White);
+		ProgressBar->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+		// Raise ProgressBar once — reparenting every tick risks Slate AV on PIE restart.
+		bool* bRaisedFlag = nullptr;
+		if (ProgressBar == DeliveryProgressA)
+		{
+			bRaisedFlag = &bDeliveryProgressBarARaised;
+		}
+		else if (ProgressBar == DeliveryProgressB)
+		{
+			bRaisedFlag = &bDeliveryProgressBarBRaised;
+		}
+
+		if (bRaisedFlag && !*bRaisedFlag)
+		{
+			if (UWidget* BarParent = ProgressBar->GetParent())
+			{
+				if (UOverlay* Overlay = Cast<UOverlay>(BarParent->GetParent()))
+				{
+					const int32 ChildCount = Overlay->GetChildrenCount();
+					if (ChildCount > 0 && Overlay->GetChildAt(ChildCount - 1) != BarParent)
+					{
+						// ShiftChild reorders in place, keeping the designer OverlaySlot and
+						// skipping the Slate release/recreate of RemoveFromParent+AddChild.
+						Overlay->ShiftChild(ChildCount - 1, BarParent);
+					}
+				}
+			}
+			*bRaisedFlag = true;
+		}
+
+		if (CurrentValue > 0)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("HUD ProgressBarUpdate %s value=%d/%d percent=%.3f fillAmount=%d mid=%s"),
+				*GetNameSafe(ProgressBar),
+				CurrentValue,
+				TargetValue,
+				ProgressPercent,
+				bDrivenByFillAmount ? 1 : 0,
+				*GetNameSafe(ProgressBarFillMID));
+		}
+	}
+	// Designer ProgressBar owns the fill — hide competing Image widgets.
 	if (IsValid(FillImage))
 	{
 		FillImage->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+void UGameHUDWidget::ApplyDeliveryFillProgressVisual(UImage* FillImage, UImage* FrameImage, float ProgressPercent)
+{
+	if (!IsValid(FillImage))
+	{
+		return;
+	}
+
+	const float Clamped = FMath::Clamp(ProgressPercent, 0.0f, 1.0f);
+	const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
+	ApplyDeliveryFillOverlaySlot(FillImage, Layout);
+
+	const FVector2D DesignerFallback(
+		GameHUDWidgetPrivate::DeliveryFillDefaultWidth,
+		GameHUDWidgetPrivate::DeliveryFillDefaultHeight);
+	const bool bDesignerFill = HasDesignerBrushResource(FillImage);
+	const FVector2D FallbackMaxSize = bDesignerFill
+		? DesignerFallback
+		: FVector2D(Layout.FillMaxWidth, Layout.FillHeight);
+	const FVector2D FillMaxSize = ResolveDeliveryFillMaxSize(FillImage, FallbackMaxSize);
+
+	// Keep full brush size, then scale on X from the left edge.
+	// DesiredSize alone is ignored when the designer slot uses Stretch/Fill.
+	FillImage->SetDesiredSizeOverride(FillMaxSize);
+	FillImage->SetRenderTransformPivot(FVector2D(0.f, 0.5f));
+	FillImage->SetRenderScale(FVector2D(FMath::Max(Clamped, 0.0001f), 1.f));
+	FillImage->SetOpacity(Clamped > KINDA_SMALL_NUMBER ? 1.f : 0.f);
+	FillImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+	if (FillImage == DeliveryProgressFillA && DeliveryProgressFillMIDA)
+	{
+		DeliveryProgressFillMIDA->SetScalarParameterValue(TEXT("FillAmount"), Clamped);
+	}
+	else if (FillImage == DeliveryProgressFillB && DeliveryProgressFillMIDB)
+	{
+		DeliveryProgressFillMIDB->SetScalarParameterValue(TEXT("FillAmount"), Clamped);
 	}
 }
 
@@ -960,9 +1567,10 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 {
 	if (TargetValue <= 0)
 	{
-		if (FillImage)
+		if (IsValid(FillImage))
 		{
-			FillImage->SetDesiredSizeOverride(FVector2D::ZeroVector);
+			FillImage->SetRenderScale(FVector2D(0.0001f, 1.f));
+			FillImage->SetOpacity(0.f);
 		}
 		return;
 	}
@@ -983,13 +1591,12 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		0,
 		SegmentCount);
 
-	if (FillImage && FrameImage)
+	if (IsValid(FillImage))
 	{
-		const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
 		const bool bDesignerFill = HasDesignerBrushResource(FillImage);
-
 		if (!bDesignerFill)
 		{
+			const FDeliveryProgressLayout Layout = BuildDeliveryProgressLayout(FrameImage);
 			if (FillImage == DeliveryProgressFillA)
 			{
 				if (!DeliveryProgressFillMIDA)
@@ -1020,10 +1627,9 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 		{
 			Root->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
-		else
+		else if (IsValid(FrameImage))
 		{
 			FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
-			FillImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 		}
 
 		if (LegacyBar)
@@ -1031,21 +1637,12 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 			LegacyBar->SetVisibility(ESlateVisibility::Collapsed);
 		}
 
-		if (!bDesignerFill)
-		{
-			ApplyDeliveryFillOverlaySlot(FillImage, Layout);
-		}
+		ApplyDeliveryFillProgressVisual(FillImage, FrameImage, ProgressPercent);
 
-		const FVector2D DesignerFallback(
-			GameHUDWidgetPrivate::DeliveryFillDefaultWidth,
-			GameHUDWidgetPrivate::DeliveryFillDefaultHeight);
-		const FVector2D FallbackMaxSize = bDesignerFill
-			? DesignerFallback
-			: FVector2D(Layout.FillMaxWidth, Layout.FillHeight);
-		const FVector2D FillMaxSize = ResolveDeliveryFillMaxSize(FillImage, FallbackMaxSize);
-		const float FillWidth = FillMaxSize.X * ProgressPercent;
-		FillImage->SetDesiredSizeOverride(FVector2D(FillWidth, FillMaxSize.Y));
-		FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (IsValid(FrameImage))
+		{
+			FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
 
 		for (UImage* SegmentImage : StackWidgets)
 		{
@@ -1131,50 +1728,17 @@ void UGameHUDWidget::UpdateDeliveryProgress(
 
 void UGameHUDWidget::RefreshDeliveryPanel()
 {
+	ResolveDeliveryWidgetBindings();
+	EnsureDeliveryFillWidgets();
 	ApplyDeliveryRowLabels();
 
-	const bool bUsesProgressBars = IsValid(DeliveryProgressA) || IsValid(DeliveryProgressB);
-	if (!bUsesProgressBars)
-	{
-		CacheDesignerDeliveryFillSizes();
-	}
+	CacheDesignerDeliveryFillSizes();
 
 	const TArray<FDeliveryHUDData> DeliveryData = GatherDeliveryData();
 
-	auto RefreshStation = [this](
-		const FDeliveryHUDData* StationData,
-		UProgressBar* ProgressBar,
-		UWidget* Root,
-		UImage* FrameImage,
-		UImage* FillImage,
-		UImage* LegacyBar,
-		const TArray<TObjectPtr<UImage>>& StackWidgets,
-		UTextBlock* ValueLabel)
-	{
-		const int32 CurrentValue = StationData ? StationData->CurrentValue : 0;
-		const int32 TargetValue = StationData ? StationData->TargetValue : 0;
-
-		if (IsValid(ProgressBar))
-		{
-			UpdateDeliveryProgressBar(ProgressBar, FillImage, CurrentValue, TargetValue);
-		}
-		else
-		{
-			UpdateDeliveryProgress(
-				Root,
-				FrameImage,
-				FillImage,
-				LegacyBar,
-				StackWidgets,
-				CurrentValue,
-				TargetValue);
-		}
-
-		UpdateDeliveryPercentLabel(ValueLabel, CurrentValue, TargetValue);
-	};
-
-	RefreshStation(
-		DeliveryData.IsValidIndex(0) ? &DeliveryData[0] : nullptr,
+	ApplyDeliveryStationVisuals(
+		DeliveryData.IsValidIndex(0) ? DeliveryData[0].CurrentValue : 0,
+		DeliveryData.IsValidIndex(0) ? DeliveryData[0].TargetValue : 0,
 		DeliveryProgressA,
 		DeliveryProgressRootA,
 		DeliveryProgressBGA,
@@ -1183,8 +1747,9 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 		DeliveryStackA,
 		DeliveryValueA);
 
-	RefreshStation(
-		DeliveryData.IsValidIndex(1) ? &DeliveryData[1] : nullptr,
+	ApplyDeliveryStationVisuals(
+		DeliveryData.IsValidIndex(1) ? DeliveryData[1].CurrentValue : 0,
+		DeliveryData.IsValidIndex(1) ? DeliveryData[1].TargetValue : 0,
 		DeliveryProgressB,
 		DeliveryProgressRootB,
 		DeliveryProgressBGB,
@@ -1192,6 +1757,73 @@ void UGameHUDWidget::RefreshDeliveryPanel()
 		DeliveryProgressBarB,
 		DeliveryStackB,
 		DeliveryValueB);
+}
+
+void UGameHUDWidget::ApplyDeliveryStationVisuals(
+	int32 CurrentValue,
+	int32 TargetValue,
+	UProgressBar* ProgressBar,
+	UWidget* Root,
+	UImage* FrameImage,
+	UImage* FillImage,
+	UImage* LegacyBar,
+	const TArray<TObjectPtr<UImage>>& StackWidgets,
+	UTextBlock* ValueLabel)
+{
+	if (ShouldPreferDesignerProgressBar(ProgressBar, FillImage))
+	{
+		TObjectPtr<UMaterialInstanceDynamic>& ProgressBarFillMID =
+			(ProgressBar == DeliveryProgressA) ? DeliveryProgressFillMIDA : DeliveryProgressFillMIDB;
+
+		UpdateDeliveryProgressBar(
+			ProgressBar,
+			FillImage,
+			CurrentValue,
+			TargetValue,
+			ProgressBarFillMID);
+
+		if (IsValid(LegacyBar))
+		{
+			LegacyBar->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		for (UImage* SegmentImage : StackWidgets)
+		{
+			if (SegmentImage)
+			{
+				SegmentImage->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+		if (IsValid(Root))
+		{
+			Root->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		if (IsValid(FrameImage))
+		{
+			FrameImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+
+		UpdateDeliveryPercentLabel(ValueLabel, CurrentValue, TargetValue);
+		return;
+	}
+
+	if (IsValid(ProgressBar))
+	{
+		ProgressBar->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (IsValid(FillImage) || IsValid(LegacyBar) || StackWidgets.Num() > 0)
+	{
+		UpdateDeliveryProgress(
+			Root,
+			FrameImage,
+			FillImage,
+			LegacyBar,
+			StackWidgets,
+			CurrentValue,
+			TargetValue);
+	}
+
+	UpdateDeliveryPercentLabel(ValueLabel, CurrentValue, TargetValue);
 }
 
 void UGameHUDWidget::BindInventoryWidgets()

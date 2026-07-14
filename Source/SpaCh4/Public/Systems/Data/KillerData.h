@@ -1,6 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
-
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
@@ -16,16 +14,61 @@ enum class EKillerPerkType : uint8
 	Blackout_Zone UMETA(DisplayName = "전력 차단")
 };
 
-/**
- * 
- */
+class UAnimInstance;
+class UAnimMontage;
+class UAnimSequence;
+class USkeletalMesh;
+
 UCLASS(BlueprintType)
 class SPACH4_API UKillerData : public UDataAsset
 {
 	GENERATED_BODY()
+
 public:
 	UKillerData();
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual")
+	TSoftObjectPtr<USkeletalMesh> BodyMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual")
+	TSoftClassPtr<UAnimInstance> AnimInstanceClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual")
+	TSoftObjectPtr<UAnimSequence> ArmAttackSequence;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual")
+	TSoftObjectPtr<UAnimMontage> AttackGroggyMontage;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual")
+	TArray<FName> ArmAttackBlendRootBones;
+
+	/** Full-body montage: bend down and hoist a downed survivor. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TSoftObjectPtr<UAnimMontage> PickupMontage;
+
+	/** Upper-body loop while carrying; legs stay on motion matching. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TSoftObjectPtr<UAnimMontage> CarryingMontage;
+
+	/** Bones weighted for carrying montage (spine/arms). Legs remain on MM. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TArray<FName> CarryBlendRootBones;
+
+	/** Mesh bone/socket the carried survivor attaches to (spine for stable shoulder carry). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	FName CarryAttachSocketName = TEXT("spine_03");
+
+	/** Relative location of carried survivor root vs CarryAttachSocketName. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	FVector CarryAttachRelativeLocation = FVector(-20.f, 45.f, 10.f);
+
+	/** Relative rotation of carried survivor vs CarryAttachSocketName (fireman / shoulder drape). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	FRotator CarryAttachRelativeRotation = FRotator(-85.f, 0.f, 90.f);
+
+	/** Normalized time [0,1] in PickupMontage when the survivor snaps to the hand. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PickupAttachNormalizedTime = 0.55f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 575(생존자650 * 1.15)"));
 	float KillerBaseSpeed = 575.f;
@@ -42,11 +85,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float KillerGroggySpeedMultiplier = 0.0f;
 
+	/** Minimum input magnitude (control-yaw space) before locomotion velocity is aligned for MM. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LocomotionStrafeInputDeadzone = 0.15f;
+
+	/** Align horizontal velocity to movement input so MM picks F/FL/FR vs B/BL/BR correctly. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	bool bAlignLocomotionVelocityToInput = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ClampMin = "0.0"))
+	float LocomotionVelocityAlignMinSpeed = 10.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserRange = 250.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserHitboxRadius = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
+	float TaserHitboxHalfHeight = 90.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserWindup = 0.35f;
@@ -89,6 +146,15 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float CageDepositDuration = 1.00f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
+	float CarryAttachForwardOffset = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
+	float DropForwardOffset = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
+	float PickupCooldown = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Detection")
 	float DetectionRadius = 1200.f;

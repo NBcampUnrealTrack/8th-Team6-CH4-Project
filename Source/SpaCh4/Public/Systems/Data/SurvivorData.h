@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -31,6 +31,21 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorInjuredSpeedMultiplier = 0.92;
+
+	/** Crawl / prone move speed while Downed (after hit-escape sprint ends). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float SurvivorDownedCrawlSpeed = 120.f;
+
+	/**
+	 * Mesh RelativeLocation.Z delta while Downed (prone).
+	 * Positive lifts the body out of the floor when the prone anim root sits too low.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Downed")
+	float SurvivorDownedMeshZOffset = 22.f;
+
+	/** Seconds from full to empty downed health while crawling; reaches 0 → Dead. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Downed", meta = (ClampMin = "1.0"))
+	float SurvivorDownedBleedoutDuration = 60.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float HitEscapeSprintDuration = 3.00;

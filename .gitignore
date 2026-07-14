@@ -105,3 +105,11 @@ desktop.ini
 
 # Local source art (authoring PNGs; imported assets live under Content/)
 /SourceArt/
+
+# =============================================================
+#  Local automation (Blender/MCP/에디터 스크립트 — 커밋 대상 아님)
+# =============================================================
+Scripts/
+**/__pycache__/
+*.pyc
+

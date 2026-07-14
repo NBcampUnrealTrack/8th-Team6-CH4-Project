@@ -4,6 +4,7 @@
 #include "Components/Overlay.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Blueprint/WidgetTree.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "TimerManager.h"
@@ -196,23 +197,87 @@ void UTeammateEntryWidget::EnsurePortraitOverlayZOrder()
 		return;
 	}
 
-	Overlay->RemoveChild(PortraitImage);
-	Overlay->RemoveChild(PortraitSlotFrame);
-	Overlay->AddChild(PortraitImage);
-	Overlay->AddChild(PortraitSlotFrame);
+	// ShiftChild keeps each child's OverlaySlot (alignment/padding) and avoids the
+	// Slate release/recreate of RemoveChild+AddChild, which can AV when this runs
+	// from the HUD refresh timer or a delegate broadcast mid-frame.
+	Overlay->ShiftChild(FrameIndex, PortraitImage);
 }
 
 void UTeammateEntryWidget::CollapseLegacyDownedHealthFillIfNeeded()
 {
-	if (IsValid(DownedHealthBarProgress) && IsValid(DownedHealthBarFill))
+	// Prefer designer Overlay (BG + Fill). Only hide Fill when ProgressBar is the sole bar.
+	if (!IsValid(DownedHealthBarProgress) || !IsValid(DownedHealthBarFill))
 	{
-		DownedHealthBarFill->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+
+	if (IsValid(DownedHealthBarRoot)
+		|| TeammateEntryWidgetPrivate::HasDesignerBrushResourceTE(DownedHealthBarFill))
+	{
+		return;
+	}
+
+	DownedHealthBarFill->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UTeammateEntryWidget::ResolveOptionalWidgetBindings()
+{
+	// WBP Is Variable off → BindWidgetOptional stays null; WidgetTree still finds by name.
+	if (!WidgetTree)
+	{
+		return;
+	}
+
+	if (!NicknameText)
+	{
+		NicknameText = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("NicknameText")));
+	}
+	if (!CageStackText)
+	{
+		CageStackText = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("CageStackText")));
+	}
+	if (!DownedHealthBarBG)
+	{
+		DownedHealthBarBG = Cast<UImage>(WidgetTree->FindWidget(TEXT("DownedHealthBarBG")));
+	}
+	if (!DownedHealthBarFill)
+	{
+		DownedHealthBarFill = Cast<UImage>(WidgetTree->FindWidget(TEXT("DownedHealthBarFill")));
+	}
+	if (!DownedHealthBarProgress)
+	{
+		DownedHealthBarProgress = Cast<UProgressBar>(WidgetTree->FindWidget(TEXT("DownedHealthBarProgress")));
+	}
+	if (!DownedHealthBarRoot)
+	{
+		DownedHealthBarRoot = WidgetTree->FindWidget(TEXT("DownedHealthBarRoot"));
+	}
+	// Root가 변수로 안 잡혀 있어도 Fill/BG 부모 Overlay를 펼 수 있음
+	if (!DownedHealthBarRoot)
+	{
+		if (DownedHealthBarFill)
+		{
+			DownedHealthBarRoot = DownedHealthBarFill->GetParent();
+		}
+		else if (DownedHealthBarBG)
+		{
+			DownedHealthBarRoot = DownedHealthBarBG->GetParent();
+		}
+	}
+	if (!PortraitImage)
+	{
+		PortraitImage = Cast<UImage>(WidgetTree->FindWidget(TEXT("PortraitImage")));
+	}
+	if (!PortraitSlotFrame)
+	{
+		PortraitSlotFrame = Cast<UImage>(WidgetTree->FindWidget(TEXT("PortraitSlotFrame")));
 	}
 }
 
 void UTeammateEntryWidget::NativePreConstruct()
 {
 	Super::NativePreConstruct();
+	ResolveOptionalWidgetBindings();
 	CollapseLegacyDownedHealthFillIfNeeded();
 }
 
@@ -220,6 +285,7 @@ void UTeammateEntryWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	ResolveOptionalWidgetBindings();
 	ResetDownedHealthBarRuntimeState();
 	CollapseLegacyDownedHealthFillIfNeeded();
 
@@ -482,6 +548,8 @@ void UTeammateEntryWidget::SetupDownedHealthBar()
 
 void UTeammateEntryWidget::UpdateFromData(const FTeammateHUDData& Data)
 {
+	ResolveOptionalWidgetBindings();
+
 	UpdateNickname(Data.Nickname);
 	UpdateCageStack(Data.CageStack, Data.MaxCageStack);
 
@@ -514,42 +582,62 @@ void UTeammateEntryWidget::UpdateCageStack(int32 Stack, int32 MaxStack)
 
 void UTeammateEntryWidget::UpdateDownedHealth(float HealthPercent, bool bShowBar)
 {
+	ResolveOptionalWidgetBindings();
+
 	const ESlateVisibility BarVisibility =
 		bShowBar ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
+	const float ClampedPercent = FMath::Clamp(HealthPercent, 0.0f, 1.0f);
+
+	// Parent Overlay가 Collapsed면 Fill/BG만 Visible로 바꿔도 안 보임 → Root를 반드시 펼침
+	if (!DownedHealthBarRoot && DownedHealthBarFill)
+	{
+		DownedHealthBarRoot = DownedHealthBarFill->GetParent();
+	}
+	if (!DownedHealthBarRoot && DownedHealthBarBG)
+	{
+		DownedHealthBarRoot = DownedHealthBarBG->GetParent();
+	}
+
+	const bool bHasImageBar =
+		IsValid(DownedHealthBarRoot) || IsValid(DownedHealthBarBG) || IsValid(DownedHealthBarFill);
 
 	if (DownedHealthBarRoot)
 	{
 		DownedHealthBarRoot->SetVisibility(BarVisibility);
 	}
-	else if (!IsValid(DownedHealthBarProgress))
+
+	if (bHasImageBar)
 	{
 		if (DownedHealthBarBG)
 		{
 			DownedHealthBarBG->SetVisibility(BarVisibility);
 		}
+
 		if (DownedHealthBarFill)
 		{
 			DownedHealthBarFill->SetVisibility(BarVisibility);
+			if (DownedHealthBarFillMID)
+			{
+				DownedHealthBarFillMID->SetScalarParameterValue(TEXT("FillAmount"), ClampedPercent);
+			}
+			DownedHealthBarFill->SetDesiredSizeOverride(
+				FVector2D(DownedHealthBarWidth * ClampedPercent, DownedHealthBarHeight));
 		}
-	}
 
-	const float ClampedPercent = FMath::Clamp(HealthPercent, 0.0f, 1.0f);
-
-	if (IsValid(DownedHealthBarProgress))
-	{
-		CollapseLegacyDownedHealthFillIfNeeded();
-
-		if (!IsDesignTime())
+		if (IsValid(DownedHealthBarProgress))
 		{
-			DownedHealthBarProgress->SetPercent(ClampedPercent);
+			DownedHealthBarProgress->SetVisibility(ESlateVisibility::Collapsed);
 		}
 		return;
 	}
 
-	if (IsValid(DownedHealthBarFill))
+	if (IsValid(DownedHealthBarProgress))
 	{
-		DownedHealthBarFill->SetDesiredSizeOverride(
-			FVector2D(DownedHealthBarWidth * ClampedPercent, DownedHealthBarHeight));
+		DownedHealthBarProgress->SetVisibility(BarVisibility);
+		if (!IsDesignTime())
+		{
+			DownedHealthBarProgress->SetPercent(ClampedPercent);
+		}
 	}
 }
 

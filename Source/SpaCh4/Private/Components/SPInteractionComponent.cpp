@@ -56,13 +56,6 @@ const USurvivorData* USPInteractionComponent::GetSurvivorData() const
 	return Survivor ? Survivor->GetSurvivorData() : nullptr;
 }
 
-bool USPInteractionComponent::IsCarrying() const
-{
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
-	return Inventory && Inventory->HasAnyCollectible();
-}
-
 void USPInteractionComponent::RequestInteract()
 {
 	Server_Interact();

@@ -1,0 +1,9 @@
+#!/bin/sh
+ROOT="$(git rev-parse --show-toplevel)"
+if [ -z "$ROOT" ] || [ ! -f "$ROOT/Tools/git/sync-work-scope.ps1" ]; then
+  exit 0
+fi
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/Tools/git/sync-work-scope.ps1" -Quiet
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ROOT/Tools/git/check-staged-scope.ps1" -Quiet
+exit $?

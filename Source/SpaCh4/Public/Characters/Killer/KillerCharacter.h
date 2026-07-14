@@ -6,8 +6,10 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
-class USPKillerFirstPersonMeshComponent;
+class USPKillerAttackAnimComponent;
+class USPKillerCarryAnimComponent;
 class ACage;
+class ASurvivorCharacter;
 
 // ---------------------------------------------------------------
 // KillerState (살인마 상태)
@@ -32,6 +34,7 @@ public:
     AKillerCharacter();
     virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
     virtual void PossessedBy(AController* NewController) override;
     virtual void PostInitializeComponents() override;
     virtual void NotifyControllerChanged() override;
@@ -45,9 +48,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     const UKillerData* GetKillerData() const { return KillerData; }
 
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
-    */
+    UFUNCTION(BlueprintPure, Category = "Killer")
+    EKillerState GetKillerState() const { return CurrentState; }
+
+    UFUNCTION(BlueprintPure, Category = "Killer")
+    AActor* GetCarriedSurvivor() const { return CarriedSurvivor; }
+
+    USPKillerCarryAnimComponent* GetCarryAnimComponent() const { return CarryAnimComponent; }
+    USPKillerAttackAnimComponent* GetAttackAnimComponent() const { return AttackAnimComp; }
 
 protected:
     bool bCanPickup = true;
@@ -72,24 +80,43 @@ protected:
     void Server_Interact();
 
     void PerformAttack();
+    void OnArmAttackMontageFinished();
+    void OnPostAttackGroggyFallback();
+    void TryEnterPostAttackGroggy();
+    void SchedulePostAttackGroggyFallback();
+    void ClearPostAttackGroggyTimers();
     void SetKillerState(EKillerState NewState);
     void UpdateMovementSpeed();
     void SetupKillerFirstPersonCamera();
+    void UpdateUpperBodyPitchFollow(float DeltaSeconds);
     void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
     
     // 로직
     bool PerformAttackTrace();
     void PickupSurvivor(AActor* Target);
+    void AttachCarriedSurvivor(AActor* Target);
+    void ApplyCarryAttachmentTransform(AActor* Target);
     void DropSurvivor();
     void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent);
     AActor* FindInteractableActor(float Radius);
 
+    UFUNCTION()
+    void HandlePickupAttachWindow();
+
+    UFUNCTION()
+    void HandlePickupMontageFinished();
+
+    UFUNCTION()
+    void OnRep_CarriedSurvivor();
+
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
-    TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
-    */
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
+    TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Attack")
+    TObjectPtr<USPKillerAttackAnimComponent> AttackAnimComp;
 
     /** Bone (or socket) on the killer mesh where the first-person camera is anchored. */
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
@@ -118,11 +145,29 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
     TArray<TObjectPtr<UMeshComponent>> OwnerHiddenMeshComponents;
 
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera|Pitch")
+    bool bEnableUpperBodyPitchFollow = true;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera|Pitch", meta = (ClampMin = "0", ClampMax = "1"))
+    float UpperBodyPitchFollowStrength = 0.75f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera|Pitch")
+    float UpperBodyPitchMin = -75.f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera|Pitch")
+    float UpperBodyPitchMax = 60.f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera|Pitch")
+    float UpperBodyPitchInterpSpeed = 18.f;
+
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;
+
+    UPROPERTY()
+    TWeakObjectPtr<AActor> PendingPickupTarget;
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;
@@ -131,4 +176,11 @@ protected:
     void HandleCarryingInteraction();
     void ProcessCageDeposit(ACage* TargetCage);
     void ProcessNormalDrop();
+
+    bool bAwaitingPostAttackGroggy = false;
+    bool bAttackWindupComplete = false;
+    bool bArmAttackMontageComplete = false;
+    float SmoothedUpperBodyPitch = 0.f;
+    FTimerHandle PostAttackGroggyFallbackTimer;
+    FTimerHandle PostAttackGroggyEndTimer;
 };

@@ -1,5 +1,6 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 
+#include "Gameplay/Cage/Cage.h"
 #include "Components/SPInteractionComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
 #include "Components/SPPickupAnimComponent.h"
@@ -12,6 +13,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "InputCoreTypes.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
@@ -21,12 +23,15 @@
 #include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Systems/Data/SurvivorData.h"
 #include "Systems/MatchGameMode.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
 
 ASurvivorCharacter::ASurvivorCharacter()
 {
+	PrimaryActorTick.bCanEverTick = true;
+
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
@@ -61,6 +66,8 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
+	DOREPLIFETIME(ASurvivorCharacter, CagedCount);
+	DOREPLIFETIME(ASurvivorCharacter, DownedHealthPercent);
 }
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
@@ -201,6 +208,12 @@ void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (USkeletalMeshComponent* CharMesh = GetMesh())
+	{
+		StandingMeshRelativeLocation = CharMesh->GetRelativeLocation();
+		bStandingMeshLocationCached = true;
+	}
+
 	if (HasAuthority() && InventoryComponent)
 	{
 		InventoryComponent->InitializeDefaultLoadout();
@@ -208,6 +221,29 @@ void ASurvivorCharacter::BeginPlay()
 
 	BindInventoryHudRefresh();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!HasAuthority() || SurvivorState != ESurvivorState::Downed)
+	{
+		return;
+	}
+
+	const float BleedoutDuration = SurvivorData ? SurvivorData->SurvivorDownedBleedoutDuration : 60.f;
+	if (BleedoutDuration <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	DownedHealthPercent = FMath::Clamp(DownedHealthPercent - (DeltaSeconds / BleedoutDuration), 0.f, 1.f);
+	if (DownedHealthPercent <= KINDA_SMALL_NUMBER)
+	{
+		DownedHealthPercent = 0.f;
+		SetSurvivorState(ESurvivorState::Dead);
+	}
 }
 
 void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -327,6 +363,15 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+
+	if (NewState == ESurvivorState::Downed)
+	{
+		DownedHealthPercent = 1.f;
+	}
+	else if (OldState == ESurvivorState::Downed)
+	{
+		DownedHealthPercent = 1.f;
+	}
 
 	if (MovementComponent)
 	{
@@ -482,6 +527,32 @@ void ASurvivorCharacter::ApplyStateEffects()
 			Ctrl->SetIgnoreMoveInput(true);
 		}
 	}
+
+	ApplyDownedMeshOffset();
+}
+
+void ASurvivorCharacter::ApplyDownedMeshOffset()
+{
+	USkeletalMeshComponent* CharMesh = GetMesh();
+	if (!CharMesh)
+	{
+		return;
+	}
+
+	if (!bStandingMeshLocationCached)
+	{
+		StandingMeshRelativeLocation = CharMesh->GetRelativeLocation();
+		bStandingMeshLocationCached = true;
+	}
+
+	FVector Target = StandingMeshRelativeLocation;
+	if (SurvivorState == ESurvivorState::Downed || SurvivorState == ESurvivorState::Carried)
+	{
+		const float ZOffset = SurvivorData ? SurvivorData->SurvivorDownedMeshZOffset : 22.f;
+		Target.Z += ZOffset;
+	}
+
+	CharMesh->SetRelativeLocation(Target);
 }
 
 void ASurvivorCharacter::BeginPickup(ASPCollectibleItem* Item)
@@ -550,8 +621,26 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 		return;
 	}
 
-	if (NewState == ESurvivorState::Escaped)
+	FName Nickname = NAME_None;
+	if (const APlayerState* PS = GetPlayerState())
 	{
-		GameMode->RegisterSurvivorEscaped(NAME_None);
+		const FString PlayerName = PS->GetPlayerName();
+		if (!PlayerName.IsEmpty())
+		{
+			Nickname = FName(*PlayerName);
+		}
+	}
+
+	switch (NewState)
+	{
+	case ESurvivorState::Escaped:
+		GameMode->RegisterSurvivorEscaped(Nickname);
+		break;
+	case ESurvivorState::Dead:
+		GameMode->RegisterSurvivorKilled(Nickname);
+		break;
+	default:
+		GameMode->RegisterSurvivorStateChanged(Nickname, NewState);
+		break;
 	}
 }

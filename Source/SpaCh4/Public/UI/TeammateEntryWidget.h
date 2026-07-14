@@ -115,6 +115,7 @@ private:
 	void CollapseLegacyDownedHealthFillIfNeeded();
 	void SetupDownedHealthBar();
 	void ApplyPortraitVisuals();
+	void ResolveOptionalWidgetBindings();
 	bool AreDownedHealthBarWidgetsReady() const;
 	bool CanRunDeferredSetup() const;
 	void ScheduleDownedHealthBarSetup();

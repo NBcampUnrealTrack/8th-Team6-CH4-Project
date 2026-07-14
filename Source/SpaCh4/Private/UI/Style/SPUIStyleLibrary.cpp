@@ -100,150 +100,166 @@ namespace SPUIStyleLibrary
 	}
 
 	template<typename TData>
-	TData* LoadStyleAsset(const FSoftObjectPath& Path, TData*& BuiltInFallback)
+	TData* EnsureRootedBuiltInFallback(TData*& BuiltInFallback)
 	{
-		if (TData* Authored = LoadAsset<TData>(Path))
-		{
-			return Authored;
-		}
-
-		if (!BuiltInFallback)
+		if (!IsValid(BuiltInFallback))
 		{
 			BuiltInFallback = NewObject<TData>(GetTransientPackage(), NAME_None, RF_Transient | RF_Public);
+			if (IsValid(BuiltInFallback))
+			{
+				// Transient package objects are GC'd between PIE sessions; root so the
+				// static pointer cannot become a dangling UObject* on the 2nd Play.
+				BuiltInFallback->AddToRoot();
+			}
 		}
-
 		return BuiltInFallback;
 	}
 
-	static void EnsureBuiltInGameHUDStyle(USPGameHUDStyleData* Style)
+	template<typename TData>
+	TData* LoadStyleAsset(const FSoftObjectPath& Path, TData*& BuiltInFallback)
 	{
-		if (!Style)
+		// Missing style DAs stay missing for the editor session — without this cache the
+		// 0.2s HUD refresh re-attempts a disk package load (hitch + log spam) every tick.
+		// (Creating the DA mid-session requires an editor restart to be picked up.)
+		static TSet<FName> FailedStylePaths;
+		const FName PathName(*Path.ToString());
+
+		if (!FailedStylePaths.Contains(PathName))
+		{
+			if (TData* Authored = LoadAsset<TData>(Path))
+			{
+				return Authored;
+			}
+			FailedStylePaths.Add(PathName);
+		}
+
+		return EnsureRootedBuiltInFallback(BuiltInFallback);
+	}
+
+	template<typename TObject>
+	void EnsureSoftObjectOnce(TSoftObjectPtr<TObject>& Field, const FSoftObjectPath& Path)
+	{
+		// IsNull() only — after a failed load stash the path so we do not TryLoad every 0.2s.
+		if (!Field.IsNull())
 		{
 			return;
 		}
 
-		if (!Style->DeliveryStationFrameA)
+		if (TObject* Loaded = LoadAsset<TObject>(Path))
 		{
-			Style->DeliveryStationFrameA = LoadAsset<UTexture2D>(Paths::DeliveryStationFrameA);
+			Field = Loaded;
 		}
-		if (!Style->DeliveryStationFrameB)
+		else if (Path.IsValid())
 		{
-			Style->DeliveryStationFrameB = LoadAsset<UTexture2D>(Paths::DeliveryStationFrameB);
+			Field = TSoftObjectPtr<TObject>(Path);
 		}
-		if (!Style->DeliveryProgressFillMaterialInstance)
+	}
+
+	template<typename TObject>
+	void EnsureHardObjectOnce(TObjectPtr<TObject>& Field, const FSoftObjectPath& Path)
+	{
+		if (IsValid(Field))
 		{
-			Style->DeliveryProgressFillMaterialInstance = LoadAsset<UMaterialInterface>(Paths::DeliveryProgressFillMI);
+			return;
 		}
-		if (!Style->DeliveryProgressFillMaterial)
+
+		Field = LoadAsset<TObject>(Path);
+	}
+
+	static void EnsureBuiltInGameHUDStyle(USPGameHUDStyleData* Style)
+	{
+		if (!IsValid(Style))
 		{
-			Style->DeliveryProgressFillMaterial = LoadAsset<UMaterialInterface>(Paths::DeliveryProgressFillMaterial);
+			return;
 		}
-		if (!Style->DeliveryProgressFillTexture)
+
+		const bool bTransientBuiltIn = Style->GetOutermost() == GetTransientPackage();
+		static TWeakObjectPtr<USPGameHUDStyleData> HydratedTransientBuiltIn;
+		if (bTransientBuiltIn && HydratedTransientBuiltIn.Get() == Style)
 		{
-			Style->DeliveryProgressFillTexture = LoadAsset<UTexture2D>(Paths::DeliveryProgressFillTexture);
+			// Missing assets stay missing — do not TryLoad every HUD refresh tick.
+			return;
 		}
-		if (!Style->DeliveryProgressFillTextureFallback)
+
+		EnsureHardObjectOnce(Style->DeliveryStationFrameA, Paths::DeliveryStationFrameA);
+		EnsureHardObjectOnce(Style->DeliveryStationFrameB, Paths::DeliveryStationFrameB);
+		EnsureHardObjectOnce(Style->DeliveryProgressFillMaterialInstance, Paths::DeliveryProgressFillMI);
+		EnsureHardObjectOnce(Style->DeliveryProgressFillMaterial, Paths::DeliveryProgressFillMaterial);
+		EnsureHardObjectOnce(Style->DeliveryProgressFillTexture, Paths::DeliveryProgressFillTexture);
+		EnsureHardObjectOnce(Style->DeliveryProgressFillTextureFallback, Paths::DeliveryProgressFillTextureFallback);
+		EnsureHardObjectOnce(Style->DeliveryProgressEmptyFallback, Paths::DeliveryProgressEmpty);
+		EnsureHardObjectOnce(Style->DeliveryProgressBackground, Paths::DeliveryProgressBackground);
+		EnsureHardObjectOnce(Style->DeliveryStackEmpty, Paths::DeliveryStackEmpty);
+		EnsureHardObjectOnce(Style->DeliveryStackFilled, Paths::DeliveryStackFilled);
+
+		// Only rebuild segment arrays on the transient built-in fallback.
+		// Mutating TArray UPROPERTYs on authored DA assets can AV after Live Coding ABI drift.
+		if (bTransientBuiltIn && Style->DeliveryProgressSegmentTextures.Num() == 0)
 		{
-			Style->DeliveryProgressFillTextureFallback = LoadAsset<UTexture2D>(Paths::DeliveryProgressFillTextureFallback);
-		}
-		if (!Style->DeliveryProgressEmptyFallback)
-		{
-			Style->DeliveryProgressEmptyFallback = LoadAsset<UTexture2D>(Paths::DeliveryProgressEmpty);
-		}
-		if (!Style->DeliveryProgressBackground)
-		{
-			Style->DeliveryProgressBackground = LoadAsset<UTexture2D>(Paths::DeliveryProgressBackground);
-		}
-		if (!Style->DeliveryStackEmpty)
-		{
-			Style->DeliveryStackEmpty = LoadAsset<UTexture2D>(Paths::DeliveryStackEmpty);
-		}
-		if (!Style->DeliveryStackFilled)
-		{
-			Style->DeliveryStackFilled = LoadAsset<UTexture2D>(Paths::DeliveryStackFilled);
-		}
-		if (Style->DeliveryProgressSegmentTextures.Num() == 0)
-		{
-			Style->DeliveryProgressSegmentTextures.SetNum(SpaCh4HUD::DeliveryProgressSegmentCount + 1);
+			TArray<TObjectPtr<UTexture2D>> Segments;
+			Segments.Reserve(SpaCh4HUD::DeliveryProgressSegmentCount + 1);
 			for (int32 Index = 0; Index <= SpaCh4HUD::DeliveryProgressSegmentCount; ++Index)
 			{
-				Style->DeliveryProgressSegmentTextures[Index] = LoadAsset<UTexture2D>(Paths::DeliveryProgressSegment(Index));
+				Segments.Add(LoadAsset<UTexture2D>(Paths::DeliveryProgressSegment(Index)));
 			}
+			Style->DeliveryProgressSegmentTextures = MoveTemp(Segments);
 		}
-		if (!Style->PortraitSlotFrame)
+
+		EnsureHardObjectOnce(Style->PortraitSlotFrame, Paths::PortraitSlotFrame);
+		EnsureHardObjectOnce(Style->PortraitHealthy, Paths::PortraitHealthy);
+		EnsureHardObjectOnce(Style->PortraitInjured, Paths::PortraitInjured);
+		EnsureHardObjectOnce(Style->PortraitDead, Paths::PortraitDead);
+		EnsureHardObjectOnce(Style->DownedHealthBarBackground, Paths::DownedHealthBarBackground);
+		EnsureHardObjectOnce(Style->DownedHealthFillMaterialInstance, Paths::DownedHealthFillMI);
+		EnsureHardObjectOnce(Style->DownedHealthFillMaterial, Paths::DownedHealthFillMaterial);
+		EnsureHardObjectOnce(Style->DownedHealthFillTexture, Paths::DownedHealthFillTexture);
+
+		if (bTransientBuiltIn)
 		{
-			Style->PortraitSlotFrame = LoadAsset<UTexture2D>(Paths::PortraitSlotFrame);
-		}
-		if (!Style->PortraitHealthy)
-		{
-			Style->PortraitHealthy = LoadAsset<UTexture2D>(Paths::PortraitHealthy);
-		}
-		if (!Style->PortraitInjured)
-		{
-			Style->PortraitInjured = LoadAsset<UTexture2D>(Paths::PortraitInjured);
-		}
-		if (!Style->PortraitDead)
-		{
-			Style->PortraitDead = LoadAsset<UTexture2D>(Paths::PortraitDead);
-		}
-		if (!Style->DownedHealthBarBackground)
-		{
-			Style->DownedHealthBarBackground = LoadAsset<UTexture2D>(Paths::DownedHealthBarBackground);
-		}
-		if (!Style->DownedHealthFillMaterialInstance)
-		{
-			Style->DownedHealthFillMaterialInstance = LoadAsset<UMaterialInterface>(Paths::DownedHealthFillMI);
-		}
-		if (!Style->DownedHealthFillMaterial)
-		{
-			Style->DownedHealthFillMaterial = LoadAsset<UMaterialInterface>(Paths::DownedHealthFillMaterial);
-		}
-		if (!Style->DownedHealthFillTexture)
-		{
-			Style->DownedHealthFillTexture = LoadAsset<UTexture2D>(Paths::DownedHealthFillTexture);
+			HydratedTransientBuiltIn = Style;
 		}
 	}
 
 	static void EnsureBuiltInMainMenuStyle(USPMainMenuStyleData* Style)
 	{
-		if (!Style)
+		if (!IsValid(Style))
 		{
 			return;
 		}
 
-		if (!Style->TitleTexture)
+		if (!IsValid(Style->TitleTexture))
 		{
 			Style->TitleTexture = LoadAsset<UTexture2D>(Paths::MainMenuTitle);
 		}
-		if (!Style->SurvivorButtonNormal)
+		if (!IsValid(Style->SurvivorButtonNormal))
 		{
 			Style->SurvivorButtonNormal = LoadAsset<UTexture2D>(Paths::SurvivorButtonNormal);
 		}
-		if (!Style->SurvivorButtonHovered)
+		if (!IsValid(Style->SurvivorButtonHovered))
 		{
 			Style->SurvivorButtonHovered = LoadAsset<UTexture2D>(Paths::SurvivorButtonHovered);
 		}
-		if (!Style->KillerButtonNormal)
+		if (!IsValid(Style->KillerButtonNormal))
 		{
 			Style->KillerButtonNormal = LoadAsset<UTexture2D>(Paths::KillerButtonNormal);
 		}
-		if (!Style->KillerButtonHovered)
+		if (!IsValid(Style->KillerButtonHovered))
 		{
 			Style->KillerButtonHovered = LoadAsset<UTexture2D>(Paths::KillerButtonHovered);
 		}
-		if (!Style->SettingsButtonNormal)
+		if (!IsValid(Style->SettingsButtonNormal))
 		{
 			Style->SettingsButtonNormal = LoadAsset<UTexture2D>(Paths::SettingsButtonNormal);
 		}
-		if (!Style->SettingsButtonHovered)
+		if (!IsValid(Style->SettingsButtonHovered))
 		{
 			Style->SettingsButtonHovered = LoadAsset<UTexture2D>(Paths::SettingsButtonHovered);
 		}
-		if (!Style->QuitButtonNormal)
+		if (!IsValid(Style->QuitButtonNormal))
 		{
 			Style->QuitButtonNormal = LoadAsset<UTexture2D>(Paths::QuitButtonNormal);
 		}
-		if (!Style->QuitButtonHovered)
+		if (!IsValid(Style->QuitButtonHovered))
 		{
 			Style->QuitButtonHovered = LoadAsset<UTexture2D>(Paths::QuitButtonHovered);
 		}
@@ -251,23 +267,23 @@ namespace SPUIStyleLibrary
 
 	static void EnsureBuiltInFontStyle(USPUIFontStyleData* Style)
 	{
-		if (!Style)
+		if (!IsValid(Style))
 		{
 			return;
 		}
 
-		if (!Style->FontSemiBold)
+		if (!IsValid(Style->FontSemiBold))
 		{
 			Style->FontSemiBold = LoadAsset<UFontFace>(Paths::FontSemiBold);
-			if (Style->FontSemiBold)
+			if (IsValid(Style->FontSemiBold))
 			{
 				Style->FontSemiBold->ConditionalPostLoad();
 			}
 		}
-		if (!Style->FontMedium)
+		if (!IsValid(Style->FontMedium))
 		{
 			Style->FontMedium = LoadAsset<UFontFace>(Paths::FontMedium);
-			if (Style->FontMedium)
+			if (IsValid(Style->FontMedium))
 			{
 				Style->FontMedium->ConditionalPostLoad();
 			}
@@ -277,30 +293,72 @@ namespace SPUIStyleLibrary
 	const USPGameHUDStyleData& ResolveGameHUDStyle(const USPGameHUDStyleData* Override)
 	{
 		static USPGameHUDStyleData* BuiltInFallback = nullptr;
-		USPGameHUDStyleData* Resolved = Override
-			? const_cast<USPGameHUDStyleData*>(Override)
-			: LoadStyleAsset<USPGameHUDStyleData>(Paths::GameHUDStyleAsset, BuiltInFallback);
+
+		USPGameHUDStyleData* Resolved = nullptr;
+		if (IsValid(Override))
+		{
+			Resolved = const_cast<USPGameHUDStyleData*>(Override);
+		}
+		else
+		{
+			Resolved = LoadStyleAsset<USPGameHUDStyleData>(Paths::GameHUDStyleAsset, BuiltInFallback);
+		}
+
+		if (!IsValid(Resolved))
+		{
+			Resolved = EnsureRootedBuiltInFallback(BuiltInFallback);
+		}
+
 		EnsureBuiltInGameHUDStyle(Resolved);
+		checkf(IsValid(Resolved), TEXT("ResolveGameHUDStyle produced null style"));
 		return *Resolved;
 	}
 
 	const USPMainMenuStyleData& ResolveMainMenuStyle(const USPMainMenuStyleData* Override)
 	{
 		static USPMainMenuStyleData* BuiltInFallback = nullptr;
-		USPMainMenuStyleData* Resolved = Override
-			? const_cast<USPMainMenuStyleData*>(Override)
-			: LoadStyleAsset<USPMainMenuStyleData>(Paths::MainMenuStyleAsset, BuiltInFallback);
+
+		USPMainMenuStyleData* Resolved = nullptr;
+		if (IsValid(Override))
+		{
+			Resolved = const_cast<USPMainMenuStyleData*>(Override);
+		}
+		else
+		{
+			Resolved = LoadStyleAsset<USPMainMenuStyleData>(Paths::MainMenuStyleAsset, BuiltInFallback);
+		}
+
+		if (!IsValid(Resolved))
+		{
+			Resolved = EnsureRootedBuiltInFallback(BuiltInFallback);
+		}
+
 		EnsureBuiltInMainMenuStyle(Resolved);
+		checkf(IsValid(Resolved), TEXT("ResolveMainMenuStyle produced null style"));
 		return *Resolved;
 	}
 
 	const USPUIFontStyleData& ResolveFontStyle(const USPUIFontStyleData* Override)
 	{
 		static USPUIFontStyleData* BuiltInFallback = nullptr;
-		USPUIFontStyleData* Resolved = Override
-			? const_cast<USPUIFontStyleData*>(Override)
-			: LoadStyleAsset<USPUIFontStyleData>(Paths::FontStyleAsset, BuiltInFallback);
+
+		USPUIFontStyleData* Resolved = nullptr;
+		if (IsValid(Override))
+		{
+			Resolved = const_cast<USPUIFontStyleData*>(Override);
+		}
+		else
+		{
+			Resolved = LoadStyleAsset<USPUIFontStyleData>(Paths::FontStyleAsset, BuiltInFallback);
+		}
+
+		if (!IsValid(Resolved))
+		{
+			Resolved = EnsureRootedBuiltInFallback(BuiltInFallback);
+		}
+
 		EnsureBuiltInFontStyle(Resolved);
+		checkf(IsValid(Resolved), TEXT("ResolveFontStyle produced null style"));
 		return *Resolved;
 	}
 }

@@ -4,8 +4,8 @@
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
-#include "Components/VerticalBoxSlot.h"
 #include "Engine/Texture2D.h"
+#include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Player/MainMenuPlayerController.h"
@@ -82,28 +82,34 @@ void UMainMenuWidget::NativeConstruct()
 
 void UMainMenuWidget::BindMenuButtons()
 {
+	// NativeConstruct can rerun on the same instance (viewport re-add) — keep binds idempotent.
 	if (SurvivorButton)
 	{
+		SurvivorButton->OnClicked.RemoveDynamic(this, &UMainMenuWidget::HandleSurvivorClicked);
 		SurvivorButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleSurvivorClicked);
 	}
 
 	if (KillerButton)
 	{
+		KillerButton->OnClicked.RemoveDynamic(this, &UMainMenuWidget::HandleKillerClicked);
 		KillerButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleKillerClicked);
 	}
 
 	if (SettingsButton)
 	{
+		SettingsButton->OnClicked.RemoveDynamic(this, &UMainMenuWidget::HandleSettingsClicked);
 		SettingsButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleSettingsClicked);
 	}
 
 	if (QuitButton)
 	{
+		QuitButton->OnClicked.RemoveDynamic(this, &UMainMenuWidget::HandleQuitClicked);
 		QuitButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleQuitClicked);
 	}
 
 	if (CancelMatchmakingButton)
 	{
+		CancelMatchmakingButton->OnClicked.RemoveDynamic(this, &UMainMenuWidget::HandleCancelMatchmakingClicked);
 		CancelMatchmakingButton->OnClicked.AddDynamic(this, &UMainMenuWidget::HandleCancelMatchmakingClicked);
 	}
 }
@@ -163,42 +169,23 @@ void UMainMenuWidget::EnsureTitleOnTop()
 		return;
 	}
 
-	TArray<UWidget*> OrderedChildren;
-	OrderedChildren.Reserve(MenuVBox->GetChildrenCount());
-	OrderedChildren.Add(TitleImage);
-
-	for (int32 Index = 0; Index < MenuVBox->GetChildrenCount(); ++Index)
-	{
-		if (UWidget* Child = MenuVBox->GetChildAt(Index))
-		{
-			if (Child != TitleImage)
-			{
-				OrderedChildren.Add(Child);
-			}
-		}
-	}
-
-	while (MenuVBox->GetChildrenCount() > 0)
-	{
-		MenuVBox->RemoveChild(MenuVBox->GetChildAt(0));
-	}
-
-	for (UWidget* Child : OrderedChildren)
-	{
-		MenuVBox->AddChild(Child);
-	}
+	// ShiftChild keeps every sibling's VerticalBoxSlot (size rule/padding) intact;
+	// the old remove-all/re-add-all reset them to defaults and churned Slate widgets.
+	MenuVBox->ShiftChild(0, TitleImage);
 }
 
 void UMainMenuWidget::ApplyMenuTitleImage()
 {
-	if (!TitleImage)
+	if (!IsValid(TitleImage))
 	{
 		return;
 	}
 
 	const FSlateBrush& ExistingBrush = TitleImage->GetBrush();
 	const FVector2D DesignerImageSize = ExistingBrush.ImageSize;
-	const bool bHasDesignerTexture = ExistingBrush.GetResourceObject() != nullptr;
+	UObject* ExistingResource = ExistingBrush.GetResourceObject();
+	const bool bHasDesignerTexture = IsValid(ExistingResource)
+		&& (ExistingResource->IsA<UTexture>() || ExistingResource->IsA<UMaterialInterface>());
 
 	TitleImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 
@@ -213,8 +200,8 @@ void UMainMenuWidget::ApplyMenuTitleImage()
 	}
 
 	const USPMainMenuStyleData& Style = GetResolvedStyle();
-	UTexture2D* Texture = Style.TitleTexture;
-	if (!Texture)
+	UTexture2D* Texture = IsValid(Style.TitleTexture) ? Style.TitleTexture.Get() : nullptr;
+	if (!IsValid(Texture))
 	{
 		return;
 	}
@@ -239,27 +226,57 @@ void UMainMenuWidget::ConfigureButtonStyle(
 	float DefaultDisplayHeight,
 	float HorizontalScale) const
 {
-	if (!Button || !NormalTexture)
+	if (!IsValid(Button))
 	{
 		return;
 	}
 
-	UTexture2D* const HoverTexture = HoveredTexture ? HoveredTexture : NormalTexture;
+	// Reject stale/non-texture pointers (Live Coding / bad DA soft refs) before Slate IsA<UTexture>.
+	auto ResolveTexture = [](UTexture2D* Candidate) -> UTexture2D*
+	{
+		return IsValid(Candidate) ? Candidate : nullptr;
+	};
+
+	UTexture2D* Normal = ResolveTexture(NormalTexture);
+	UTexture2D* Hovered = ResolveTexture(HoveredTexture);
 
 	FButtonStyle Style = Button->GetStyle();
-	FVector2D ImageSize = Style.Normal.ImageSize;
 
+	// WBP designer already has a valid brush — don't overwrite with potentially bad DA textures.
+	if (UObject* ExistingResource = Style.Normal.GetResourceObject())
+	{
+		if (IsValid(ExistingResource)
+			&& (ExistingResource->IsA<UTexture>() || ExistingResource->IsA<UMaterialInterface>()))
+		{
+			return;
+		}
+	}
+
+	if (!Normal)
+	{
+		return;
+	}
+
+	UTexture2D* const HoverTexture = Hovered ? Hovered : Normal;
+
+	FVector2D ImageSize = Style.Normal.ImageSize;
 	if (ImageSize.IsNearlyZero())
 	{
-		const float TextureWidth = static_cast<float>(NormalTexture->GetSizeX());
-		const float TextureHeight = static_cast<float>(NormalTexture->GetSizeY());
-		const float DisplayWidth = (TextureHeight > 0.0f ? DefaultDisplayHeight * (TextureWidth / TextureHeight) : DefaultDisplayHeight)
-			* HorizontalScale;
+		const float TextureWidth = static_cast<float>(Normal->GetSizeX());
+		const float TextureHeight = static_cast<float>(Normal->GetSizeY());
+		const float DisplayWidth = (TextureHeight > 0.0f
+			? DefaultDisplayHeight * (TextureWidth / TextureHeight)
+			: DefaultDisplayHeight) * HorizontalScale;
 		ImageSize = FVector2D(DisplayWidth, DefaultDisplayHeight);
 	}
 
 	auto ApplyBrush = [](FSlateBrush& Brush, UTexture2D* Texture, const FVector2D& Size)
 	{
+		if (!IsValid(Texture))
+		{
+			return;
+		}
+
 		Brush.SetResourceObject(Texture);
 		Brush.ImageSize = Size;
 		Brush.DrawAs = ESlateBrushDrawType::Image;
@@ -267,10 +284,10 @@ void UMainMenuWidget::ConfigureButtonStyle(
 		Brush.TintColor = FSlateColor(FLinearColor::White);
 	};
 
-	ApplyBrush(Style.Normal, NormalTexture, ImageSize);
+	ApplyBrush(Style.Normal, Normal, ImageSize);
 	ApplyBrush(Style.Hovered, HoverTexture, ImageSize);
-	ApplyBrush(Style.Pressed, NormalTexture, ImageSize);
-	ApplyBrush(Style.Disabled, NormalTexture, ImageSize);
+	ApplyBrush(Style.Pressed, Normal, ImageSize);
+	ApplyBrush(Style.Disabled, Normal, ImageSize);
 	Style.Pressed.TintColor = FSlateColor(FLinearColor(0.9f, 0.9f, 0.9f, 1.0f));
 
 	Button->SetStyle(Style);
@@ -281,10 +298,35 @@ void UMainMenuWidget::ApplyMenuButtonStyles()
 {
 	const USPMainMenuStyleData& Style = GetResolvedStyle();
 
-	ConfigureButtonStyle(SurvivorButton, Style.SurvivorButtonNormal, Style.SurvivorButtonHovered, 52.0f, 1.12f);
-	ConfigureButtonStyle(KillerButton, Style.KillerButtonNormal, Style.KillerButtonHovered, 52.0f, 1.12f);
-	ConfigureButtonStyle(SettingsButton, Style.SettingsButtonNormal, Style.SettingsButtonHovered, 44.0f, 1.12f);
-	ConfigureButtonStyle(QuitButton, Style.QuitButtonNormal, Style.QuitButtonHovered, 44.0f, 1.12f);
+	auto SafeTex = [](UTexture2D* Texture) -> UTexture2D*
+	{
+		return IsValid(Texture) ? Texture : nullptr;
+	};
+
+	ConfigureButtonStyle(
+		SurvivorButton,
+		SafeTex(Style.SurvivorButtonNormal),
+		SafeTex(Style.SurvivorButtonHovered),
+		52.0f,
+		1.12f);
+	ConfigureButtonStyle(
+		KillerButton,
+		SafeTex(Style.KillerButtonNormal),
+		SafeTex(Style.KillerButtonHovered),
+		52.0f,
+		1.12f);
+	ConfigureButtonStyle(
+		SettingsButton,
+		SafeTex(Style.SettingsButtonNormal),
+		SafeTex(Style.SettingsButtonHovered),
+		44.0f,
+		1.12f);
+	ConfigureButtonStyle(
+		QuitButton,
+		SafeTex(Style.QuitButtonNormal),
+		SafeTex(Style.QuitButtonHovered),
+		44.0f,
+		1.12f);
 
 	if (UTextBlock* LegacyText = Cast<UTextBlock>(GetWidgetFromName(TEXT("SurvivorButtonText"))))
 	{

@@ -47,6 +47,10 @@ public:
 	void SetSurvivorState(ESurvivorState NewState);
 	ESurvivorState GetSurvivorState() const { return SurvivorState; };
 
+	/** Remaining downed / bleedout health in [0,1]. Meaningful only while Downed. */
+	UFUNCTION(BlueprintPure, Category = "SP|Survivor")
+	float GetDownedHealthPercent() const { return DownedHealthPercent; }
+
 	bool CanMove() const;
 	bool CanInteract() const;
 	bool CanJumpOver() const;
@@ -94,14 +98,16 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
 	virtual void JumpOver() override;
-	
+
 	virtual void OnRep_Controller() override;
+
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
@@ -130,13 +136,14 @@ private:
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
+	void ApplyDownedMeshOffset();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 	void ToggleCrouch();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPInteractionComponent> InteractionComponent;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component",  meta = (AllowPrivateAccess = true))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component", meta = (AllowPrivateAccess = true))
 	TObjectPtr<USPMovementComponent> MovementComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
@@ -154,17 +161,25 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPHealingAnimComponent> HealingAnimComponent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = "OnRep_SurvivorState",  meta = (AllowPrivateAccess = true))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, ReplicatedUsing = "OnRep_SurvivorState", meta = (AllowPrivateAccess = true))
 	ESurvivorState SurvivorState = ESurvivorState::Healthy;
+
+	/** Remaining bleedout health while Downed (1 = full, 0 = dead). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "SP|Survivor", meta = (AllowPrivateAccess = true))
+	float DownedHealthPercent = 1.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Data")
 	TObjectPtr<USurvivorData> SurvivorData;
+
+	/** Cached at BeginPlay; restored when leaving Downed. */
+	FVector StandingMeshRelativeLocation = FVector::ZeroVector;
+	bool bStandingMeshLocationCached = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "SP|Data", meta = (AllowPrivateAccess = true))
 	int32 CagedCount = 0;
 
 	int32 SelectedSlotIndex = 0;
-	
+
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
 
