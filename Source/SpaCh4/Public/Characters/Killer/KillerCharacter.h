@@ -6,7 +6,7 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
-class USPKillerFirstPersonMeshComponent;
+//class USPKillerFirstPersonMeshComponent;
 class ACage;
 
 // ---------------------------------------------------------------
@@ -90,6 +90,8 @@ protected:
     /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
     TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
     */
+    
+    void InitializeInputSubsystem();
 
     /** Bone (or socket) on the killer mesh where the first-person camera is anchored. */
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
@@ -118,6 +120,14 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
     TArray<TObjectPtr<UMeshComponent>> OwnerHiddenMeshComponents;
 
+    // --- 카메라 각도 제한 설정 ---
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    float MinPitch = -45.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    float MaxPitch = 45.0f;
+    // ----------------------------------
+    
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 

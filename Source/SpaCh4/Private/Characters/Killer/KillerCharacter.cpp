@@ -203,31 +203,29 @@ void AKillerCharacter::PossessedBy(AController* NewController)
 void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();
-
-    if (UCameraComponent* FollowCamera = GetCameraComponent())
-    {
-        FollowCamera->SetProjectionMode(ECameraProjectionMode::Perspective);
-    }
-
+    
+    SetupKillerFirstPersonCamera(); // 카메라 초기화 분리
+    InitializeInputSubsystem();
+    
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     if (FirstPersonMeshComp)
     {
         FirstPersonMeshComp->ScheduleSetup();
         FirstPersonMeshComp->EnsureAnimationSetup();
     }*/
+ 
+    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    UpdateMovementSpeed();
     
-    if (GetMesh() && SpringArm)
+    if (APlayerController* PC = Cast<APlayerController>(GetController()))
     {
-        SpringArm->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("head"));
-        SpringArm->SetRelativeLocation(FVector(0, 0, 0)); // 오프셋 조정 필요
+        PC->PlayerCameraManager->ViewPitchMin = MinPitch;
+        PC->PlayerCameraManager->ViewPitchMax = MaxPitch;
     }
+}
 
-    // 2. 1인칭 메쉬 설정
-    if (GetMesh())
-    {
-        GetMesh()->SetOwnerNoSee(true); // 내 몸은 안 보이게
-    }
-    
+void AKillerCharacter::InitializeInputSubsystem()
+{
     if (APlayerController* PC = Cast<APlayerController>(GetController()))
     {
         if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
@@ -236,24 +234,16 @@ void AKillerCharacter::BeginPlay()
             {
                 for (const FInputMappingContextEntry& Entry : InputConfig->MappingContexts)
                 {
-                    if (Entry.MappingContext) Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
+                    if (Entry.MappingContext) 
+                    {
+                        Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
+                    }
                 }
             }
         }
     }
-    
-    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-    UpdateMovementSpeed();
-    
-    if (APlayerController* PC = Cast<APlayerController>(GetController()))
-    {
-        // 최소 Pitch와 최대 Pitch 설정
-        // -45도(위) ~ +45도(아래) 범위로 제한하려면 아래와 같이 설정
-        PC->PlayerCameraManager->ViewPitchMin = -45.0f;
-        PC->PlayerCameraManager->ViewPitchMax = 45.0f;
-        UE_LOG(LogTemp, Warning, TEXT("Pitch 제한 설정 완료: Min=%f, Max=%f"), PC->PlayerCameraManager->ViewPitchMin, PC->PlayerCameraManager->ViewPitchMax);
-    }
 }
+
 
 void AKillerCharacter::PerformAttack()
 {
@@ -308,10 +298,11 @@ void AKillerCharacter::PickupSurvivor(AActor* Target)
 {
     if (!Target) return;
     
-    if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target))
-    {
-        Survivor->SetSurvivorState(ESurvivorState::Carried);
-    }
+    ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target);
+    if (!Survivor) return;
+    
+    Survivor->SetSurvivorState(ESurvivorState::Carried);
+    
     
     CarriedSurvivor = Target;
 
@@ -464,18 +455,24 @@ bool AKillerCharacter::PerformAttackTrace()
     {
         for (const FOverlapResult& Overlap : Overlaps)
         {
-            if (ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Overlap.GetActor()))
+            AActor* HitActor = Overlap.GetActor();
+            ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(HitActor);
+            
+            // 1. Cast 실패 여부 확인
+            if (!HitSurvivor) 
             {
-                // [수정] Healthy 또는 Injured 상태일 때만 공격 적중 처리
-                ESurvivorState SState = HitSurvivor->GetSurvivorState();
-                if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
-                {
-                    UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
-                    
-                    // 여기서 실제 데미지 로직을 호출하거나 상태를 변경하세요.
-                    // HitSurvivor->SetSurvivorState(ESurvivorState::Injured); // 예시
-                    return true;
-                }
+                UE_LOG(LogTemp, Warning, TEXT("충돌체 감지됨, 하지만 ASurvivorCharacter가 아님: %s"), HitActor ? *HitActor->GetName() : TEXT("Null"));
+                continue;
+            }
+
+            // 2. 상태 체크 로직
+            ESurvivorState SState = HitSurvivor->GetSurvivorState();
+            UE_LOG(LogTemp, Warning, TEXT("생존자 감지됨: %s, 상태: %d"), *HitSurvivor->GetName(), (int32)SState);
+
+            if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
+            {
+                HitSurvivor->ApplyHit(); 
+                return true;
             }
         }
     }
@@ -487,6 +484,7 @@ void AKillerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AKillerCharacter, CurrentState);
     DOREPLIFETIME(AKillerCharacter, bIsBusy);
+    DOREPLIFETIME(AKillerCharacter, CarriedSurvivor);
 }
 
 // 상태 변경 시 모든 클라이언트가 속도 업데이트
