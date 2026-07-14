@@ -23,6 +23,6 @@ void UGameResultWidget::SetInformationText(FString InfoText)
 {
 	if (InformationText)
 	{
-		InformationText->SetText(InfoText);
+		InformationText->SetText(FText::FromString(InfoText));
 	}
 }

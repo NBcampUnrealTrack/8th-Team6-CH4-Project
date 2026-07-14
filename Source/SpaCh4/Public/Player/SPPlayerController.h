@@ -9,6 +9,8 @@ class USPInputConfigData;
 class UInputMappingContext;
 class UEnhancedInputLocalPlayerSubsystem;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSPReturnToMainMenuStatusSignature, const FString&, StatusMessage);
+
 UCLASS()
 class SPACH4_API ASPPlayerController : public APlayerController
 {
@@ -20,6 +22,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Online|Session")
 	bool IsReturnToMainMenuPending() const;
+
+	UPROPERTY(BlueprintAssignable, Category = "Online|Session")
+	FSPReturnToMainMenuStatusSignature OnReturnToMainMenuStatusChanged;
 
 	UFUNCTION(BlueprintCallable, Category = "Input")
 	void AddInputMappingContext(UInputMappingContext* MappingContext, int32 Priority = 0);

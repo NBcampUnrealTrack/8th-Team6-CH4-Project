@@ -18,6 +18,7 @@ void ASPPlayerController::ReturnToMainMenu()
 	if (bIsHostReturnToMainMenuPending && GameResultWidgetInstance)
 	{
 		GameResultWidgetInstance->SetInformationText(TEXT("다른 플레이어가 메인 메뉴로 나갈 때까지 호스트의 이동을 대기합니다."));
+		//OnReturnToMainMenuStatusChanged.Broadcast(TEXT("다른 플레이어가 메인 메뉴로 나갈 때까지 호스트의 이동을 대기합니다."));
 		return;
 	}
 
@@ -34,6 +35,7 @@ void ASPPlayerController::ReturnToMainMenu()
 	{
 		bIsHostReturnToMainMenuPending = true;
 		GameResultWidgetInstance->SetInformationText(TEXT("다른 플레이어가 메인 메뉴로 나갈 때까지 호스트의 이동을 대기합니다."));
+		//OnReturnToMainMenuStatusChanged.Broadcast(TEXT("다른 플레이어가 메인 메뉴로 나갈 때까지 호스트의 이동을 대기합니다."));
 		GetWorldTimerManager().SetTimer(
 			HostReturnToMainMenuTimerHandle,
 			this,
@@ -181,7 +183,8 @@ void ASPPlayerController::CompleteReturnToMainMenu()
 {
 	GetWorldTimerManager().ClearTimer(HostReturnToMainMenuTimerHandle);
 	bIsHostReturnToMainMenuPending = false;
-	OnReturnToMainMenuStatusChanged.Broadcast(TEXT("메인 메뉴로 이동합니다."));
+	GameResultWidgetInstance->SetInformationText(TEXT("메인 메뉴로 이동합니다."));
+	//OnReturnToMainMenuStatusChanged.Broadcast(TEXT("메인 메뉴로 이동합니다."));
 
 	if (UGameInstance* GameInstance = GetGameInstance())
 	{
