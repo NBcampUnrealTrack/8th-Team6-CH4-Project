@@ -171,10 +171,7 @@ void USPInteractionComponent::Server_Interact_Implementation()
 	{
 		FaceInteractTarget(Hit.GetActor());
 		ISPInteractable::Execute_Interact(Hit.GetActor(), Survivor);
-		return;
 	}
-
-	BeginDrop();
 }
 
 void USPInteractionComponent::FaceInteractTarget(AActor* Target)
