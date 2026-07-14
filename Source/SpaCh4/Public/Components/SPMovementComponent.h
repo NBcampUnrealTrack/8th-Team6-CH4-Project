@@ -27,6 +27,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "SP|Movement")
 	float GetTargetMoveSpeed() const;
 
+	UFUNCTION(BlueprintPure, Category = "SP|Movement")
+	bool IsRunning() const;
+
 protected:
 	virtual void BeginPlay() override;
 

@@ -38,6 +38,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Cage|Door")
 	FRotator GetDoorRotation() const { return DoorRotation; }
 
+	UFUNCTION(BlueprintPure, Category = "Cage")
+	float GetStageOneDuration() const { return StageOneDuration; }
+
+	UFUNCTION(BlueprintPure, Category = "Cage")
+	float GetStageTwoDuration() const { return StageTwoDuration; }
+
 protected:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostInitializeComponents() override;

@@ -68,6 +68,7 @@ private:
 	void CompletePickup();
 	void BeginDrop();
 	void CompleteDrop();
+	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
 	void CompleteDelivery();
 	void FaceInteractTarget(const AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
@@ -87,6 +88,24 @@ private:
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	bool bInstantPickup{false};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Drop")
+	float DropForwardOffset{70.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Drop")
+	float DropTraceDistance{300.f};
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> PickupMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> DropMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> DeliveryMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> HatchEscapeMontage;
 	
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};

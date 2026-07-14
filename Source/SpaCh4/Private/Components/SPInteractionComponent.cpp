@@ -2,6 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SPPickupAnimComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -305,7 +306,7 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(Data->PickupMontage);
+	PlayInteractMontage(PickupMontage.LoadSynchronous());
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -360,7 +361,7 @@ void USPInteractionComponent::BeginDrop()
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(Data->DropMontage);
+	PlayInteractMontage(DropMontage.LoadSynchronous());
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -388,8 +389,41 @@ void USPInteractionComponent::CompleteDrop()
 
 	if (Item)
 	{
-		Item->Multicast_SetStored(false, Survivor->GetActorLocation());
+		Item->Multicast_SetStored(false, ResolveGroundedDropLocation(Survivor, Item));
 	}
+}
+
+FVector USPInteractionComponent::ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const
+{
+	const FVector Origin = Survivor->GetActorLocation();
+	const FVector TraceStart = Origin + Survivor->GetActorForwardVector() * DropForwardOffset;
+	const FVector TraceEnd = TraceStart - FVector(0.f, 0.f, DropTraceDistance);
+
+	float GroundZ = Origin.Z;
+	if (const UCapsuleComponent* Capsule = Survivor->GetCapsuleComponent())
+	{
+		GroundZ = Origin.Z - Capsule->GetScaledCapsuleHalfHeight();
+	}
+
+	if (const UWorld* World = GetWorld())
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(CollectibleDrop), false);
+		Params.AddIgnoredActor(Survivor);
+		Params.AddIgnoredActor(Item);
+
+		FHitResult Hit;
+		if (World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Visibility, Params))
+		{
+			GroundZ = Hit.ImpactPoint.Z;
+		}
+	}
+
+	FVector BoundsOrigin;
+	FVector BoxExtent;
+	Item->GetActorBounds(false, BoundsOrigin, BoxExtent);
+	const float PivotToBottom = Item->GetActorLocation().Z - (BoundsOrigin.Z - BoxExtent.Z);
+
+	return FVector(TraceStart.X, TraceStart.Y, GroundZ + PivotToBottom);
 }
 
 void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
@@ -413,7 +447,7 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 
 	CurrentDeliveryStation = Station;
 	bIsInteract = true;
-	PlayInteractMontage(Data->DeliveryMontage);
+	PlayInteractMontage(DeliveryMontage.LoadSynchronous());
 
 	if (!bCancelInteractOnMove)
 	{
@@ -479,10 +513,6 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 
 	CurrentEscapeGate = Gate;
 	bIsInteract = true;
-	if (const USurvivorData* Data = GetSurvivorData())
-	{
-		PlayInteractMontage(Data->EscapeLeverMontage);
-	}
 	Gate->SetOpener(Survivor);
 
 	if (USPEscapeLeverComponent* LeverComponent = Survivor->GetEscapeLeverComponent())
@@ -520,10 +550,7 @@ void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
 
 	CurrentHatch = Hatch;
 	bIsInteract = true;
-	if (const USurvivorData* Data = GetSurvivorData())
-	{
-		PlayInteractMontage(Data->HatchEscapeMontage);
-	}
+	PlayInteractMontage(HatchEscapeMontage.LoadSynchronous());
 	Hatch->SetEscaper(Survivor);
 }
 
