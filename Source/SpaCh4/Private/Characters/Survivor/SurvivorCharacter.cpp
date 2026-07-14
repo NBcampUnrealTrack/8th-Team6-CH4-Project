@@ -66,6 +66,15 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsChannelingLever())
+	{
+		if (InteractionComponent)
+		{
+			InteractionComponent->NotifyMoveInput();
+		}
+		return;
+	}
+
 	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
 	{
 		return;
@@ -376,6 +385,11 @@ bool ASurvivorCharacter::IsParkouring() const
 bool ASurvivorCharacter::IsPullingLever() const
 {
 	return EscapeLeverComponent && EscapeLeverComponent->IsPullingLever();
+}
+
+bool ASurvivorCharacter::IsChannelingLever() const
+{
+	return EscapeLeverComponent && EscapeLeverComponent->IsChannelingLever();
 }
 
 bool ASurvivorCharacter::IsPlayingPickupAnim() const

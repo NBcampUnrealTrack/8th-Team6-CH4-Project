@@ -18,7 +18,6 @@
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
-#include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 
 USPInteractionComponent::USPInteractionComponent()
@@ -178,7 +177,7 @@ void USPInteractionComponent::Server_Interact_Implementation()
 	BeginDrop();
 }
 
-void USPInteractionComponent::FaceInteractTarget(const AActor* Target)
+void USPInteractionComponent::FaceInteractTarget(AActor* Target)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Target)
@@ -186,7 +185,16 @@ void USPInteractionComponent::FaceInteractTarget(const AActor* Target)
 		return;
 	}
 
-	const FVector ToTarget = Target->GetActorLocation() - Survivor->GetActorLocation();
+	FVector FocusLocation = Target->GetActorLocation();
+	if (Target->Implements<USPInteractable>())
+	{
+		if (const USceneComponent* FocusComponent = ISPInteractable::Execute_GetInteractFocusComponent(Target))
+		{
+			FocusLocation = FocusComponent->GetComponentLocation();
+		}
+	}
+
+	const FVector ToTarget = FocusLocation - Survivor->GetActorLocation();
 	if (ToTarget.SizeSquared2D() < KINDA_SMALL_NUMBER)
 	{
 		return;
@@ -505,8 +513,7 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 		return;
 	}
 
-	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
-	if (!MatchGameState || !MatchGameState->CanActivateEscapeGates())
+	if (!Gate->CanBeOpened())
 	{
 		return;
 	}

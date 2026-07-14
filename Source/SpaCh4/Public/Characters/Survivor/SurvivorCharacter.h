@@ -53,6 +53,7 @@ public:
 	bool IsParkouring() const;
 	bool IsCarrying() const;
 	bool IsPullingLever() const;
+	bool IsChannelingLever() const;
 	bool IsPlayingPickupAnim() const;
 	bool IsHealing() const;
 	int GetCagedCount() const { return CagedCount; }

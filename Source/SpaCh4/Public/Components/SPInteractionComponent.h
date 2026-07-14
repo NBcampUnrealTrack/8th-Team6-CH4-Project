@@ -70,7 +70,7 @@ private:
 	void CompleteDrop();
 	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
 	void CompleteDelivery();
-	void FaceInteractTarget(const AActor* Target);
+	void FaceInteractTarget(AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
 	void StopInteractMontage();
 
