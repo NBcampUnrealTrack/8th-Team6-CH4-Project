@@ -66,7 +66,7 @@ void UMainMenuWidget::NativeConstruct()
 	ApplyMenuLabels();
 	EnsureTitleOnTop();
 	ApplyMenuTitleImage();
-	ApplyMenuButtonStyles();
+	//ApplyMenuButtonStyles();
 
 	UGameInstance* GameInstance = GetGameInstance();
 	const USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
