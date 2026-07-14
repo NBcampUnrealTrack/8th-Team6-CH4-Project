@@ -6,6 +6,16 @@
 #include "Engine/DataAsset.h"
 #include "KillerData.generated.h"
 
+UENUM(BlueprintType)
+enum class EKillerPerkType : uint8
+{
+	None UMETA(DisplayName = "미선택"),
+	Overvoltage UMETA(DisplayName = "과전압"),
+	Conduction_Coil UMETA(DisplayName = "전도 코일"),
+	Circuit_Trace UMETA(DisplayName = "회로 추적"),
+	Blackout_Zone UMETA(DisplayName = "전력 차단")
+};
+
 /**
  * 
  */
@@ -17,8 +27,11 @@ public:
 	UKillerData();
 
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 575(생존자650 * 1.15)"));
+	float KillerBaseSpeed = 575.f;
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 748(생존자650 * 1.15)"));
-	float KillerBaseSpeed = 748.f;
+	float KillerSprintSpeed = 748.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 403(생존자350 * 1.15)"));
 	float KillerWalkSpeed = 403.f;
@@ -27,7 +40,7 @@ public:
 	float KillerCarrySpeedMultiplier = 0.9f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
-	float KillerGroggySpeedMultiplier = 0.7f;
+	float KillerGroggySpeedMultiplier = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	float TaserRange = 250.f;
