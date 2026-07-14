@@ -399,7 +399,7 @@ namespace
 		return Layout;
 	}
 
-	static bool HasDesignerBrushResource(const UImage* Image)
+	bool HasDesignerBrushResource(const UImage* Image)
 	{
 		return GameHUDWidgetPrivate::HasDesignerBrushResource(Image);
 	}
