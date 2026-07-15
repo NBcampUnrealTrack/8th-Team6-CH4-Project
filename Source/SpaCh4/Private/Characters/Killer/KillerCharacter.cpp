@@ -786,9 +786,15 @@ void AKillerCharacter::HandleCarryingInteraction()
 
 void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
 {
+    if (!TargetCage) return;
+
     bIsBusy = true;
     SetKillerState(EKillerState::Interacting);
-    GetCharacterMovement()->DisableMovement();
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->DisableMovement();
+    }
+
     if (CarryAnimComponent)
     {
         CarryAnimComponent->EndCarryAnims();
@@ -798,9 +804,25 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
-            Survivor->SetSurvivorState(ESurvivorState::Caged);
+            Survivor->EnterCaged(TargetCage);
+            Survivor->SetActorEnableCollision(false); // 바닥 박힘/튕김 방지
+
+            // 1. 케이지의 현재 위치 가져오기
+            FVector TargetLocation = TargetCage->GetCageMeshTransform().GetLocation();
+            
+            // 2. 오프셋 미세 조정 (이 값을 조금씩 바꾸며 중앙에 맞추세요)
+            // 만약 사진처럼 생존자가 뒤로 밀려있다면 X값을, 옆이라면 Y값을 조정합니다.
+            TargetLocation.X += -20.0f;  // 예: 앞뒤로 이동 필요시 10.0f 또는 -10.0f
+            TargetLocation.Y += 30.0f;  // 예: 좌우로 이동 필요시 10.0f 또는 -10.0f
+            TargetLocation.Z += 100.0f; // 높이 보정 (발이 바닥에 닿지 않게)
+
+            // 3. 위치 이동
             Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-            Survivor->SetActorLocation(TargetCage->GetActorLocation());
+            Survivor->SetActorLocation(TargetLocation);
+            
+            // 4. 케이지 방향과 일치시키기 (선택 사항)
+            Survivor->SetActorRotation(TargetCage->GetActorRotation());
+
             if (UCharacterMovementComponent* SurvivorMovement = Survivor->GetCharacterMovement())
             {
                 SurvivorMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
@@ -814,7 +836,6 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
         bIsBusy = false;
         if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
         
-        // 쿨타임 시작 로직...
     }, KillerData->CageDepositDuration, false);
 }
 

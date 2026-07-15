@@ -43,11 +43,28 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Cage")
 	float GetStageTwoDuration() const { return StageTwoDuration; }
-
+	
+	UFUNCTION(BlueprintPure, Category = "Cage")
+	UStaticMeshComponent* GetCageMesh() const { return CageMesh; }
+	
+	UFUNCTION(BlueprintPure, Category = "Cage")
+	FTransform GetCageMeshTransform() const;
+	
+	UFUNCTION()
+	void HandleSurvivorDeath(ASurvivorCharacter* DeadSurvivor);
+	
 protected:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
+	
+	// 하강 애니메이션 타이머
+	FTimerHandle MoveTimerHandle;
+    
+	// 삭제 처리 타이머
+	FTimerHandle DeleteTimerHandle;
+	
+	int32 MoveSteps;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

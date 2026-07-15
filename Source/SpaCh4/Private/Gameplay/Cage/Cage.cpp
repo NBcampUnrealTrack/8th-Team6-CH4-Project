@@ -1,5 +1,6 @@
 ﻿#include "Gameplay/Cage/Cage.h"
 
+#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -332,4 +333,39 @@ void ACage::ApplyDoorRotation()
 	DoorPivot->SetRelativeRotation(DoorRotation);
 }
 
+FTransform ACage::GetCageMeshTransform() const
+{
+	if (CageMesh)
+	{
+		return CageMesh->GetComponentTransform();
+	}
+	return GetActorTransform();
+}
 
+void ACage::HandleSurvivorDeath(ASurvivorCharacter* DeadSurvivor)
+{
+	if (!CageMesh) return;
+	if (DeadSurvivor) DeadSurvivor->Destroy();
+
+	const float UpdateInterval = 0.03f; 
+	const float DropAmount = -0.5f;     
+	const int32 TotalSteps = 200;     
+    
+	MoveSteps = 0; 
+
+	GetWorldTimerManager().SetTimer(MoveTimerHandle, [this, DropAmount, TotalSteps]() {
+		if (CageMesh && MoveSteps < TotalSteps)
+		{
+			CageMesh->AddRelativeLocation(FVector(0, 0, DropAmount));
+			MoveSteps++;
+		}
+		else
+		{
+			GetWorldTimerManager().ClearTimer(MoveTimerHandle);
+            
+			if (CageMesh) {
+				CageMesh->DestroyComponent();
+			}
+		}
+	}, UpdateInterval, true);
+}

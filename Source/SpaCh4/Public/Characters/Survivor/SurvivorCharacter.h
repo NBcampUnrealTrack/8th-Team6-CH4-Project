@@ -94,6 +94,8 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
+	
+	ACage* GetCurrentCage() const { return CurrentCage; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -105,6 +107,9 @@ protected:
 	virtual void JumpOver() override;
 	
 	virtual void OnRep_Controller() override;
+	
+	UPROPERTY()
+	ACage* CurrentCage;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
