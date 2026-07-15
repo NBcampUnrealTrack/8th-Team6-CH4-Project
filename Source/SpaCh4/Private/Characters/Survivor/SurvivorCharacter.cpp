@@ -13,6 +13,7 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "EngineUtils.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
@@ -169,13 +170,16 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
-	if (!HasAuthority()) return;
-	
+	if (!HasAuthority() || !Cage) return;
+
 	CurrentCage = Cage;
-	
 	++CagedCount;
 
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
+	Multicast_ApplyCagedPose(Anchor.GetLocation(), Anchor.Rotator());
 
 	if (CagedCount >= 3)
 	{
@@ -184,7 +188,9 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 		return;
 	}
 
+	Cage->SetOccupied(this);
 	SetSurvivorState(ESurvivorState::Caged);
+
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
     
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 케이지 타이머 시작: %.2f초 후 사망 예정"), Time);
@@ -199,11 +205,77 @@ void ASurvivorCharacter::OnCageExpired()
 	SetSurvivorState(ESurvivorState::Dead);
 }
 
-void ASurvivorCharacter::RescueFromCage()
+void ASurvivorCharacter::Multicast_ApplyCagedPose_Implementation(FVector Location, FRotator Rotation)
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = false;
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+	}
+	SetActorLocationAndRotation(Location, Rotation);
+}
+
+void ASurvivorCharacter::Multicast_RestoreOrientRotation_Implementation()
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+	}
+}
+
+void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 {
 	if (!HasAuthority()) return;
 	GetWorldTimerManager().ClearTimer(CageTimerHandle);
-	SetSurvivorState(ESurvivorState::Downed);
+
+	Multicast_RestoreOrientRotation();
+
+	if (Rescuer)
+	{
+		const FVector DropLocation = Rescuer->GetActorLocation() + Rescuer->GetActorRightVector() * RescueDropOffset;
+		SetActorLocation(DropLocation);
+	}
+
+	SetSurvivorState(ESurvivorState::Injured);
+}
+
+void ASurvivorCharacter::BeginRescue(ACage* Cage)
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->BeginRescue(Cage);
+	}
+}
+
+void ASurvivorCharacter::DebugCageSelf()
+{
+	Server_DebugCageSelf();
+}
+
+void ASurvivorCharacter::Server_DebugCageSelf_Implementation()
+{
+	if (SurvivorState == ESurvivorState::Caged || SurvivorState == ESurvivorState::Dead)
+	{
+		return;
+	}
+
+	ACage* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+	const FVector MyLocation = GetActorLocation();
+	for (TActorIterator<ACage> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(MyLocation, It->GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+
+	if (Nearest)
+	{
+		EnterCaged(Nearest);
+	}
 }
 
 void ASurvivorCharacter::ApplyHit()
@@ -566,5 +638,9 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	if (NewState == ESurvivorState::Escaped)
 	{
 		GameMode->RegisterSurvivorEscaped(GetController());
+	}
+	else if (NewState == ESurvivorState::Caged)
+	{
+		GameMode->RegisterSurvivorStateChanged(FName(*LDPS->GetPlayerName()), NewState);
 	}
 }
