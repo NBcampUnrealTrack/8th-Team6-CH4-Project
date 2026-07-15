@@ -49,10 +49,14 @@ ACage::ACage()
 	SupportMesh->SetupAttachment(SupportMeshScaleRoot);
 	SupportMesh->SetRelativeScale3D(FVector::OneVector);
 	SupportMesh->SetCollisionProfileName(TEXT("BlockAll"));
+	SupportMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
 
 	CageMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CageMesh"));
 	CageMesh->SetupAttachment(CageRoot);
 	CageMesh->SetCollisionProfileName(TEXT("BlockAll"));
+	CageMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
+	CageMesh->SetCustomDepthStencilValue(250);
+	CageMesh->SetRenderCustomDepth(false);
 
 	DoorPivot = CreateDefaultSubobject<UArrowComponent>(TEXT("DoorPivot"));
 	DoorPivot->SetupAttachment(CageMesh);
@@ -65,6 +69,8 @@ ACage::ACage()
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
 	DoorMesh->SetupAttachment(DoorPivot);
 	DoorMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	DoorMesh->SetCustomDepthStencilValue(250);
+	DoorMesh->SetRenderCustomDepth(false);
 
 	PrisonerAnchor = CreateDefaultSubobject<UArrowComponent>(TEXT("PrisonerAnchor"));
 	PrisonerAnchor->SetupAttachment(CageRoot);

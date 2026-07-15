@@ -13,6 +13,7 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "EngineUtils.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
@@ -218,6 +219,37 @@ void ASurvivorCharacter::BeginRescue(ACage* Cage)
 	if (InteractionComponent)
 	{
 		InteractionComponent->BeginRescue(Cage);
+	}
+}
+
+void ASurvivorCharacter::DebugCageSelf()
+{
+	Server_DebugCageSelf();
+}
+
+void ASurvivorCharacter::Server_DebugCageSelf_Implementation()
+{
+	if (SurvivorState == ESurvivorState::Caged || SurvivorState == ESurvivorState::Dead)
+	{
+		return;
+	}
+
+	ACage* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+	const FVector MyLocation = GetActorLocation();
+	for (TActorIterator<ACage> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(MyLocation, It->GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+
+	if (Nearest)
+	{
+		EnterCaged(Nearest);
 	}
 }
 
@@ -581,5 +613,9 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	if (NewState == ESurvivorState::Escaped)
 	{
 		GameMode->RegisterSurvivorEscaped(FName(*LDPS->GetPlayerName()));
+	}
+	else if (NewState == ESurvivorState::Caged)
+	{
+		GameMode->RegisterSurvivorStateChanged(FName(*LDPS->GetPlayerName()), NewState);
 	}
 }

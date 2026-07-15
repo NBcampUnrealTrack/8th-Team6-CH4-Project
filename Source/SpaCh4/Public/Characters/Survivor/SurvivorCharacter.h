@@ -127,6 +127,14 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
+	// *** Debug
+	UFUNCTION(Exec)
+	void DebugCageSelf();
+
+	UFUNCTION(Server, Reliable)
+	void Server_DebugCageSelf();
+	// *** Debug
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
