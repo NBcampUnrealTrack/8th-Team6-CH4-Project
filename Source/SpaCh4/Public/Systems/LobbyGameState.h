@@ -20,7 +20,6 @@ enum class ELobbyPhase : uint8
 	Traveling
 };
 
-
 USTRUCT(BlueprintType)
 struct FLobbyPlayerInfo
 {

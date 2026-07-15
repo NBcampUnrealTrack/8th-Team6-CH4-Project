@@ -53,8 +53,10 @@ public:
 	bool IsParkouring() const;
 	bool IsCarrying() const;
 	bool IsPullingLever() const;
+	bool IsChannelingLever() const;
 	bool IsPlayingPickupAnim() const;
 	bool IsHealing() const;
+	bool IsChannelingHealing() const;
 	int GetCagedCount() const { return CagedCount; }
 	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
@@ -74,6 +76,7 @@ public:
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
+	void RecoverOneStep();
 	void RescueFromCage();
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
@@ -91,6 +94,8 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
+	
+	ACage* GetCurrentCage() const { return CurrentCage; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -102,6 +107,9 @@ protected:
 	virtual void JumpOver() override;
 	
 	virtual void OnRep_Controller() override;
+	
+	UPROPERTY()
+	ACage* CurrentCage;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
@@ -122,10 +130,6 @@ private:
 
 	UFUNCTION()
 	void OnCageExpired();
-
-	void DebugTestHealingAnimPressed();
-	void DebugTestHealingAnimReleased();
-	void RestoreDebugMovementInput();
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;

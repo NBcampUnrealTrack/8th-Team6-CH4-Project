@@ -104,9 +104,7 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby|Role")
 	ELobbyPlayerRole PlayerRole = ELobbyPlayerRole::None;
 #pragma endregion
-	
-	
-	
+
 private:
 	UFUNCTION()
 	void OnRep_PlayerLoadout();

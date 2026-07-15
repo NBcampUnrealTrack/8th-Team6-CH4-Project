@@ -21,6 +21,7 @@
 #include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameMode.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
@@ -65,7 +66,21 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsChannelingLever() || IsChannelingHealing())
+	{
+		if (InteractionComponent)
+		{
+			InteractionComponent->NotifyMoveInput();
+		}
+		return;
+	}
+
 	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	{
+		return;
+	}
+
+	if (InteractionComponent && InteractionComponent->IsInteracting())
 	{
 		return;
 	}
@@ -155,22 +170,32 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
 	if (!HasAuthority()) return;
+	
+	CurrentCage = Cage;
+	
 	++CagedCount;
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
 
 	if (CagedCount >= 3)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 3회 누적되어 즉시 사망 처리합니다."));
 		SetSurvivorState(ESurvivorState::Dead);
 		return;
 	}
 
 	SetSurvivorState(ESurvivorState::Caged);
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
+    
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 케이지 타이머 시작: %.2f초 후 사망 예정"), Time);
+    
 	GetWorldTimerManager().SetTimer(
-		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
+	   CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
 }
 
 void ASurvivorCharacter::OnCageExpired()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 케이지 타이머 만료! 생존자 %s 사망 처리"), *GetName());
 	SetSurvivorState(ESurvivorState::Dead);
 }
 
@@ -189,11 +214,31 @@ void ASurvivorCharacter::ApplyHit()
 	case ESurvivorState::Healthy: 
 		SetSurvivorState(ESurvivorState::Injured); 
 		break;
-	case ESurvivorState::Injured: 
-		SetSurvivorState(ESurvivorState::Downed);  
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Downed);
 		break;
-	default: 
-		break; 
+	default:
+		break;
+	}
+}
+
+void ASurvivorCharacter::RecoverOneStep()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Downed:
+		SetSurvivorState(ESurvivorState::Injured);
+		break;
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Healthy);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -254,9 +299,6 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 			}
 		}
 	}
-
-	PlayerInputComponent->BindKey(EKeys::U, IE_Pressed, this, &ASurvivorCharacter::DebugTestHealingAnimPressed);
-	PlayerInputComponent->BindKey(EKeys::U, IE_Released, this, &ASurvivorCharacter::DebugTestHealingAnimReleased);
 }
 
 void ASurvivorCharacter::SelectSlot(int32 Index)
@@ -327,6 +369,11 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+	
+	if (SurvivorState == ESurvivorState::Dead && CurrentCage)
+	{
+		CurrentCage->HandleSurvivorDeath(this);
+	}
 
 	if (MovementComponent)
 	{
@@ -377,6 +424,11 @@ bool ASurvivorCharacter::IsPullingLever() const
 	return EscapeLeverComponent && EscapeLeverComponent->IsPullingLever();
 }
 
+bool ASurvivorCharacter::IsChannelingLever() const
+{
+	return EscapeLeverComponent && EscapeLeverComponent->IsChannelingLever();
+}
+
 bool ASurvivorCharacter::IsPlayingPickupAnim() const
 {
 	return PickupAnimComponent && PickupAnimComponent->IsPlayingPickupAnim();
@@ -402,6 +454,11 @@ bool ASurvivorCharacter::IsHealing() const
 	return HealingAnimComponent && HealingAnimComponent->IsHealing();
 }
 
+bool ASurvivorCharacter::IsChannelingHealing() const
+{
+	return HealingAnimComponent && HealingAnimComponent->IsChannelingHealing();
+}
+
 void ASurvivorCharacter::NotifyHealingAnimEnded()
 {
 	if (AController* Ctrl = GetController())
@@ -415,49 +472,6 @@ void ASurvivorCharacter::NotifyHealingAnimEnded()
 		{
 			MoveComp->SetDefaultMovementMode();
 		}
-	}
-
-	ApplyStateEffects();
-}
-
-void ASurvivorCharacter::DebugTestHealingAnimPressed()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->BeginHealingChannelDebug();
-	}
-}
-
-void ASurvivorCharacter::DebugTestHealingAnimReleased()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->CancelHealingChannelDebug();
-	}
-
-	// Return 재생 중에는 여기서 입력을 건드리지 않는다.
-	// FinishHealingChannel -> NotifyHealingAnimEnded 가 복구한다.
-	if (!HealingAnimComponent->IsHealing())
-	{
-		RestoreDebugMovementInput();
-	}
-}
-
-void ASurvivorCharacter::RestoreDebugMovementInput()
-{
-	if (AController* Ctrl = GetController())
-	{
-		Ctrl->ResetIgnoreMoveInput();
 	}
 
 	ApplyStateEffects();

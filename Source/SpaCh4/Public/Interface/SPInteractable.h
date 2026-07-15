@@ -7,6 +7,8 @@
 #include "UObject/Interface.h"
 #include "SPInteractable.generated.h"
 
+class USceneComponent;
+
 // This class does not need to be modified.
 UINTERFACE()
 class USPInteractable : public UInterface
@@ -34,4 +36,8 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
 	bool IsInteractable() const;
 	virtual bool IsInteractable_Implementation() const { return true; }
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction")
+	USceneComponent* GetInteractFocusComponent() const;
+	virtual USceneComponent* GetInteractFocusComponent_Implementation() const { return nullptr; }
 };
