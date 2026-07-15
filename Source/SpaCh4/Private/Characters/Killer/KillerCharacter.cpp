@@ -786,9 +786,15 @@ void AKillerCharacter::HandleCarryingInteraction()
 
 void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
 {
+    if (!TargetCage) return;
+
     bIsBusy = true;
     SetKillerState(EKillerState::Interacting);
-    GetCharacterMovement()->DisableMovement();
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->DisableMovement();
+    }
+
     if (CarryAnimComponent)
     {
         CarryAnimComponent->EndCarryAnims();
@@ -807,7 +813,6 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
         bIsBusy = false;
         if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
         
-        // 쿨타임 시작 로직...
     }, KillerData->CageDepositDuration, false);
 }
 

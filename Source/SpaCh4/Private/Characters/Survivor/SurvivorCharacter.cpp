@@ -171,7 +171,11 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
 	if (!HasAuthority() || !Cage) return;
+
+	CurrentCage = Cage;
 	++CagedCount;
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -183,6 +187,7 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 
 	if (CagedCount >= 3)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 3회 누적되어 즉시 사망 처리합니다."));
 		SetSurvivorState(ESurvivorState::Dead);
 		return;
 	}
@@ -191,12 +196,16 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 	SetSurvivorState(ESurvivorState::Caged);
 
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
+    
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 케이지 타이머 시작: %.2f초 후 사망 예정"), Time);
+    
 	GetWorldTimerManager().SetTimer(
-		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
+	   CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
 }
 
 void ASurvivorCharacter::OnCageExpired()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 케이지 타이머 만료! 생존자 %s 사망 처리"), *GetName());
 	SetSurvivorState(ESurvivorState::Dead);
 }
 
@@ -416,6 +425,11 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+	
+	if (SurvivorState == ESurvivorState::Dead && CurrentCage)
+	{
+		CurrentCage->HandleSurvivorDeath(this);
+	}
 
 	if (MovementComponent)
 	{
