@@ -581,12 +581,9 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
-            Survivor->SetSurvivorState(ESurvivorState::Caged);
-            Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-            Survivor->SetActorLocation(TargetCage->GetActorLocation());
+            Survivor->EnterCaged(TargetCage);
         }
         
-        TargetCage->SetCageStatus(ECageStatus::Occupied);
         CarriedSurvivor = nullptr;
         
         SetKillerState(EKillerState::Idle);

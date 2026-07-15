@@ -11,6 +11,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
@@ -176,6 +177,13 @@ float USPInteractionComponent::ComputeInteractProgress() const
 	{
 		const float Duration = Hatch->GetEscapeDuration();
 		return Duration > 0.f ? FMath::Clamp(Hatch->GetEscapeProgress() / Duration, 0.f, 1.f) : 0.f;
+	}
+
+	if (CurrentCage.IsValid())
+	{
+		FTimerManager& TimerManager = GetWorld()->GetTimerManager();
+		const float Rate = TimerManager.GetTimerRate(RescueTimer);
+		return Rate > 0.f ? FMath::Clamp(TimerManager.GetTimerElapsed(RescueTimer) / Rate, 0.f, 1.f) : 0.f;
 	}
 
 	if (UWorld* World = GetWorld())
@@ -401,6 +409,7 @@ void USPInteractionComponent::CancelInteract()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PickupDropTimer);
+		World->GetTimerManager().ClearTimer(RescueTimer);
 	}
 
 	ASurvivorCharacter* Survivor = GetSurvivor();
@@ -440,6 +449,8 @@ void USPInteractionComponent::CancelInteract()
 		Hatch->ClearEscaper(Survivor);
 	}
 	CurrentHatch = nullptr;
+
+	CurrentCage = nullptr;
 }
 
 void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
@@ -722,4 +733,48 @@ void USPInteractionComponent::CompleteHatchEscape()
 	{
 		Survivor->SetSurvivorState(ESurvivorState::Escaped);
 	}
+}
+
+void USPInteractionComponent::BeginRescue(ACage* Cage)
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Survivor->CanInteract() || !Cage)
+	{
+		return;
+	}
+
+	ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor();
+	if (!Victim || Victim->GetSurvivorState() != ESurvivorState::Caged)
+	{
+		return;
+	}
+
+	CurrentCage = Cage;
+	bIsInteract = true;
+	PlayInteractMontage(RescueMontage.LoadSynchronous());
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			RescueTimer, this, &USPInteractionComponent::CompleteRescue, Cage->GetRescueDuration(), false);
+	}
+}
+
+void USPInteractionComponent::CompleteRescue()
+{
+	bIsInteract = false;
+	StopInteractMontage();
+
+	ACage* Cage = CurrentCage.Get();
+	CurrentCage = nullptr;
+	if (!Cage)
+	{
+		return;
+	}
+
+	if (ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor())
+	{
+		Victim->RescueFromCage(GetSurvivor());
+	}
+	Cage->SetCageStatus(ECageStatus::Empty);
 }

@@ -1,9 +1,11 @@
 ﻿#include "Gameplay/Cage/Cage.h"
 
+#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Type/SPGameplayTag.h"
 
 namespace
 {
@@ -63,6 +65,12 @@ ACage::ACage()
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
 	DoorMesh->SetupAttachment(DoorPivot);
 	DoorMesh->SetCollisionProfileName(TEXT("NoCollision"));
+
+	PrisonerAnchor = CreateDefaultSubobject<UArrowComponent>(TEXT("PrisonerAnchor"));
+	PrisonerAnchor->SetupAttachment(CageRoot);
+	PrisonerAnchor->SetArrowColor(FLinearColor::Yellow);
+	PrisonerAnchor->bIsScreenSizeScaled = true;
+	PrisonerAnchor->SetHiddenInGame(true);
 
 	ApplySupportMeshScale();
 }
@@ -330,6 +338,52 @@ void ACage::ApplyDoorRotation()
 	}
 
 	DoorPivot->SetRelativeRotation(DoorRotation);
+}
+
+void ACage::SetOccupied(ASurvivorCharacter* Survivor)
+{
+	TrappedSurvivor = Survivor;
+	SetCageStatus(ECageStatus::Occupied);
+}
+
+FTransform ACage::GetPrisonerAnchorTransform() const
+{
+	return PrisonerAnchor ? PrisonerAnchor->GetComponentTransform() : GetActorTransform();
+}
+
+void ACage::Interact_Implementation(AActor* Interactor)
+{
+	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Interactor))
+	{
+		Survivor->BeginRescue(this);
+	}
+}
+
+void ACage::SetHighlight_Implementation(bool bEnabled)
+{
+	if (CageMesh)
+	{
+		CageMesh->SetRenderCustomDepth(bEnabled);
+	}
+	if (DoorMesh)
+	{
+		DoorMesh->SetRenderCustomDepth(bEnabled);
+	}
+}
+
+FGameplayTag ACage::GetInteractableTag_Implementation() const
+{
+	return SPGameplayTags::Interactable::Cage;
+}
+
+bool ACage::IsInteractable_Implementation() const
+{
+	return CurrentStatus == ECageStatus::Occupied;
+}
+
+USceneComponent* ACage::GetInteractFocusComponent_Implementation() const
+{
+	return DoorMesh;
 }
 
 

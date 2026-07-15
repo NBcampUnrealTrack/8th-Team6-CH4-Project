@@ -77,7 +77,8 @@ public:
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
 	void RecoverOneStep();
-	void RescueFromCage();
+	void RescueFromCage(ASurvivorCharacter* Rescuer);
+	void BeginRescue(ACage* Cage);
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
@@ -166,6 +167,9 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Cage")
+	float RescueDropOffset = 100.f;
 
 	FTimerHandle CageTimerHandle;
 };

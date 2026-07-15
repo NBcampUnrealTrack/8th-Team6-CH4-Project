@@ -12,6 +12,7 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class UAnimMontage;
+class ACage;
 
 
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
@@ -33,6 +34,7 @@ public:
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
+	void BeginRescue(ACage* Cage);
 	void CancelInteract();
 
 	bool IsCarrying() const;
@@ -82,6 +84,7 @@ private:
 	void CompleteDrop();
 	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
 	void CompleteDelivery();
+	void CompleteRescue();
 	void TryBeginSelfHeal();
 	bool IsSelectedSlotMedkit() const;
 	void CompleteHeal();
@@ -122,6 +125,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
 	TSoftObjectPtr<UAnimMontage> HatchEscapeMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> RescueMontage;
 	
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
@@ -134,10 +140,12 @@ private:
 
 	FTimerHandle PickupDropTimer;
 	FTimerHandle HealTimer;
+	FTimerHandle RescueTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
 	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
 	TWeakObjectPtr<ASPHatch> CurrentHatch;
+	TWeakObjectPtr<ACage> CurrentCage;
 	TWeakObjectPtr<AActor> LastActor;
 	FGameplayTag InteractableTag;
 };

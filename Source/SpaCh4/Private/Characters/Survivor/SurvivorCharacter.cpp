@@ -164,8 +164,12 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
-	if (!HasAuthority()) return;
+	if (!HasAuthority() || !Cage) return;
 	++CagedCount;
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
+	SetActorLocationAndRotation(Anchor.GetLocation(), Anchor.GetRotation());
 
 	if (CagedCount >= 3)
 	{
@@ -173,7 +177,9 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 		return;
 	}
 
+	Cage->SetOccupied(this);
 	SetSurvivorState(ESurvivorState::Caged);
+
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
 	GetWorldTimerManager().SetTimer(
 		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
@@ -184,11 +190,26 @@ void ASurvivorCharacter::OnCageExpired()
 	SetSurvivorState(ESurvivorState::Dead);
 }
 
-void ASurvivorCharacter::RescueFromCage()
+void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 {
 	if (!HasAuthority()) return;
 	GetWorldTimerManager().ClearTimer(CageTimerHandle);
-	SetSurvivorState(ESurvivorState::Downed);
+
+	if (Rescuer)
+	{
+		const FVector DropLocation = Rescuer->GetActorLocation() + Rescuer->GetActorRightVector() * RescueDropOffset;
+		SetActorLocation(DropLocation);
+	}
+
+	SetSurvivorState(ESurvivorState::Injured);
+}
+
+void ASurvivorCharacter::BeginRescue(ACage* Cage)
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->BeginRescue(Cage);
+	}
 }
 
 void ASurvivorCharacter::ApplyHit()
