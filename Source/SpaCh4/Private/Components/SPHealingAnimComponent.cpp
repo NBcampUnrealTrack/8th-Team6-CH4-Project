@@ -9,17 +9,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
-#include "UObject/ConstructorHelpers.h"
 
 namespace SPHealingAnim
 {
-	static constexpr TCHAR KneeMontagePath[] =
-		TEXT("/Game/Assets/Survivor_Locomotion/Healing/AS_Heailng_Knee_Montage.AS_Heailng_Knee_Montage");
-	static constexpr TCHAR LoopMontagePath[] =
-		TEXT("/Game/Assets/Survivor_Locomotion/Healing/AS_Heailng_Loop_Montage.AS_Heailng_Loop_Montage");
-	static constexpr TCHAR ReturnMontagePath[] =
-		TEXT("/Game/Assets/Survivor_Locomotion/Healing/AS_Heailng_Return_Montage.AS_Heailng_Return_Montage");
-
 	constexpr float HealingReturnNotPlayingTimeout = 0.2f;
 }
 
@@ -28,24 +20,6 @@ USPHealingAnimComponent::USPHealingAnimComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	SetIsReplicatedByDefault(true);
-
-	static ConstructorHelpers::FObjectFinder<UAnimMontage> KneeFinder(SPHealingAnim::KneeMontagePath);
-	if (KneeFinder.Succeeded())
-	{
-		HealingKneeMontage = KneeFinder.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UAnimMontage> LoopFinder(SPHealingAnim::LoopMontagePath);
-	if (LoopFinder.Succeeded())
-	{
-		HealingLoopMontage = LoopFinder.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UAnimMontage> ReturnFinder(SPHealingAnim::ReturnMontagePath);
-	if (ReturnFinder.Succeeded())
-	{
-		HealingReturnMontage = ReturnFinder.Object;
-	}
 }
 
 void USPHealingAnimComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -217,7 +191,7 @@ void USPHealingAnimComponent::Multicast_EndHealingChannel_Implementation(const b
 		return;
 	}
 
-	ExitHealingState(true);
+	ExitHealingState(bCompleted);
 }
 
 void USPHealingAnimComponent::Multicast_CancelHealingChannel_Implementation()
@@ -227,7 +201,7 @@ void USPHealingAnimComponent::Multicast_CancelHealingChannel_Implementation()
 		return;
 	}
 
-	ExitHealingState(true);
+	ExitHealingState(false);
 }
 
 void USPHealingAnimComponent::OnHealingMontageEnded(UAnimMontage* Montage, const bool bInterrupted)
@@ -816,7 +790,7 @@ void USPHealingAnimComponent::UpdateLoopEndTime()
 
 bool USPHealingAnimComponent::ShouldEndLoopChannel() const
 {
-	if (!bIsHealing || CurrentPhase != EHealingAnimPhase::Loop || bIsEndingHealing)
+	if (!bAutoCompleteLoop || !bIsHealing || CurrentPhase != EHealingAnimPhase::Loop || bIsEndingHealing)
 	{
 		return false;
 	}
@@ -827,16 +801,16 @@ bool USPHealingAnimComponent::ShouldEndLoopChannel() const
 
 void USPHealingAnimComponent::EnsureMontagesLoaded()
 {
-	if (!HealingKneeMontage)
+	if (!HealingKneeMontage && !HealingKneeMontageAsset.IsNull())
 	{
-		HealingKneeMontage = LoadObject<UAnimMontage>(nullptr, SPHealingAnim::KneeMontagePath);
+		HealingKneeMontage = HealingKneeMontageAsset.LoadSynchronous();
 	}
-	if (!HealingLoopMontage)
+	if (!HealingLoopMontage && !HealingLoopMontageAsset.IsNull())
 	{
-		HealingLoopMontage = LoadObject<UAnimMontage>(nullptr, SPHealingAnim::LoopMontagePath);
+		HealingLoopMontage = HealingLoopMontageAsset.LoadSynchronous();
 	}
-	if (!HealingReturnMontage)
+	if (!HealingReturnMontage && !HealingReturnMontageAsset.IsNull())
 	{
-		HealingReturnMontage = LoadObject<UAnimMontage>(nullptr, SPHealingAnim::ReturnMontagePath);
+		HealingReturnMontage = HealingReturnMontageAsset.LoadSynchronous();
 	}
 }

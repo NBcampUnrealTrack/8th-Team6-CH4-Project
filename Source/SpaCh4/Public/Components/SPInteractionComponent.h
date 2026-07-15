@@ -25,8 +25,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	
-	void RequestInteract();   
-	void NotifyMoveInput();   
+	void RequestInteract();
+	void NotifyMoveInput();
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
@@ -39,6 +39,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	bool IsInteracting() const { return bIsInteract; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
+	bool CanSelfHeal() const;
 
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
 
@@ -79,6 +82,10 @@ private:
 	void CompleteDrop();
 	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
 	void CompleteDelivery();
+	void TryBeginSelfHeal();
+	bool IsSelectedSlotMedkit() const;
+	void CompleteHeal();
+	void CancelHealChannel();
 	void FaceInteractTarget(AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
 	void StopInteractMontage();
@@ -123,7 +130,10 @@ private:
 	float InteractProgress{0.f};
 
 
+	bool bIsSelfHealing{false};
+
 	FTimerHandle PickupDropTimer;
+	FTimerHandle HealTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
 	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;

@@ -56,6 +56,7 @@ public:
 	bool IsChannelingLever() const;
 	bool IsPlayingPickupAnim() const;
 	bool IsHealing() const;
+	bool IsChannelingHealing() const;
 	int GetCagedCount() const { return CagedCount; }
 	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
@@ -75,6 +76,7 @@ public:
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
+	void RecoverOneStep();
 	void RescueFromCage();
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
@@ -123,10 +125,6 @@ private:
 
 	UFUNCTION()
 	void OnCageExpired();
-
-	void DebugTestHealingAnimPressed();
-	void DebugTestHealingAnimReleased();
-	void RestoreDebugMovementInput();
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
