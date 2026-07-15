@@ -80,6 +80,11 @@ void ASurvivorCharacter::Move(const FInputActionValue& Value)
 		return;
 	}
 
+	if (InteractionComponent && InteractionComponent->IsInteracting())
+	{
+		return;
+	}
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->NotifyMoveInput();

@@ -163,30 +163,9 @@ void UMainMenuWidget::EnsureTitleOnTop()
 		return;
 	}
 
-	TArray<UWidget*> OrderedChildren;
-	OrderedChildren.Reserve(MenuVBox->GetChildrenCount());
-	OrderedChildren.Add(TitleImage);
-
-	for (int32 Index = 0; Index < MenuVBox->GetChildrenCount(); ++Index)
-	{
-		if (UWidget* Child = MenuVBox->GetChildAt(Index))
-		{
-			if (Child != TitleImage)
-			{
-				OrderedChildren.Add(Child);
-			}
-		}
-	}
-
-	while (MenuVBox->GetChildrenCount() > 0)
-	{
-		MenuVBox->RemoveChild(MenuVBox->GetChildAt(0));
-	}
-
-	for (UWidget* Child : OrderedChildren)
-	{
-		MenuVBox->AddChild(Child);
-	}
+	// ShiftChild keeps every sibling's VerticalBoxSlot (size rule/padding) intact;
+	// the old remove-all/re-add-all reset them to defaults and churned Slate widgets.
+	MenuVBox->ShiftChild(0, TitleImage);
 }
 
 void UMainMenuWidget::ApplyMenuTitleImage()

@@ -466,7 +466,16 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(PickupMontage.LoadSynchronous());
+
+	if (USPPickupAnimComponent* PickupAnim = Survivor->GetPickupAnimComponent())
+	{
+		PickupAnim->BeginPickupAnim();
+	}
+	else
+	{
+		PlayInteractMontage(PickupMontage.LoadSynchronous());
+	}
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(

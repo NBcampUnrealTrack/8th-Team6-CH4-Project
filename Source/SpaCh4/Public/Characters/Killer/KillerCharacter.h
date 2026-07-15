@@ -6,6 +6,7 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
+class USPKillerCarryAnimComponent;
 //class USPKillerFirstPersonMeshComponent;
 class ACage;
 
@@ -45,6 +46,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     const UKillerData* GetKillerData() const { return KillerData; }
 
+    UFUNCTION(BlueprintPure, Category = "Killer")
+    EKillerState GetKillerState() const { return CurrentState; }
+
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
     */
@@ -79,13 +83,22 @@ protected:
     
     // 로직
     bool PerformAttackTrace();
+    void AttachCarriedSurvivor(AActor* Target);
+    void ApplyCarryAttachmentTransform(AActor* Target);
     void PickupSurvivor(AActor* Target);
     void DropSurvivor();
+    void HandlePickupAttachWindow();
+    void HandlePickupMontageFinished();
     void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent);
     AActor* FindInteractableActor(float Radius);
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
+    TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
+
+    TWeakObjectPtr<AActor> PendingPickupTarget;
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
     TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
@@ -131,8 +144,11 @@ protected:
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;
+
+    UFUNCTION()
+    void OnRep_CarriedSurvivor(AActor* PreviousCarriedSurvivor);
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;

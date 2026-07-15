@@ -83,50 +83,90 @@ namespace TeammateEntryWidgetPrivate
 	{
 		return IsValid(Image) && Image->GetBrush().GetResourceObject() != nullptr;
 	}
+
+	/** Stale/deleted UObject* sentinels (e.g. 0xFFFFFFFFFFFFFFF7) must not reach IsValid(). */
+	static bool IsUsableObjectPointer(const void* Ptr)
+	{
+		if (!Ptr)
+		{
+			return false;
+		}
+
+		const intptr_t Address = reinterpret_cast<intptr_t>(Ptr);
+		// UE garbage/stale pointers are often small negative sentinels (e.g. -9).
+		if (Address <= 0)
+		{
+			return false;
+		}
+
+		// Reject non-canonical user-space addresses on Win64.
+		constexpr intptr_t MaxUserSpaceAddress = 0x00007FFFFFFFFFFFLL;
+		return Address >= 0x10000 && Address <= MaxUserSpaceAddress;
+	}
+
+	template<typename T>
+	T* GetValidObjectPtr(const TObjectPtr<T>& Ptr)
+	{
+		if (Ptr.IsNull())
+		{
+			return nullptr;
+		}
+
+		T* Raw = Ptr.Get();
+		return (IsUsableObjectPointer(Raw) && IsValid(Raw)) ? Raw : nullptr;
+	}
+
+	static UTexture2D* GetValidTexture2D(const TObjectPtr<UTexture2D>& TexturePtr)
+	{
+		return GetValidObjectPtr<UTexture2D>(TexturePtr);
+	}
 }
 
 using namespace TeammateEntryWidgetPrivate;
 
 const USPGameHUDStyleData& UTeammateEntryWidget::GetResolvedStyle() const
 {
-	return SPUIStyleLibrary::ResolveGameHUDStyle(VisualStyle);
+	USPGameHUDStyleData* StyleOverride = GetValidObjectPtr<USPGameHUDStyleData>(VisualStyle);
+	return SPUIStyleLibrary::ResolveGameHUDStyle(StyleOverride);
 }
 
 UTexture2D* UTeammateEntryWidget::ResolvePortraitTexture(ESurvivorDisplayState State) const
 {
+	const USPGameHUDStyleData& Style = GetResolvedStyle();
+
 	switch (State)
 	{
 	case ESurvivorDisplayState::Injured:
 	case ESurvivorDisplayState::Downed:
 	case ESurvivorDisplayState::Carried:
-		if (PortraitIconInjured)
+		if (UTexture2D* InjuredIcon = GetValidTexture2D(PortraitIconInjured))
 		{
-			return PortraitIconInjured;
+			return InjuredIcon;
 		}
-		return GetResolvedStyle().PortraitInjured;
+		return GetValidTexture2D(Style.PortraitInjured);
 	case ESurvivorDisplayState::Dead:
-		if (PortraitIconDead)
+		if (UTexture2D* DeadIcon = GetValidTexture2D(PortraitIconDead))
 		{
-			return PortraitIconDead;
+			return DeadIcon;
 		}
-		return GetResolvedStyle().PortraitDead;
+		return GetValidTexture2D(Style.PortraitDead);
 	default:
-		if (PortraitIconHealthy)
+		if (UTexture2D* HealthyIcon = GetValidTexture2D(PortraitIconHealthy))
 		{
-			return PortraitIconHealthy;
+			return HealthyIcon;
 		}
-		return GetResolvedStyle().PortraitHealthy;
+		return GetValidTexture2D(Style.PortraitHealthy);
 	}
 }
 
 UTexture2D* UTeammateEntryWidget::ResolvePortraitSlotTexture() const
 {
-	if (PortraitSlotTexture)
+	if (UTexture2D* OverrideSlot = GetValidTexture2D(PortraitSlotTexture))
 	{
-		return PortraitSlotTexture;
+		return OverrideSlot;
 	}
 
-	return GetResolvedStyle().PortraitSlotFrame;
+	return GetValidTexture2D(GetResolvedStyle().PortraitSlotFrame);
 }
 
 FVector2D UTeammateEntryWidget::ResolvePortraitIconSize() const
@@ -196,10 +236,10 @@ void UTeammateEntryWidget::EnsurePortraitOverlayZOrder()
 		return;
 	}
 
-	Overlay->RemoveChild(PortraitImage);
-	Overlay->RemoveChild(PortraitSlotFrame);
-	Overlay->AddChild(PortraitImage);
-	Overlay->AddChild(PortraitSlotFrame);
+	// ShiftChild keeps each child's OverlaySlot (alignment/padding) and avoids the
+	// Slate release/recreate of RemoveChild+AddChild, which can AV when this runs
+	// from the HUD refresh timer or a delegate broadcast mid-frame.
+	Overlay->ShiftChild(FrameIndex, PortraitImage);
 }
 
 void UTeammateEntryWidget::CollapseLegacyDownedHealthFillIfNeeded()
@@ -571,7 +611,8 @@ void UTeammateEntryWidget::UpdatePortraitImage(ESurvivorDisplayState State)
 		return;
 	}
 
-	if (UTexture2D* PortraitTex = ResolvePortraitTexture(State))
+	UTexture2D* PortraitTex = ResolvePortraitTexture(State);
+	if (PortraitTex != nullptr)
 	{
 		if (!IsValidDisplaySize(CachedPortraitIconSize))
 		{
