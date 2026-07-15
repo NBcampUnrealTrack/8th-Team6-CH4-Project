@@ -563,13 +563,8 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	{
 		return;
 	}
-	ALDPlayerState* LDPS = Cast<ALDPlayerState>(GetPlayerState());
-	if (!LDPS)
-	{
-		return;
-	}
 	if (NewState == ESurvivorState::Escaped)
 	{
-		GameMode->RegisterSurvivorEscaped(FName(*LDPS->GetPlayerName()));
+		GameMode->RegisterSurvivorEscaped(GetController());
 	}
 }

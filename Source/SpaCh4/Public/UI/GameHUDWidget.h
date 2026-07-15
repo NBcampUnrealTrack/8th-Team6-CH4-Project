@@ -153,7 +153,7 @@ protected:
 	void HandleMatchPlayersChanged();
 
 	UFUNCTION()
-	void HandleSurvivorStateChanged(FName SurvivorId, ESurvivorState SurvivorState);
+	void HandleSurvivorStateChanged(int32 SurvivorPlayerId, const FString SurvivorNickname, ESurvivorState SurvivorState);
 
 private:
 	void BindInventoryWidgets();

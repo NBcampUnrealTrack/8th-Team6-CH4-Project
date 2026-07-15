@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
@@ -20,55 +20,6 @@ enum class ELobbyPhase : uint8
 	Traveling
 };
 
-
-USTRUCT(BlueprintType)
-struct FSurvivorScore
-{
-	GENERATED_BODY()
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 DeliveryCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 DeliveryScore = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 InjuredCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 MedkitUseCount = 0;
-		
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 CagedCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	int32 CageRescueCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SurvivorScore")
-	bool bEscaped = false;
-	
-	
-};
-
-USTRUCT(BlueprintType)
-struct FKillerScore
-{
-	GENERATED_BODY()
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KillerScore")
-	int32 AttackSuccessCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KillerScore")
-	int32 CageCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KillerScore")
-	int32 KilledSurvivorCount = 0;
-	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "KillerScore")
-	int32 InterruptDeliverCount = 0;
-};
-
-
 USTRUCT(BlueprintType)
 struct FLobbyPlayerInfo
 {
@@ -85,14 +36,6 @@ struct FLobbyPlayerInfo
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Lobby|Player")
 	bool bIsReady = false;
-	
-	// 생존자 점수정보
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Lobby|Player")
-	FSurvivorScore SurvivorScore;
-	
-	// 살인마 점수정보
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Lobby|Player")
-	FKillerScore KillerScore;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLobbyPlayersChangedSignature);
