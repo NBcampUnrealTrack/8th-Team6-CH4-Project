@@ -21,7 +21,6 @@
 #include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
-#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameMode.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
@@ -550,13 +549,8 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	{
 		return;
 	}
-	ALDPlayerState* LDPS = Cast<ALDPlayerState>(GetPlayerState());
-	if (!LDPS)
-	{
-		return;
-	}
 	if (NewState == ESurvivorState::Escaped)
 	{
-		GameMode->RegisterSurvivorEscaped(FName(*LDPS->GetPlayerName()));
+		GameMode->RegisterSurvivorEscaped(GetController());
 	}
 }
