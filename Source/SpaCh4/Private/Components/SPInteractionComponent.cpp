@@ -5,6 +5,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SPPickupAnimComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
+#include "Components/SPHealingAnimComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -180,6 +181,15 @@ float USPInteractionComponent::ComputeInteractProgress() const
 	if (UWorld* World = GetWorld())
 	{
 		FTimerManager& TimerManager = World->GetTimerManager();
+		if (TimerManager.IsTimerActive(HealTimer))
+		{
+			const float Rate = TimerManager.GetTimerRate(HealTimer);
+			if (Rate > 0.f)
+			{
+				return FMath::Clamp(TimerManager.GetTimerElapsed(HealTimer) / Rate, 0.f, 1.f);
+			}
+		}
+
 		if (TimerManager.IsTimerActive(PickupDropTimer))
 		{
 			const float Rate = TimerManager.GetTimerRate(PickupDropTimer);
@@ -212,7 +222,106 @@ void USPInteractionComponent::Server_Interact_Implementation()
 	{
 		FaceInteractTarget(Hit.GetActor());
 		ISPInteractable::Execute_Interact(Hit.GetActor(), Survivor);
+		return;
 	}
+
+	TryBeginSelfHeal();
+}
+
+void USPInteractionComponent::TryBeginSelfHeal()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract)
+	{
+		return;
+	}
+
+	if (Survivor->GetSurvivorState() != ESurvivorState::Injured || !IsSelectedSlotMedkit())
+	{
+		return;
+	}
+
+	bIsSelfHealing = true;
+	bIsInteract = true;
+
+	if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+	{
+		HealAnim->SetAutoCompleteLoop(false);
+		HealAnim->BeginHealingChannel();
+	}
+
+	const USurvivorData* Data = GetSurvivorData();
+	const float Duration = Data ? Data->MedkitDuration : 3.f;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			HealTimer, this, &USPInteractionComponent::CompleteHeal, Duration, false);
+	}
+}
+
+bool USPInteractionComponent::IsSelectedSlotMedkit() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	return Inventory && Inventory->IsSlotConsumable(Survivor->GetSelectedSlotIndex(), EConsumableItemType::Medkit);
+}
+
+bool USPInteractionComponent::CanSelfHeal() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || bIsInteract || LastActor.IsValid())
+	{
+		return false;
+	}
+
+	return Survivor->GetSurvivorState() == ESurvivorState::Injured && IsSelectedSlotMedkit();
+}
+
+void USPInteractionComponent::CompleteHeal()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+
+	bIsInteract = false;
+	bIsSelfHealing = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HealTimer);
+	}
+
+	if (Survivor)
+	{
+		if (USPInventoryComponent* Inventory = Survivor->GetInventoryComponent())
+		{
+			Inventory->RemoveConsumable(EConsumableItemType::Medkit);
+		}
+
+		if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+		{
+			HealAnim->EndHealingChannel(true);
+			HealAnim->SetAutoCompleteLoop(true);
+		}
+
+		Survivor->RecoverOneStep();
+	}
+}
+
+void USPInteractionComponent::CancelHealChannel()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HealTimer);
+	}
+
+	if (ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+		{
+			HealAnim->CancelHealingChannel();
+			HealAnim->SetAutoCompleteLoop(true);
+		}
+	}
+
+	bIsSelfHealing = false;
 }
 
 void USPInteractionComponent::FaceInteractTarget(AActor* Target)
@@ -301,6 +410,11 @@ void USPInteractionComponent::CancelInteract()
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
 	StopInteractMontage();
+
+	if (bIsSelfHealing)
+	{
+		CancelHealChannel();
+	}
 
 	if (bWasPickup && Survivor && Survivor->GetPickupAnimComponent())
 	{

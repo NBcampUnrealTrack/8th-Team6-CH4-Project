@@ -66,7 +66,7 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
-	if (IsChannelingLever())
+	if (IsChannelingLever() || IsChannelingHealing())
 	{
 		if (InteractionComponent)
 		{
@@ -199,11 +199,31 @@ void ASurvivorCharacter::ApplyHit()
 	case ESurvivorState::Healthy: 
 		SetSurvivorState(ESurvivorState::Injured); 
 		break;
-	case ESurvivorState::Injured: 
-		SetSurvivorState(ESurvivorState::Downed);  
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Downed);
 		break;
-	default: 
-		break; 
+	default:
+		break;
+	}
+}
+
+void ASurvivorCharacter::RecoverOneStep()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Downed:
+		SetSurvivorState(ESurvivorState::Injured);
+		break;
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Healthy);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -264,9 +284,6 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 			}
 		}
 	}
-
-	PlayerInputComponent->BindKey(EKeys::U, IE_Pressed, this, &ASurvivorCharacter::DebugTestHealingAnimPressed);
-	PlayerInputComponent->BindKey(EKeys::U, IE_Released, this, &ASurvivorCharacter::DebugTestHealingAnimReleased);
 }
 
 void ASurvivorCharacter::SelectSlot(int32 Index)
@@ -417,6 +434,11 @@ bool ASurvivorCharacter::IsHealing() const
 	return HealingAnimComponent && HealingAnimComponent->IsHealing();
 }
 
+bool ASurvivorCharacter::IsChannelingHealing() const
+{
+	return HealingAnimComponent && HealingAnimComponent->IsChannelingHealing();
+}
+
 void ASurvivorCharacter::NotifyHealingAnimEnded()
 {
 	if (AController* Ctrl = GetController())
@@ -430,49 +452,6 @@ void ASurvivorCharacter::NotifyHealingAnimEnded()
 		{
 			MoveComp->SetDefaultMovementMode();
 		}
-	}
-
-	ApplyStateEffects();
-}
-
-void ASurvivorCharacter::DebugTestHealingAnimPressed()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->BeginHealingChannelDebug();
-	}
-}
-
-void ASurvivorCharacter::DebugTestHealingAnimReleased()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->CancelHealingChannelDebug();
-	}
-
-	// Return 재생 중에는 여기서 입력을 건드리지 않는다.
-	// FinishHealingChannel -> NotifyHealingAnimEnded 가 복구한다.
-	if (!HealingAnimComponent->IsHealing())
-	{
-		RestoreDebugMovementInput();
-	}
-}
-
-void ASurvivorCharacter::RestoreDebugMovementInput()
-{
-	if (AController* Ctrl = GetController())
-	{
-		Ctrl->ResetIgnoreMoveInput();
 	}
 
 	ApplyStateEffects();
