@@ -178,12 +178,8 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
-	{
-		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
-	}
 	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
-	SetActorLocationAndRotation(Anchor.GetLocation(), Anchor.GetRotation());
+	Multicast_ApplyCagedPose(Anchor.GetLocation(), Anchor.Rotator());
 
 	if (CagedCount >= 3)
 	{
@@ -209,10 +205,30 @@ void ASurvivorCharacter::OnCageExpired()
 	SetSurvivorState(ESurvivorState::Dead);
 }
 
+void ASurvivorCharacter::Multicast_ApplyCagedPose_Implementation(FVector Location, FRotator Rotation)
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = false;
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+	}
+	SetActorLocationAndRotation(Location, Rotation);
+}
+
+void ASurvivorCharacter::Multicast_RestoreOrientRotation_Implementation()
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+	}
+}
+
 void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 {
 	if (!HasAuthority()) return;
 	GetWorldTimerManager().ClearTimer(CageTimerHandle);
+
+	Multicast_RestoreOrientRotation();
 
 	if (Rescuer)
 	{

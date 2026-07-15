@@ -132,6 +132,12 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_ApplyCagedPose(FVector Location, FRotator Rotation);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_RestoreOrientRotation();
+
 	// *** Debug
 	UFUNCTION(Exec)
 	void DebugCageSelf();
