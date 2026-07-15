@@ -225,10 +225,11 @@ void UGameHUDWidget::HandleMatchPlayersChanged()
 	RefreshTeammateEntries();
 }
 
-void UGameHUDWidget::HandleSurvivorStateChanged(FName SurvivorId, ESurvivorState SurvivorState)
+void UGameHUDWidget::HandleSurvivorStateChanged(const int32 SurvivorPlayerId, const FString SurvivorNickname, const ESurvivorState SurvivorState)
 {
-	(void)SurvivorId;
+	(void)SurvivorPlayerId;
 	(void)SurvivorState;
+	(void)SurvivorNickname;
 	RefreshTeammateEntries();
 }
 
