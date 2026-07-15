@@ -80,6 +80,11 @@ void ASurvivorCharacter::Move(const FInputActionValue& Value)
 		return;
 	}
 
+	if (InteractionComponent && InteractionComponent->IsInteracting())
+	{
+		return;
+	}
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->NotifyMoveInput();
@@ -168,6 +173,10 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 	++CagedCount;
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+	}
 	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
 	SetActorLocationAndRotation(Anchor.GetLocation(), Anchor.GetRotation());
 

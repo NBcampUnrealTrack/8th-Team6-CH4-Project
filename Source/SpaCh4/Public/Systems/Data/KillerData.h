@@ -6,6 +6,8 @@
 #include "Engine/DataAsset.h"
 #include "KillerData.generated.h"
 
+class UAnimMontage;
+
 UENUM(BlueprintType)
 enum class EKillerPerkType : uint8
 {
@@ -26,6 +28,21 @@ class SPACH4_API UKillerData : public UDataAsset
 public:
 	UKillerData();
 
+	/** Full-body montage used while hoisting a downed survivor. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TSoftObjectPtr<UAnimMontage> PickupMontage;
+
+	/** Upper-body looping montage used while carrying. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TSoftObjectPtr<UAnimMontage> CarryingMontage;
+
+	/** Upper-body roots blended over the locomotion pose. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry")
+	TArray<FName> CarryBlendRootBones;
+
+	/** Normalized pickup montage time at which the survivor is attached. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visual|Carry", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PickupAttachNormalizedTime = 0.55f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement", meta = (ToolTip="기본값 575(생존자650 * 1.15)"));
 	float KillerBaseSpeed = 575.f;
