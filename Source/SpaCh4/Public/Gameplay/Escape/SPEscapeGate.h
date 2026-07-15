@@ -9,6 +9,7 @@ class USceneComponent;
 class UStaticMeshComponent;
 class UBoxComponent;
 class UPrimitiveComponent;
+class UArrowComponent;
 class ASurvivorCharacter;
 
 UCLASS()
@@ -26,10 +27,18 @@ public:
 	virtual void SetHighlight_Implementation(bool bEnabled) override;
 	virtual FGameplayTag GetInteractableTag_Implementation() const override;
 	virtual bool IsInteractable_Implementation() const override;
+	virtual USceneComponent* GetInteractFocusComponent_Implementation() const override;
 
 	bool IsActivated() const { return bIsActivated; }
 	float GetOpenProgress() const { return OpenProgress; }
 	float GetOpenDuration() const { return OpenDuration; }
+
+	bool CanBeOpened() const;
+
+	FTransform GetInteractAnchorTransform() const;
+
+	void NotifyLeverPullStart();
+	void NotifyLeverRelease();
 
 	void SetOpener(ASurvivorCharacter* Opener);
 	void ClearOpener(ASurvivorCharacter* Opener);
@@ -64,18 +73,30 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UBoxComponent> ExitTrigger;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
+	TObjectPtr<UArrowComponent> InteractAnchor;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	float OpenDuration = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Debug")
+	bool bDebugBypassDelivery = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TArray<float> ProgressCheckpoints = {0.33f, 0.66f};
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
-	FRotator LeverPulledRotation = FRotator(0.0f, 0.0f, -60.0f);
+	FRotator LeverInitialRotation = FRotator::ZeroRotator;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
-	float LeverRotateDuration = 0.5f;
-	
+	FRotator LeverPulledRotation = FRotator(0.0f, 0.0f, -30.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
+	FRotator LeverCompletedRotation = FRotator(0.0f, 0.0f, -60.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
+	float LeverRotateInterpSpeed = 8.0f;
+
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	float OpenProgress = 0.0f;
 
@@ -87,7 +108,9 @@ private:
 
 	TWeakObjectPtr<ASurvivorCharacter> CurrentOpener;
 
-	float LeverRotateElapsed = 0.0f;
+	bool bLeverVisualPulled = false;
+
+	FRotator CurrentLeverOffset = FRotator::ZeroRotator;
 
 	FRotator InitialLeverPivotRotation = FRotator::ZeroRotator;
 };

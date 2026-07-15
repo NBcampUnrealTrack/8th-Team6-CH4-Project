@@ -37,6 +37,8 @@ public:
 	void EndLeverChannel(bool bCompleted);
 	void CancelLeverChannel();
 
+	void OnLeverPullNotify();
+
 	void BeginLeverChannelDebug();
 	void EndLeverChannelDebug();
 	void CancelLeverChannelDebug();
