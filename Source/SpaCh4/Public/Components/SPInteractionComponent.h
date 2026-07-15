@@ -36,9 +36,17 @@ public:
 	void CancelInteract();
 
 	bool IsCarrying() const;
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	bool IsInteracting() const { return bIsInteract; }
+
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
+	float GetInteractProgress() const { return InteractProgress; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,6 +72,7 @@ private:
 
 	void UpdateInteract();
 	bool TraceInteractable(FHitResult& OutHit) const;
+	float ComputeInteractProgress() const;
 
 	void CompletePickup();
 	void BeginDrop();
@@ -109,6 +118,9 @@ private:
 	
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
+
+	UPROPERTY(Replicated)
+	float InteractProgress{0.f};
 
 
 	FTimerHandle PickupDropTimer;

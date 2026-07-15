@@ -31,6 +31,7 @@ void USPInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(USPInteractionComponent, bIsInteract);
+	DOREPLIFETIME_CONDITION(USPInteractionComponent, InteractProgress, COND_OwnerOnly);
 }
 
 void USPInteractionComponent::BeginPlay()
@@ -42,6 +43,11 @@ void USPInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	UpdateInteract();
+
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		InteractProgress = ComputeInteractProgress();
+	}
 }
 
 ASurvivorCharacter* USPInteractionComponent::GetSurvivor() const
@@ -150,6 +156,41 @@ bool USPInteractionComponent::TraceInteractable(FHitResult& OutHit) const
 	}
 
 	return bHit;
+}
+
+float USPInteractionComponent::ComputeInteractProgress() const
+{
+	if (!bIsInteract)
+	{
+		return 0.f;
+	}
+
+	if (const ASPEscapeGate* Gate = CurrentEscapeGate.Get())
+	{
+		const float Duration = Gate->GetOpenDuration();
+		return Duration > 0.f ? FMath::Clamp(Gate->GetOpenProgress() / Duration, 0.f, 1.f) : 0.f;
+	}
+
+	if (const ASPHatch* Hatch = CurrentHatch.Get())
+	{
+		const float Duration = Hatch->GetEscapeDuration();
+		return Duration > 0.f ? FMath::Clamp(Hatch->GetEscapeProgress() / Duration, 0.f, 1.f) : 0.f;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& TimerManager = World->GetTimerManager();
+		if (TimerManager.IsTimerActive(PickupDropTimer))
+		{
+			const float Rate = TimerManager.GetTimerRate(PickupDropTimer);
+			if (Rate > 0.f)
+			{
+				return FMath::Clamp(TimerManager.GetTimerElapsed(PickupDropTimer) / Rate, 0.f, 1.f);
+			}
+		}
+	}
+
+	return 0.f;
 }
 
 bool USPInteractionComponent::Server_Interact_Validate()
