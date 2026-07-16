@@ -147,6 +147,7 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Stats|Killer")
 	void RecordKillerCage();
 
+	/* 생존자가 사망했을때 기록*/
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Stats|Killer")
 	void RecordKillerElimination();
 
