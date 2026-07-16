@@ -404,6 +404,7 @@ FTransform ACage::GetCageMeshTransform() const
 void ACage::HandleSurvivorDeath(ASurvivorCharacter* DeadSurvivor)
 {
 	if (!CageMesh) return;
+	SetCageStatus(ECageStatus::Dead);
 	if (DeadSurvivor) DeadSurvivor->Destroy();
 
 	const float UpdateInterval = 0.03f; 

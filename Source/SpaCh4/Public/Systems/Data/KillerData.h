@@ -102,7 +102,7 @@ public:
 	float PickupDuration = 1.25f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
-	float CageDepositRange = 200.f;
+	float CageDepositRange = 400.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float CageDepositDuration = 1.00f;

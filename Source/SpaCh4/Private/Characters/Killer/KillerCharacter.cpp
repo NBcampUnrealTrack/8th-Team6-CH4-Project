@@ -64,20 +64,11 @@ AKillerCharacter::AKillerCharacter()
     charTag.AddTag(SPGameplayTags::Character::Killer);
     CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
     ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
-    */
 }
 
 void AKillerCharacter::NotifyControllerChanged()
 {
     Super::NotifyControllerChanged();
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-    }
-    */
 }
 
 void AKillerCharacter::PostInitializeComponents()
@@ -255,13 +246,6 @@ void AKillerCharacter::BeginPlay()
     
     SetupKillerFirstPersonCamera(); // 카메라 초기화 분리
     InitializeInputSubsystem();
-    
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-        FirstPersonMeshComp->EnsureAnimationSetup();
-    }*/
  
     if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     UpdateMovementSpeed();
@@ -300,6 +284,11 @@ void AKillerCharacter::PerformAttack()
 
     SetKillerState(EKillerState::Attacking);
     
+    if (HasAuthority() && AttackMontage)
+    {
+        Multicast_PlayAttackMontage(AttackMontage);
+    }
+    
     // 공격 시작 시 이동 차단
     if (GetCharacterMovement())
     {
@@ -310,15 +299,10 @@ void AKillerCharacter::PerformAttack()
     FTimerHandle WindupTimer;
     GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
         
-        // 2. Active 판정 (0.4s)
-        FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
-        FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
-        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, 2.0f, 0, 2.0f);
-
+        // Active 판정 및 Trace는 서버에서만 수행
         bool bHit = PerformAttackTrace();
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
 
-        // 3. 결과에 따른 상태 전이 및 복귀 로직
         auto RestoreMovement = [this]() {
             if (GetCharacterMovement())
             {
@@ -329,13 +313,11 @@ void AKillerCharacter::PerformAttack()
 
         if (bHit) 
         {
-            // 적중: 후딜 시간 뒤 이동 복구
             FTimerHandle RecoveryTimer;
             GetWorldTimerManager().SetTimer(RecoveryTimer, RestoreMovement, KillerData->TaserRecoveryHit, false);
         } 
         else 
         {
-            // 빗나감: 그로기 진입 후 이동 복구
             SetKillerState(EKillerState::Groggy);
             FTimerHandle GroggyTimer;
             GetWorldTimerManager().SetTimer(GroggyTimer, RestoreMovement, KillerData->TaserGroggyOnMiss, false);
@@ -343,18 +325,37 @@ void AKillerCharacter::PerformAttack()
     }, KillerData->TaserWindup, false);
 }
 
+void AKillerCharacter::Server_Attack_Implementation()
+{
+    if (CurrentState == EKillerState::Idle)
+    {
+        PerformAttack();
+        Multicast_PlayAttackMontage(AttackMontage);
+    }
+}
+
+void AKillerCharacter::Multicast_PlayAttackMontage_Implementation(UAnimMontage* MontageToPlay)
+{
+    if (USkeletalMeshComponent* SkelMesh = GetMesh())
+    {
+        if (UAnimInstance* AnimInstance = SkelMesh->GetAnimInstance())
+        {
+            AnimInstance->Montage_Play(MontageToPlay);
+        }
+    }
+}
+
 void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
 {
-    if (!Target) return;
-    
     ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target);
     if (!Survivor || Survivor->GetSurvivorState() != ESurvivorState::Downed) return;
     
     CarriedSurvivor = Target;
+    Survivor->SetSurvivorState(ESurvivorState::Carried);
 
     // 1. 살인마와 생존자 서로 간의 충돌 무시
     GetCapsuleComponent()->IgnoreActorWhenMoving(CarriedSurvivor, true);
-    
+
     // 2. 생존자의 무브먼트 및 물리 완전 정지
     if (UCharacterMovementComponent* MoveComp = CarriedSurvivor->FindComponentByClass<UCharacterMovementComponent>())
     {
@@ -421,7 +422,9 @@ void AKillerCharacter::ApplyCarryAttachmentTransform(AActor* Target)
                 CarryMesh,
                 FAttachmentTransformRules::SnapToTargetNotIncludingScale,
                 CarryBone);
-            Target->SetActorRelativeLocation(RelativeToBone.GetLocation());
+
+            Target->SetActorRelativeLocation(RelativeToBone.GetLocation() + FVector(10.f, 0.f, 10.f));
+            //Target->SetActorRelativeLocation(RelativeToBone.GetLocation());
             Target->SetActorRelativeRotation(RelativeToBone.Rotator());
             return;
         }
@@ -507,9 +510,9 @@ void AKillerCharacter::DropSurvivor()
     {
         Survivor->SetSurvivorState(ESurvivorState::Downed);
     }
-
+        
     if (ACharacter* DroppedCharacter = Cast<ACharacter>(CarriedSurvivor))
-    {
+        {
         if (UCharacterMovementComponent* DroppedMovement = DroppedCharacter->GetCharacterMovement())
         {
             DroppedMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
@@ -747,12 +750,6 @@ void AKillerCharacter::OnRep_CurrentState()
 // 서버 공격 RPC
 void AKillerCharacter::Attack() { Server_Attack(); }
 
-void AKillerCharacter::Server_Attack_Implementation()
-{
-    if (IsParkouring()) return;
-    if (CurrentState == EKillerState::Idle) PerformAttack();
-}
-
 // 서버 상호작용 RPC
 void AKillerCharacter::Interact() { Server_Interact(); }
 
@@ -846,7 +843,8 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
         {
             Survivor->EnterCaged(TargetCage);
         }
-        
+        TargetCage->SetCageStatus(
+        ECageStatus::Occupied);
         CarriedSurvivor = nullptr;
         
         SetKillerState(EKillerState::Idle);

@@ -570,6 +570,11 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 
 void ASurvivorCharacter::ApplyStateEffects()
 {
+	if (SurvivorState == ESurvivorState::Carried)
+	{
+		return; 
+	}
+	
 	if (AController* Ctrl = GetController())
 	{
 		Ctrl->ResetIgnoreMoveInput();

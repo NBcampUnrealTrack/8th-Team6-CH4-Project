@@ -58,16 +58,15 @@ public:
 
     USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
-    */
-
 protected:
     bool bCanPickup = true;
     // 서버와 동기화되는 상태
     UPROPERTY(ReplicatedUsing = OnRep_CurrentState)
     EKillerState CurrentState = EKillerState::Idle;
 
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayAttackMontage(UAnimMontage* MontageToPlay);
+    
     UFUNCTION()
     void OnRep_CurrentState();
 
@@ -112,10 +111,6 @@ protected:
     TObjectPtr<USPParkourComponent> ParkourComponent;
 
     TWeakObjectPtr<AActor> PendingPickupTarget;
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
-    TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
-    */
     
     void InitializeInputSubsystem();
 
@@ -157,6 +152,9 @@ protected:
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> AttackMontage;
+    
     UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;
 
