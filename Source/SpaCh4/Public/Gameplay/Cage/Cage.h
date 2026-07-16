@@ -79,6 +79,15 @@ protected:
 	FTimerHandle DeleteTimerHandle;
 	
 	int32 MoveSteps;
+	
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_DestroyCageMesh();
+	
+	UPROPERTY(Replicated)
+	FVector TargetLocation;
+	
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_UpdateCageLocation(FVector NewLocation);
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
