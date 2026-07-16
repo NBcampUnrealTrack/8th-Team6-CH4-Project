@@ -77,7 +77,8 @@ public:
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
 	void RecoverOneStep();
-	void RescueFromCage();
+	void RescueFromCage(ASurvivorCharacter* Rescuer);
+	void BeginRescue(ACage* Cage);
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
@@ -131,6 +132,20 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_ApplyCagedPose(FVector Location, FRotator Rotation);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_RestoreOrientRotation();
+
+	// *** Debug
+	UFUNCTION(Exec)
+	void DebugCageSelf();
+
+	UFUNCTION(Server, Reliable)
+	void Server_DebugCageSelf();
+	// *** Debug
+
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
 	void ApplyStateEffects();
@@ -171,6 +186,9 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Cage")
+	float RescueDropOffset = 100.f;
 
 	FTimerHandle CageTimerHandle;
 };
