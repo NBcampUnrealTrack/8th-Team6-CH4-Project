@@ -8,6 +8,8 @@
 class UKillerData;
 class USPKillerCarryAnimComponent;
 class USPParkourComponent;
+class UAnimMontage;
+class UAnimSequence;
 //class USPKillerFirstPersonMeshComponent;
 class ACage;
 
@@ -66,9 +68,15 @@ protected:
 
     UFUNCTION(NetMulticast, Reliable)
     void Multicast_PlayAttackMontage(UAnimMontage* MontageToPlay);
-    
+
     UFUNCTION()
     void OnRep_CurrentState();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayGroggyMontage();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_StopGroggyMontage();
 
     UPROPERTY(Replicated)
     bool bIsBusy = false;
@@ -86,6 +94,8 @@ protected:
 
     void PerformAttack();
     void SetKillerState(EKillerState NewState);
+    UAnimMontage* ResolveGroggyMontage();
+    void StopGroggyMontageLocal(float BlendOut = 0.15f);
     void UpdateMovementSpeed();
     void SetupKillerFirstPersonCamera();
     void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
@@ -154,7 +164,19 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
     TObjectPtr<UAnimMontage> AttackMontage;
-    
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> GroggyMontage;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TSoftObjectPtr<UAnimSequence> FallbackGroggySequence;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> RuntimeGroggyMontage;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> ActiveGroggyMontage;
+
     UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;
 

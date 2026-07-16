@@ -14,6 +14,10 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SPKillerCarryAnimComponent.h"
 #include "Components/SPParkourComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
+#include "UObject/ConstructorHelpers.h"
 /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
 #include "Components/SPKillerFirstPersonMeshComponent.h"
 */
@@ -64,6 +68,32 @@ AKillerCharacter::AKillerCharacter()
     charTag.AddTag(SPGameplayTags::Character::Killer);
     CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
     ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Attack/AM_Attack_Montage.AM_Attack_Montage"));
+    if (AttackMontageFinder.Succeeded())
+    {
+        AttackMontage = AttackMontageFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> GroggyMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AM_Groggy_Montage.AM_Groggy_Montage"));
+    if (GroggyMontageFinder.Succeeded())
+    {
+        GroggyMontage = GroggyMontageFinder.Object;
+    }
+    else
+    {
+        static ConstructorHelpers::FObjectFinder<UAnimMontage> LegacyGroggyMontageFinder(
+            TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Montage.AS_Zombie_Idle_Montage"));
+        if (LegacyGroggyMontageFinder.Succeeded())
+        {
+            GroggyMontage = LegacyGroggyMontageFinder.Object;
+        }
+    }
+
+    FallbackGroggySequence = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Rogue.AS_Zombie_Idle_Rogue")));
 }
 
 void AKillerCharacter::NotifyControllerChanged()
@@ -283,7 +313,7 @@ void AKillerCharacter::PerformAttack()
     if (!KillerData) return;
 
     SetKillerState(EKillerState::Attacking);
-    
+
     if (HasAuthority() && AttackMontage)
     {
         Multicast_PlayAttackMontage(AttackMontage);
@@ -330,20 +360,106 @@ void AKillerCharacter::Server_Attack_Implementation()
     if (CurrentState == EKillerState::Idle)
     {
         PerformAttack();
-        Multicast_PlayAttackMontage(AttackMontage);
     }
 }
 
 void AKillerCharacter::Multicast_PlayAttackMontage_Implementation(UAnimMontage* MontageToPlay)
 {
-    if (USkeletalMeshComponent* SkelMesh = GetMesh())
+    if (!MontageToPlay)
     {
-        if (UAnimInstance* AnimInstance = SkelMesh->GetAnimInstance())
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    AnimInstance->Montage_Play(MontageToPlay);
+}
+
+UAnimMontage* AKillerCharacter::ResolveGroggyMontage()
+{
+    if (UAnimSequence* Sequence = FallbackGroggySequence.LoadSynchronous())
+    {
+        RuntimeGroggyMontage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
+            Sequence,
+            TEXT("DefaultSlot"),
+            0.15f,
+            0.15f,
+            1.f,
+            1);
+        if (RuntimeGroggyMontage && RuntimeGroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
         {
-            AnimInstance->Montage_Play(MontageToPlay);
+            return RuntimeGroggyMontage;
         }
     }
+
+    if (GroggyMontage && GroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
+    {
+        return GroggyMontage;
+    }
+
+    return nullptr;
 }
+
+void AKillerCharacter::StopGroggyMontageLocal(float BlendOut)
+{
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (ActiveGroggyMontage && AnimInstance->Montage_IsPlaying(ActiveGroggyMontage))
+    {
+        AnimInstance->Montage_Stop(BlendOut, ActiveGroggyMontage);
+    }
+    else if (UAnimMontage* ResolvedMontage = ResolveGroggyMontage())
+    {
+        if (AnimInstance->Montage_IsPlaying(ResolvedMontage))
+        {
+            AnimInstance->Montage_Stop(BlendOut, ResolvedMontage);
+        }
+    }
+
+    ActiveGroggyMontage = nullptr;
+}
+
+void AKillerCharacter::Multicast_StopGroggyMontage_Implementation()
+{
+    StopGroggyMontageLocal();
+}
+
+void AKillerCharacter::Multicast_PlayGroggyMontage_Implementation()
+{
+    UAnimMontage* MontageToPlay = ResolveGroggyMontage();
+    if (!MontageToPlay)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Groggy montage missing - check AM_Groggy_Montage / AS_Zombie_Idle_Rogue"));
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (AttackMontage && AnimInstance->Montage_IsPlaying(AttackMontage))
+    {
+        AnimInstance->Montage_Stop(0.12f, AttackMontage);
+    }
+
+    ActiveGroggyMontage = MontageToPlay;
+    const float PlayRate = 1.f;
+    AnimInstance->Montage_Play(MontageToPlay, PlayRate);
+}
+
 
 void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
 {
@@ -723,6 +839,23 @@ void AKillerCharacter::OnRep_CurrentState()
 {
     UpdateMovementSpeed();
 
+    if (CurrentState == EKillerState::Groggy)
+    {
+        if (UAnimMontage* MontageToPlay = ResolveGroggyMontage())
+        {
+            USkeletalMeshComponent* SkelMesh = GetMesh();
+            UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+            if (AnimInstance && !AnimInstance->Montage_IsPlaying(MontageToPlay))
+            {
+                Multicast_PlayGroggyMontage_Implementation();
+            }
+        }
+    }
+    else
+    {
+        StopGroggyMontageLocal();
+    }
+
     if (!CarryAnimComponent)
     {
         return;
@@ -780,10 +913,20 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
     {
         if (CurrentState != NewState)
         {
-            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)CurrentState, (int32)NewState);
+            const EKillerState PreviousState = CurrentState;
+            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)PreviousState, (int32)NewState);
             CurrentState = NewState;
             UpdateMovementSpeed();
             OnRep_CurrentState();
+
+            if (NewState == EKillerState::Groggy)
+            {
+                Multicast_PlayGroggyMontage();
+            }
+            else if (PreviousState == EKillerState::Groggy)
+            {
+                Multicast_StopGroggyMontage();
+            }
         }
     }
 }
