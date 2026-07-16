@@ -51,4 +51,13 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Action")
 	TArray<TObjectPtr<UInputAction>> SelectSlotActions;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Context")
+	TObjectPtr<UInputMappingContext> SpectatorMappingContext;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Action")
+	TObjectPtr<UInputAction> SpectateNextAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Action")
+	TObjectPtr<UInputAction> SpectatePreviousAction;
 };

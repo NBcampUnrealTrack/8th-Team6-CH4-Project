@@ -9,6 +9,8 @@
 #include "Components/SPScratchMarkComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
@@ -23,7 +25,9 @@
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/LDPlayerState.h"
+#include "Player/SPPlayerController.h"
 #include "Systems/MatchGameMode.h"
+#include "Type/SPCollisionChannels.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
 
@@ -230,6 +234,65 @@ void ASurvivorCharacter::Multicast_RestoreOrientRotation_Implementation()
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->bOrientRotationToMovement = true;
+	}
+}
+
+void ASurvivorCharacter::ApplyDeathRagdoll()
+{
+	if (bDeathRagdollApplied)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		UE_LOG(LogTemp, Fatal, TEXT("%s cannot enter death ragdoll because it has no SkeletalMeshComponent."), *GetName());
+		return;
+	}
+
+	if (!MeshComp->GetPhysicsAsset())
+	{
+		UE_LOG(LogTemp, Fatal, TEXT("%s cannot enter death ragdoll because its SkeletalMesh has no PhysicsAsset."), *GetName());
+		return;
+	}
+
+	bDeathRagdollApplied = true;
+
+	// Carry attachment and actor-level collision are changed only while the survivor
+	// is being carried. Restore both locally before enabling the physics bodies.
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	SetActorEnableCollision(true);
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
+	}
+
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+	MeshComp->SetCollisionObjectType(ECC_PhysicsBody);
+	MeshComp->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+	MeshComp->SetCollisionResponseToChannel(SPCollisionChannels::Cage, ECR_Block);
+	MeshComp->SetEnableGravity(true);
+	MeshComp->SetSimulatePhysics(true);
+	MeshComp->SetAllBodiesSimulatePhysics(true);
+	MeshComp->SetAllBodiesPhysicsBlendWeight(1.0f, false);
+	MeshComp->WakeAllRigidBodies();
+
+	if (GetNetMode() != NM_DedicatedServer && !MeshComp->IsAnySimulatingPhysics())
+	{
+		UE_LOG(
+			LogTemp,
+			Fatal,
+			TEXT("%s failed to enable death ragdoll physics on its SkeletalMesh bodies."),
+			*GetName());
 	}
 }
 
@@ -451,10 +514,30 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+	ForceNetUpdate();
 	
-	if (SurvivorState == ESurvivorState::Dead && CurrentCage)
+	if (SurvivorState == ESurvivorState::Dead)
 	{
-		CurrentCage->HandleSurvivorDeath(this);
+		ApplyDeathRagdoll();
+
+		if (ASPPlayerController* SPPC = Cast<ASPPlayerController>(GetController()))
+		{
+			SPPC->EnterSpectatorMode(DeathCamDuration);
+		}
+
+		SetLifeSpan(CorpseLifetime);
+
+		if (CurrentCage)
+		{
+			CurrentCage->HandleSurvivorDeath(this);
+		}
+	}
+	else if (SurvivorState == ESurvivorState::Escaped)
+	{
+		if (ASPPlayerController* SPPC = Cast<ASPPlayerController>(GetController()))
+		{
+			SPPC->EnterSpectatorMode(0.f);
+		}
 	}
 
 	if (MovementComponent)
@@ -561,6 +644,11 @@ void ASurvivorCharacter::NotifyHealingAnimEnded()
 
 void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 {
+	if (SurvivorState == ESurvivorState::Dead)
+	{
+		ApplyDeathRagdoll();
+	}
+
 	if (MovementComponent)
 	{
 		MovementComponent->HandleStateTransition(OldState, SurvivorState);

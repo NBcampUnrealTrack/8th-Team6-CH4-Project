@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Components/SPSpectatorComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Systems/MatchGameState.h"
 #include "SPPlayerController.generated.h"
@@ -17,6 +18,8 @@ class SPACH4_API ASPPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	ASPPlayerController();
+
 	UFUNCTION(BlueprintCallable, Category = "Online|Session")
 	void ReturnToMainMenu();
 
@@ -32,9 +35,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Input")
 	void RemoveInputMappingContext(UInputMappingContext* MappingContext);
 
+	void EnterSpectatorMode(float InitialViewDelay = 0.f);
+
+	UFUNCTION(BlueprintPure, Category = "Spectator")
+	bool IsSpectating() const;
+
+	UFUNCTION(BlueprintPure, Category = "Spectator")
+	ASurvivorCharacter* GetSpectateTarget() const;
+
+	UPROPERTY(BlueprintAssignable, Category = "Spectator")
+	FSPSpectateTargetChangedSignature OnSpectateTargetChanged;
+
+	/** Called locally after spectating stops because no valid survivors remain. */
+	UPROPERTY(BlueprintAssignable, Category = "Spectator")
+	FSPSpectateTargetsExhaustedSignature OnSpectateTargetsExhausted;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spectator")
+	TObjectPtr<USPSpectatorComponent> SpectatorComponent;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void SetupInputComponent() override;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|UI")
 	TSubclassOf<class UGameResultWidget> GameResultWidgetClass;
@@ -44,6 +66,7 @@ protected:
 
 private:
 	UEnhancedInputLocalPlayerSubsystem* GetInputSubsystem() const;
+	void ValidateInputConfig() const;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<USPInputConfigData> InputConfig;
@@ -63,6 +86,12 @@ private:
 	void CompleteReturnToMainMenu();
 	void TryCompletePendingHostReturn();
 	bool HasConnectedRemotePlayers() const;
+
+	UFUNCTION()
+	void HandleSpectateTargetChanged(ASurvivorCharacter* NewTarget);
+
+	UFUNCTION()
+	void HandleSpectateTargetsExhausted();
 
 	bool bIsHostReturnToMainMenuPending = false;
 	FTimerHandle HostReturnToMainMenuTimerHandle;

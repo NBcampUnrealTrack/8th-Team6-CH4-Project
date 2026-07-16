@@ -91,6 +91,7 @@ protected:
 	void SyncSupportMeshScaleFromEditorComponent();
 	void ApplyAssemblyRotation();
 	void SyncAssemblyRotationFromEditorComponent();
+	void ConfigureCollisionChannels();
 
 #if WITH_EDITOR
 	bool bApplyingSupportMeshScaleFromProperty = false;
