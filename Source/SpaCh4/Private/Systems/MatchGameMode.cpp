@@ -151,6 +151,14 @@ void AMatchGameMode::StartMatch()
 	{
 		return;
 	}
+
+	for (APlayerState* PlayerState : MatchGameState->PlayerArray)
+	{
+		if (ALDPlayerState* LDPlayerState = Cast<ALDPlayerState>(PlayerState))
+		{
+			LDPlayerState->ResetMatchStats();
+		}
+	}
 	
 	// 게임 상태 초기화
 	MatchGameState->SetMatchResult(EMatchResult::None);
@@ -254,6 +262,11 @@ void AMatchGameMode::RegisterSurvivorEscaped(AController* SurvivorController)
 		return;
 	}
 
+	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordEscaped(ESurvivorEscapeMethod::None);
+	}
+
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
@@ -274,6 +287,23 @@ void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
 	if (!ApplySurvivorState(SurvivorController, ESurvivorState::Dead))
 	{
 		return;
+	}
+	
+	// 생존자의 완전 사망 처리, 추후 Cage액터로 이동
+	// 케이지의 구출도 케이지 또는 생존자에서 PlayerState->RecordCageRescue()
+	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordKilled();
+	}
+
+	for (APlayerState* PlayerState : MatchGameState->PlayerArray)
+	{
+		ALDPlayerState* KillerPlayerState = Cast<ALDPlayerState>(PlayerState);
+		if (IsValid(KillerPlayerState) && KillerPlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
+		{
+			KillerPlayerState->RecordKillerElimination();
+			break;
+		}
 	}
 
 	RefreshEscapeConditions();
@@ -305,6 +335,10 @@ bool AMatchGameMode::ApplySurvivorState(AController* SurvivorController, const E
 	FMatchPlayerState MatchPlayerState;
 	if (!MatchGameState->GetMatchPlayerState(LDPlayerState->GetPlayerId(), MatchPlayerState)
 		|| MatchPlayerState.PlayerRole != ELobbyPlayerRole::Survivor)
+	{
+		return false;
+	}
+	if (MatchPlayerState.SurvivorState == NewSurvivorState)
 	{
 		return false;
 	}

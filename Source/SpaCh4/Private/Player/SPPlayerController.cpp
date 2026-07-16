@@ -4,6 +4,7 @@
 #include "Data/SPInputConfigData.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameState.h"
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "TimerManager.h"
@@ -100,6 +101,10 @@ void ASPPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		MatchGameState->OnMatchResultChanged.RemoveDynamic(this, &ASPPlayerController::OnMatchEnded);
 	}
+	if (ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>())
+	{
+		LDPlayerState->OnMatchStatsChanged.RemoveDynamic(this, &ASPPlayerController::OnMatchStatsChanged);
+	}
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -172,11 +177,47 @@ void ASPPlayerController::OnMatchEnded(EMatchResult Result)
 	}
 
 	GameResultWidgetInstance->AddToViewport(0);
+	GameResultWidgetInstance->SetResultText(Result);
+
+	if (ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>())
+	{
+		LDPlayerState->OnMatchStatsChanged.RemoveDynamic(this, &ASPPlayerController::OnMatchStatsChanged);
+		LDPlayerState->OnMatchStatsChanged.AddDynamic(this, &ASPPlayerController::OnMatchStatsChanged);
+	}
+	RefreshResultStats();
 
 	FInputModeUIOnly InputMode;
 	InputMode.SetWidgetToFocus(GameResultWidgetInstance->TakeWidget());
 	SetInputMode(InputMode);
 	bShowMouseCursor = true;
+}
+
+void ASPPlayerController::OnMatchStatsChanged()
+{
+	RefreshResultStats();
+}
+
+void ASPPlayerController::RefreshResultStats()
+{
+	if (!GameResultWidgetInstance)
+	{
+		return;
+	}
+
+	const ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>();
+	if (!LDPlayerState)
+	{
+		return;
+	}
+
+	if (LDPlayerState->GetPlayerRole() == ELobbyPlayerRole::Survivor)
+	{
+		GameResultWidgetInstance->SetSurvivorStats(LDPlayerState->GetSurvivorMatchStats());
+	}
+	else if (LDPlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
+	{
+		GameResultWidgetInstance->SetKillerStats(LDPlayerState->GetKillerMatchStats());
+	}
 }
 
 void ASPPlayerController::CompleteReturnToMainMenu()

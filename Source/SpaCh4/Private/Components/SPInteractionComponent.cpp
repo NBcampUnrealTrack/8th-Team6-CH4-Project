@@ -19,6 +19,7 @@
 #include "Interface/SPInteractable.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/Data/SurvivorData.h"
 #include "TimerManager.h"
 
@@ -310,6 +311,10 @@ void USPInteractionComponent::CompleteHeal()
 		}
 
 		Survivor->RecoverOneStep();
+		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+		{
+			PlayerState->RecordSuccessfulSelfHeal();
+		}
 	}
 }
 
@@ -668,7 +673,14 @@ void USPInteractionComponent::CompleteDelivery()
 
 	if (Value > 0)
 	{
-		Station->SubmitValue(Value);
+		const int32 AcceptedValue = Station->SubmitValue(Value);
+		if (AcceptedValue > 0)
+		{
+			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+			{
+				PlayerState->RecordDelivery(AcceptedValue);
+			}
+		}
 	}
 
 	if (Item)
@@ -740,6 +752,10 @@ void USPInteractionComponent::CompleteHatchEscape()
 	StopInteractMontage();
 	if (ASurvivorCharacter* Survivor = GetSurvivor())
 	{
+		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+		{
+			PlayerState->RecordEscaped(ESurvivorEscapeMethod::Hatch);
+		}
 		Survivor->SetSurvivorState(ESurvivorState::Escaped);
 	}
 }

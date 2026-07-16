@@ -169,14 +169,20 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 }
 
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
-
 {
 	if (!HasAuthority() || !Cage) return;
-	
+
 	CurrentCage = Cage;
 	++CagedCount;
 	
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s 갇힘! 현재 누적: %d"), *GetName(), CagedCount);
+	// 케이지 당한 횟수 기록
+	if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		LDPlayerState->RecordCaged();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
@@ -188,10 +194,10 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 		SetSurvivorState(ESurvivorState::Dead);
 		return;
 	}
-	
+
 	Cage->SetOccupied(this);
 	SetSurvivorState(ESurvivorState::Caged);
-	
+
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
 	GetWorldTimerManager().SetTimer(
 	CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, true);
@@ -642,9 +648,14 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	if (NewState == ESurvivorState::Escaped)
 	{
 		GameMode->RegisterSurvivorEscaped(GetController());
+		return;
 	}
-	else if (NewState == ESurvivorState::Caged)
+	if (NewState == ESurvivorState::Dead)
 	{
-		GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+		GameMode->RegisterSurvivorKilled(GetController());
+		return;
 	}
+	// 타 플레이어hud연동을 위해 모든 StateChange를 등록
+	GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+
 }

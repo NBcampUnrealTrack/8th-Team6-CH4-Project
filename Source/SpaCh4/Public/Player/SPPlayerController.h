@@ -55,6 +55,11 @@ private:
 	UFUNCTION()
 	void OnMatchEnded(EMatchResult Result);
 
+	UFUNCTION()
+	void OnMatchStatsChanged();
+
+	void RefreshResultStats();
+
 	void CompleteReturnToMainMenu();
 	void TryCompletePendingHostReturn();
 	bool HasConnectedRemotePlayers() const;

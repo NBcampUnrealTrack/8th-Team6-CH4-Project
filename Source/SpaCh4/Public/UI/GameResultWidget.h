@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Player/LDPlayerState.h"
+#include "Systems/MatchGameState.h"
 #include "GameResultWidget.generated.h"
 
 class UTextBlock;
@@ -21,6 +23,12 @@ public:
 	
 	UFUNCTION()
 	void SetInformationText(FString InfoText);
+
+	UFUNCTION(BlueprintCallable, Category = "GameResult|Stats")
+	void SetSurvivorStats(const FSurvivorMatchStats& SurvivorStats);
+
+	UFUNCTION(BlueprintCallable, Category = "GameResult|Stats")
+	void SetKillerStats(const FKillerMatchStats& KillerStats);
 	
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> ResultTitleText;

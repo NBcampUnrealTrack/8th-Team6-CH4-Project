@@ -51,9 +51,144 @@ bool ALDPlayerState::IsLoadoutConfiguredForRole(const ELobbyPlayerRole PlayerRol
 	return false;
 }
 
+FSurvivorMatchStats ALDPlayerState::GetSurvivorMatchStats() const
+{
+	return SurvivorStats;
+}
+
+FKillerMatchStats ALDPlayerState::GetKillerMatchStats() const
+{
+	return KillerStats;
+}
+
+void ALDPlayerState::ResetMatchStats()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	SurvivorStats = FSurvivorMatchStats();
+	KillerStats = FKillerMatchStats();
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordDelivery(const int32 AcceptedValue)
+{
+	if (!HasAuthority() || AcceptedValue <= 0)
+	{
+		return;
+	}
+
+	++SurvivorStats.SuccessfulDeliveryCount;
+	SurvivorStats.DeliveredValue += AcceptedValue;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordSuccessfulSelfHeal()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++SurvivorStats.SelfHealCount;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordCaged()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++SurvivorStats.CagedCount;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordCageRescue()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++SurvivorStats.CageRescueCount;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordEscaped(const ESurvivorEscapeMethod EscapeMethod)
+{
+	if (!HasAuthority() || SurvivorStats.bEscaped || SurvivorStats.bKilled)
+	{
+		return;
+	}
+
+	SurvivorStats.bEscaped = true;
+	SurvivorStats.EscapeMethod = EscapeMethod;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordKilled()
+{
+	if (!HasAuthority() || SurvivorStats.bEscaped || SurvivorStats.bKilled)
+	{
+		return;
+	}
+
+	SurvivorStats.bKilled = true;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordKillerHit(const bool bCausedDown)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++KillerStats.ValidHitCount;
+	KillerStats.DownCount += bCausedDown ? 1 : 0;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordKillerCage()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++KillerStats.CageCount;
+	NotifyMatchStatsChanged();
+}
+
+void ALDPlayerState::RecordKillerElimination()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	++KillerStats.KilledSurvivorCount;
+	NotifyMatchStatsChanged();
+}
+
 void ALDPlayerState::OnRep_PlayerLoadout()
 {
 	OnPlayerLoadoutChanged.Broadcast(PlayerLoadout);
+}
+
+void ALDPlayerState::OnRep_MatchStats()
+{
+	OnMatchStatsChanged.Broadcast();
+}
+
+void ALDPlayerState::NotifyMatchStatsChanged()
+{
+	OnMatchStatsChanged.Broadcast();
+	ForceNetUpdate();
 }
 
 void ALDPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -62,6 +197,8 @@ void ALDPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 	DOREPLIFETIME(ALDPlayerState, PlayerRole);
 	DOREPLIFETIME(ALDPlayerState, PlayerLoadout);
+	DOREPLIFETIME(ALDPlayerState, SurvivorStats);
+	DOREPLIFETIME(ALDPlayerState, KillerStats);
 }
 
 void ALDPlayerState::CopyProperties(APlayerState* NewPlayerState)
@@ -69,6 +206,7 @@ void ALDPlayerState::CopyProperties(APlayerState* NewPlayerState)
 	Super::CopyProperties(NewPlayerState);
 	if (ALDPlayerState* NewLDPlayerState = Cast<ALDPlayerState>(NewPlayerState))
 	{
+		// Stat정보는 초기화되어야 하므로 CopyProperties에서 제외함.
 		NewLDPlayerState->SetPlayerName(GetPlayerName());
 		NewLDPlayerState->PlayerRole = PlayerRole;
 		NewLDPlayerState->PlayerLoadout = PlayerLoadout;

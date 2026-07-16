@@ -8,6 +8,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
@@ -262,6 +263,11 @@ void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedCom
 	{
 		if (bIsActivated)
 		{
+			// 탈출 성공한 생존자 기록
+			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+			{
+				PlayerState->RecordEscaped(ESurvivorEscapeMethod::Gate);
+			}
 			Survivor->SetSurvivorState(ESurvivorState::Escaped);
 			if (GEngine)
 			{

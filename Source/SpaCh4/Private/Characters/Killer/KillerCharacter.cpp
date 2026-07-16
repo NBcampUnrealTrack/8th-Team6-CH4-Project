@@ -20,6 +20,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "ReferenceSkeleton.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 
 namespace
 {
@@ -639,7 +640,12 @@ bool AKillerCharacter::PerformAttackTrace()
 
             if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
             {
-                HitSurvivor->ApplyHit(); 
+                HitSurvivor->ApplyHit();
+                // 공격 성공 및 다운 시킨 횟수 기록
+                if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+                {
+                    LDPlayerState->RecordKillerHit(SState == ESurvivorState::Injured);
+                }
                 return true;
             }
         }
@@ -804,6 +810,11 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
+            // 케이지 횟수 기록
+            if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+            {
+                LDPlayerState->RecordKillerCage();
+            }
             Survivor->EnterCaged(TargetCage);
             Survivor->SetActorEnableCollision(false); // 바닥 박힘/튕김 방지
 
