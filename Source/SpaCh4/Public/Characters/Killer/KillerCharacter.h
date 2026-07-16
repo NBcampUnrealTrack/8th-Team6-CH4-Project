@@ -6,8 +6,7 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
-class USPKillerCarryAnimComponent;
-//class USPKillerFirstPersonMeshComponent;
+class USPKillerFirstPersonMeshComponent;
 class ACage;
 
 // ---------------------------------------------------------------
@@ -46,9 +45,6 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     const UKillerData* GetKillerData() const { return KillerData; }
 
-    UFUNCTION(BlueprintPure, Category = "Killer")
-    EKillerState GetKillerState() const { return CurrentState; }
-
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
     */
@@ -83,28 +79,17 @@ protected:
     
     // 로직
     bool PerformAttackTrace();
-    void AttachCarriedSurvivor(AActor* Target);
-    void ApplyCarryAttachmentTransform(AActor* Target);
     void PickupSurvivor(AActor* Target);
     void DropSurvivor();
-    void HandlePickupAttachWindow();
-    void HandlePickupMontageFinished();
     void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent);
     AActor* FindInteractableActor(float Radius);
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
-
-    UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
-    TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
-
-    TWeakObjectPtr<AActor> PendingPickupTarget;
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
     TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
     */
-    
-    void InitializeInputSubsystem();
 
     /** Bone (or socket) on the killer mesh where the first-person camera is anchored. */
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
@@ -133,22 +118,11 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
     TArray<TObjectPtr<UMeshComponent>> OwnerHiddenMeshComponents;
 
-    // --- 카메라 각도 제한 설정 ---
-    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
-    float MinPitch = -45.0f;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
-    float MaxPitch = 45.0f;
-    // ----------------------------------
-    
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
-    UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
+    UPROPERTY(Replicated)
     AActor* CarriedSurvivor;
-
-    UFUNCTION()
-    void OnRep_CarriedSurvivor(AActor* PreviousCarriedSurvivor);
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;

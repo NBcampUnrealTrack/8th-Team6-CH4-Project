@@ -53,10 +53,8 @@ public:
 	bool IsParkouring() const;
 	bool IsCarrying() const;
 	bool IsPullingLever() const;
-	bool IsChannelingLever() const;
 	bool IsPlayingPickupAnim() const;
 	bool IsHealing() const;
-	bool IsChannelingHealing() const;
 	int GetCagedCount() const { return CagedCount; }
 	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
@@ -76,9 +74,7 @@ public:
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
-	void RecoverOneStep();
-	void RescueFromCage(ASurvivorCharacter* Rescuer);
-	void BeginRescue(ACage* Cage);
+	void RescueFromCage();
 
 	USPInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
@@ -95,8 +91,6 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Inventory")
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
-	
-	ACage* GetCurrentCage() const { return CurrentCage; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -108,9 +102,6 @@ protected:
 	virtual void JumpOver() override;
 	
 	virtual void OnRep_Controller() override;
-	
-	UPROPERTY()
-	ACage* CurrentCage;
 private:
 	UFUNCTION()
 	void OnRep_SurvivorState(ESurvivorState OldState);
@@ -132,19 +123,9 @@ private:
 	UFUNCTION()
 	void OnCageExpired();
 
-	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_ApplyCagedPose(FVector Location, FRotator Rotation);
-
-	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_RestoreOrientRotation();
-
-	// *** Debug
-	UFUNCTION(Exec)
-	void DebugCageSelf();
-
-	UFUNCTION(Server, Reliable)
-	void Server_DebugCageSelf();
-	// *** Debug
+	void DebugTestHealingAnimPressed();
+	void DebugTestHealingAnimReleased();
+	void RestoreDebugMovementInput();
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
@@ -187,9 +168,6 @@ private:
 	
 	UPROPERTY(VisibleAnywhere, Category = "SP|Tags")
 	FGameplayTagContainer OwningTag;
-
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Cage")
-	float RescueDropOffset = 100.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Death")
 	float DeathCamDuration = 1.0f;

@@ -34,9 +34,6 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	bool RemoveConsumable(EConsumableItemType ItemType);
 
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	bool IsSlotConsumable(int32 Index, EConsumableItemType ItemType) const;
-
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	void SetCollectibleFromItem(ASPCollectibleItem* Item);
 

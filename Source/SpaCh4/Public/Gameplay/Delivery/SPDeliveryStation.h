@@ -21,7 +21,7 @@ public:
 	virtual FGameplayTag GetInteractableTag_Implementation() const override;
 	virtual bool IsInteractable_Implementation() const override;
 	
-	int32 SubmitValue(int32 Value) const;
+	void SubmitValue(int32 Value) const;
 	bool IsComplete() const;
 	float GetDeliveryDuration() const { return DeliveryDuration; }
 	FName GetStationId() const { return StationId; }

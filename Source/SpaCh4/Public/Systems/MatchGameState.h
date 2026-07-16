@@ -34,9 +34,6 @@ USTRUCT(BlueprintType)
 struct FSurvivorMatchState
 {
 	GENERATED_BODY()
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
-	int32 PlayerId = INDEX_NONE;
 	
 	// 생존자 이름(닉네임)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Match|Survivor")
@@ -90,7 +87,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHatchAvailabilityChangedSignature
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSurvivorCountChangedSignature, int32, AliveSurvivorCount, int32, EscapedSurvivorCount, int32, KilledSurvivorCount);
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSurvivorStateChangedSignature, int32, SurvivorPlayerId, FString, Nickname, ESurvivorState, SurvivorState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnSurvivorStateChangedSignature, FName, SurvivorId, ESurvivorState, SurvivorState);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMatchPlayersChangedSignature);
 
@@ -157,7 +154,7 @@ public:
 	int32 GetKilledSurvivorCount() const;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
-	int32 GetPlayerCagedCount(int32 SurvivorPlayerId) const;
+	int32 GetPlayerCagedCount(FName SurvivorNickname) const;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Survivor")
 	TArray<FSurvivorMatchState> GetSurvivorStates() const;
@@ -166,7 +163,7 @@ public:
 	TArray<FMatchPlayerState> GetMatchPlayers() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Match|Player")
-	bool GetMatchPlayerState(int32 PlayerId, FMatchPlayerState& OutPlayerState) const;
+	bool GetMatchPlayerState(FName Nickname, FMatchPlayerState& OutPlayerState) const;
 
 	void ApplyBalanceSettings(float NewTimeLimit, int32 NewStationATargetValue, int32 NewStationBTargetValue, int32 NewTotalRequiredValue);
 	void SetMatchPhase(EMatchPhase NewMatchPhase);
@@ -177,8 +174,8 @@ public:
 	void SetCanSpawnHatch(bool bNewCanSpawnHatch);
 	void SetSurvivorCounts(int32 NewAliveSurvivorCount, int32 NewEscapedSurvivorCount, int32 NewKilledSurvivorCount);
 	void RegisterMatchPlayer(int32 PlayerId, const FString& Nickname, ELobbyPlayerRole PlayerRole);
-	void SetMatchPlayerConnected(int32 PlayerId, bool bNewIsConnected);
-	void SetSurvivorState(int32 SurvivorPlayerId, ESurvivorState NewSurvivorState);
+	void SetMatchPlayerConnected(FName Nickname, bool bNewIsConnected);
+	void SetSurvivorState(FName SurvivorNickname, ESurvivorState NewSurvivorState);
 
 	// 진행상황 갱신 EMatchPhase(진행, 탈출구, 종료)
 	UPROPERTY(BlueprintAssignable, Category = "Match|Events")

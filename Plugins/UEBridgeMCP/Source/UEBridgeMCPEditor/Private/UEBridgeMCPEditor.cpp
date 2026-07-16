@@ -37,10 +37,9 @@
 // Scripting tools
 #include "Tools/Scripting/RunPythonScriptTool.h"
 
-// Optional local-only build tools (see Plugins/UEBridgeMCP/Docs/LOCAL_BUILD_TOOLS.md).
-#if __has_include("Tools/Build/McpLocalBuildToolsRegistration.h")
-#include "Tools/Build/McpLocalBuildToolsRegistration.h"
-#endif
+// Build tools
+#include "Tools/Build/TriggerLiveCodingTool.h"
+#include "Tools/Build/BuildAndRelaunchTool.h"
 
 // PIE (Play-In-Editor) tools
 #include "Tools/PIE/PieSessionTool.h"
@@ -134,9 +133,9 @@ void FUEBridgeMCPEditorModule::RegisterBuiltInTools()
 	// Scripting tools
 	Registry.RegisterToolClass(URunPythonScriptTool::StaticClass());
 
-#if __has_include("Tools/Build/McpLocalBuildToolsRegistration.h")
-	McpLocalBuildTools::Register(Registry);
-#endif
+	// Build tools
+	Registry.RegisterToolClass(UTriggerLiveCodingTool::StaticClass());
+	Registry.RegisterToolClass(UBuildAndRelaunchTool::StaticClass());
 
 	// PIE (Play-In-Editor) tools
 	Registry.RegisterToolClass(UPieSessionTool::StaticClass());

@@ -2,13 +2,11 @@
 
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/SPEscapeLeverComponent.h"
-#include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
-#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 #include "Type/SPGameplayTag.h"
@@ -39,9 +37,6 @@ ASPEscapeGate::ASPEscapeGate()
 	ExitTrigger = CreateDefaultSubobject<UBoxComponent>("ExitTrigger");
 	ExitTrigger->SetupAttachment(DoorMesh);
 	ExitTrigger->SetCollisionProfileName(TEXT("Trigger"));
-
-	InteractAnchor = CreateDefaultSubobject<UArrowComponent>("InteractAnchor");
-	InteractAnchor->SetupAttachment(DoorMesh);
 }
 
 void ASPEscapeGate::BeginPlay()
@@ -54,7 +49,6 @@ void ASPEscapeGate::BeginPlay()
 	{
 		InitialLeverPivotRotation = LeverPivot->GetRelativeRotation();
 	}
-	CurrentLeverOffset = LeverInitialRotation;
 
 	BindAvailabilityDelegate();
 }
@@ -134,28 +128,11 @@ FGameplayTag ASPEscapeGate::GetInteractableTag_Implementation() const
 
 bool ASPEscapeGate::IsInteractable_Implementation() const
 {
-	return CanBeOpened();
-}
-
-USceneComponent* ASPEscapeGate::GetInteractFocusComponent_Implementation() const
-{
-	return LeverPanelMesh;
-}
-
-bool ASPEscapeGate::CanBeOpened() const
-{
 	if (bIsActivated)
 	{
 		return false;
 	}
-
-#if !UE_BUILD_SHIPPING
-	if (bDebugBypassDelivery)
-	{
-		return true;
-	}
-#endif
-
+	
 	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
 	return MatchGameState && MatchGameState->CanActivateEscapeGates();
 }
@@ -219,40 +196,16 @@ void ASPEscapeGate::OnEscapeAvailabilityChanged(bool bCanActivate)
 	SwitchMesh->SetCollisionProfileName(TEXT("Interactable"));
 }
 
-void ASPEscapeGate::NotifyLeverPullStart()
-{
-	bLeverVisualPulled = true;
-}
-
-void ASPEscapeGate::NotifyLeverRelease()
-{
-	bLeverVisualPulled = false;
-}
-
 void ASPEscapeGate::UpdateLeverRotation(float DeltaSeconds)
 {
-	if (!LeverPivot)
+	if (!LeverPivot || OpenDuration <= 0.f)
 	{
 		return;
 	}
 
-	FRotator TargetOffset = LeverInitialRotation;
-	if (bIsActivated)
-	{
-		TargetOffset = LeverCompletedRotation;
-	}
-	else if (bLeverVisualPulled)
-	{
-		TargetOffset = LeverPulledRotation;
-	}
-
-	CurrentLeverOffset = FMath::RInterpTo(CurrentLeverOffset, TargetOffset, DeltaSeconds, LeverRotateInterpSpeed);
-	LeverPivot->SetRelativeRotation(InitialLeverPivotRotation.Quaternion() * CurrentLeverOffset.Quaternion());
-}
-
-FTransform ASPEscapeGate::GetInteractAnchorTransform() const
-{
-	return InteractAnchor ? InteractAnchor->GetComponentTransform() : GetActorTransform();
+	const float Alpha = FMath::Clamp(OpenProgress / OpenDuration, 0.f, 1.f);
+	const FRotator PullDelta = FMath::Lerp(FRotator::ZeroRotator, LeverPulledRotation, Alpha);
+	LeverPivot->SetRelativeRotation(-InitialLeverPivotRotation.Quaternion() * PullDelta.Quaternion());
 }
 
 void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -263,11 +216,6 @@ void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedCom
 	{
 		if (bIsActivated)
 		{
-			// 탈출 성공한 생존자 기록
-			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
-			{
-				PlayerState->RecordEscaped(ESurvivorEscapeMethod::Gate);
-			}
 			Survivor->SetSurvivorState(ESurvivorState::Escaped);
 			if (GEngine)
 			{

@@ -30,9 +30,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Online|Session")
 	void CancelMatchmaking();
-
-	UFUNCTION(BlueprintCallable, Category = "Online|Session")
-	void StartSession();
 	
 	UFUNCTION(BlueprintCallable, Category = "Online|Session")
 	void EndSession();
@@ -75,7 +72,6 @@ private:
 	void BeginCreateSession();
 	void BeginJoinSession(const FOnlineSessionSearchResult& SearchResult);
 	void DestroyCurrentSession(bool bTravelToMainMenu, bool bCreateSessionAfterDestroy);
-	void ResetMatchmakingState();
 	void OpenMainMenuAsListenServer() const;
 	void OpenPendingMainMenuLevel();
 	void BroadcastMatchmakingStatus(bool bWasSuccessful, const FString& StatusMessage) const;
@@ -85,16 +81,12 @@ private:
 	void HandleFindSessionsComplete(bool bWasSuccessful);
 	void HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful);
 	void HandleJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
-	void HandleStartSessionComplete(FName SessionName, bool bWasSuccessful);
-	void HandleEndSessionComplete(FName SessionName, bool bWasSuccessful);
 	void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);
 
 	FDelegateHandle LoginCompleteDelegateHandle;
 	FDelegateHandle FindSessionsCompleteDelegateHandle;
 	FDelegateHandle CreateSessionCompleteDelegateHandle;
 	FDelegateHandle JoinSessionCompleteDelegateHandle;
-	FDelegateHandle StartSessionCompleteDelegateHandle;
-	FDelegateHandle EndSessionCompleteDelegateHandle;
 	FDelegateHandle DestroySessionCompleteDelegateHandle;
 
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;
@@ -112,8 +104,6 @@ private:
 	bool bCreateSessionAfterDestroy = false;
 	bool bCreateSessionIfSearchStillEmpty = false;
 	bool bIsMatchmakingActive = false;
-	bool bEndSessionInProgress = false;
-	bool bDestroySessionAfterEnd = false;
 
 	static constexpr int32 LocalUserNum = 0;
 	static constexpr int32 MaxSessionPlayers = 4;

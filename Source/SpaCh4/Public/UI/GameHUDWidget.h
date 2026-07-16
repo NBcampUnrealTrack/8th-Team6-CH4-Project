@@ -107,7 +107,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TArray<TObjectPtr<UImage>> DeliveryStackB;
 
-	/** Designer ProgressBar — preferred when Fill Image is set in WBP */
+	/** Legacy widgets — hidden after DBD-style delivery layout */
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TObjectPtr<UProgressBar> DeliveryProgressA;
 
@@ -153,24 +153,13 @@ protected:
 	void HandleMatchPlayersChanged();
 
 	UFUNCTION()
-	void HandleSurvivorStateChanged(int32 SurvivorPlayerId, const FString SurvivorNickname, ESurvivorState SurvivorState);
+	void HandleSurvivorStateChanged(FName SurvivorId, ESurvivorState SurvivorState);
 
 private:
 	void BindInventoryWidgets();
 	void ApplyDeliveryRowLabels();
 	void RefreshTeammateEntries();
 	void RefreshDeliveryPanel();
-	void RefreshMatchHudPanels();
-	void ApplyDeliveryStationVisuals(
-		int32 CurrentValue,
-		int32 TargetValue,
-		UProgressBar* ProgressBar,
-		UWidget* Root,
-		UImage* FrameImage,
-		UImage* FillImage,
-		UImage* LegacyBar,
-		const TArray<TObjectPtr<UImage>>& StackWidgets,
-		UTextBlock* ValueLabel);
 	void RefreshInventoryPanel();
 	void RefreshPerkPanel();
 	void EnsurePreviewDefaults();
@@ -178,8 +167,6 @@ private:
 	void FinalizeDeliveryProgressSetup();
 	void ClearDeliveryProgressSetupTimer();
 	void CacheDesignerDeliveryFillSizes();
-	void ResolveDeliveryWidgetBindings();
-	void EnsureDeliveryFillWidgets();
 	void BindMatchStateDelegates();
 	void UnbindMatchStateDelegates();
 	bool CanRunDeferredSetup() const;
@@ -198,15 +185,7 @@ private:
 		UProgressBar* ProgressBar,
 		UImage* FillImage,
 		int32 CurrentValue,
-		int32 TargetValue,
-		TObjectPtr<UMaterialInstanceDynamic>& ProgressBarFillMID);
-
-	bool ShouldPreferDesignerProgressBar(UProgressBar* ProgressBar, UImage* FillImage) const;
-	void ApplyDeliveryFillProgressVisual(UImage* FillImage, UImage* FrameImage, float ProgressPercent);
-	void EnsureProgressBarHasFillBrush(UProgressBar* ProgressBar);
-	void EnsureProgressBarDesignerFillMID(
-		UProgressBar* ProgressBar,
-		TObjectPtr<UMaterialInstanceDynamic>& FillMID);
+		int32 TargetValue);
 	AMatchGameState* GetMatchGameState() const;
 	int32 GetSelectedInventorySlot() const;
 
@@ -224,9 +203,6 @@ private:
 
 	FTimerHandle DeliveryProgressSetupTimerHandle;
 	FTimerHandle TeammateRefreshTimerHandle;
-	FTimerHandle MatchDelegateBindRetryTimerHandle;
 
 	bool bMatchDelegatesBound = false;
-	bool bDeliveryProgressBarARaised = false;
-	bool bDeliveryProgressBarBRaised = false;
 };

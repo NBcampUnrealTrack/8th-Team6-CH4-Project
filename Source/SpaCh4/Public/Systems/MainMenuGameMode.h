@@ -39,16 +39,13 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Balance")
 	TObjectPtr<UBalanceData> BalanceData;
-	
-	// BalanceData가 없을 경우 기본값
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Matchmaking|Rules")
 	int32 SurvivorLimit = 3;
 
-	// BalanceData가 없을 경우 기본값
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Matchmaking|Rules")
 	int32 KillerLimit = 1;
 
-	// BalanceData가 없을 경우 기본값
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Matchmaking|Rules")
 	int32 RequiredReadyPlayerCount = 4;
 

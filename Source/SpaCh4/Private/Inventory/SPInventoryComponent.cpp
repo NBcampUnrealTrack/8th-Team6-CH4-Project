@@ -189,14 +189,6 @@ bool USPInventoryComponent::RemoveConsumable(const EConsumableItemType ItemType)
 	return false;
 }
 
-bool USPInventoryComponent::IsSlotConsumable(const int32 Index, const EConsumableItemType ItemType) const
-{
-	return ItemType != EConsumableItemType::None
-		&& InventorySlots.IsValidIndex(Index)
-		&& InventorySlots[Index].ContentType == EInventorySlotContentType::Consumable
-		&& InventorySlots[Index].ConsumableType == ItemType;
-}
-
 void USPInventoryComponent::SetCollectibleFromItem(ASPCollectibleItem* Item)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority() || !Item)

@@ -10,11 +10,9 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Player/MainMenuPlayerController.h"
 #include "Systems/LobbyGameState.h"
-#include "Systems/SPPlayerLoadoutSubsystem.h"
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "Styling/SlateTypes.h"
 #include "UI/HUDFontUtils.h"
-#include "UI/SPLoadoutSettingsWidget.h"
 #include "UI/Style/SPUIStyleData.h"
 #include "UI/Style/SPUIStyleLibrary.h"
 
@@ -66,7 +64,7 @@ void UMainMenuWidget::NativeConstruct()
 	ApplyMenuLabels();
 	EnsureTitleOnTop();
 	ApplyMenuTitleImage();
-	//ApplyMenuButtonStyles();
+	ApplyMenuButtonStyles();
 
 	UGameInstance* GameInstance = GetGameInstance();
 	const USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
@@ -163,9 +161,30 @@ void UMainMenuWidget::EnsureTitleOnTop()
 		return;
 	}
 
-	// ShiftChild keeps every sibling's VerticalBoxSlot (size rule/padding) intact;
-	// the old remove-all/re-add-all reset them to defaults and churned Slate widgets.
-	MenuVBox->ShiftChild(0, TitleImage);
+	TArray<UWidget*> OrderedChildren;
+	OrderedChildren.Reserve(MenuVBox->GetChildrenCount());
+	OrderedChildren.Add(TitleImage);
+
+	for (int32 Index = 0; Index < MenuVBox->GetChildrenCount(); ++Index)
+	{
+		if (UWidget* Child = MenuVBox->GetChildAt(Index))
+		{
+			if (Child != TitleImage)
+			{
+				OrderedChildren.Add(Child);
+			}
+		}
+	}
+
+	while (MenuVBox->GetChildrenCount() > 0)
+	{
+		MenuVBox->RemoveChild(MenuVBox->GetChildAt(0));
+	}
+
+	for (UWidget* Child : OrderedChildren)
+	{
+		MenuVBox->AddChild(Child);
+	}
 }
 
 void UMainMenuWidget::ApplyMenuTitleImage()
@@ -337,13 +356,6 @@ void UMainMenuWidget::StartOnlineMatchmaking()
 
 void UMainMenuWidget::StartOnlineMatchmakingAsRole(ELobbyPlayerRole SelectedRole)
 {
-	if (!IsRoleLoadoutConfigured(SelectedRole))
-	{
-		SelectedMatchmakingRole = ELobbyPlayerRole::None;
-		UpdateMatchmakingStatus(TEXT("매칭 시작 전에 설정에서 아이템과 퍽을 먼저 선택해야 합니다."), true);
-		return;
-	}
-
 	UGameInstance* GameInstance = GetGameInstance();
 	USPEOSSessionSubsystem* SessionSubsystem = GameInstance ? GameInstance->GetSubsystem<USPEOSSessionSubsystem>() : nullptr;
 	if (!SessionSubsystem)
@@ -427,65 +439,7 @@ void UMainMenuWidget::HandleLobbyCountdownChanged(int32 CountdownRemainingTime)
 
 void UMainMenuWidget::OpenSettings()
 {
-	if (LoadoutSettingsWidgetInstance && LoadoutSettingsWidgetInstance->IsInViewport())
-	{
-		return;
-	}
-
-	APlayerController* PlayerController = GetOwningPlayer();
-	if (!PlayerController || !LoadoutSettingsWidgetClass)
-	{
-		UpdateMatchmakingStatus(TEXT("로드아웃 설정 위젯이 지정되지 않았습니다."), true);
-		return;
-	}
-
-	LoadoutSettingsWidgetInstance = CreateWidget<USPLoadoutSettingsWidget>(PlayerController, LoadoutSettingsWidgetClass);
-	if (!LoadoutSettingsWidgetInstance)
-	{
-		UpdateMatchmakingStatus(TEXT("로드아웃 설정 창을 열지 못했습니다."), true);
-		return;
-	}
-
-	LoadoutSettingsWidgetInstance->OnLoadoutSettingsSaved.AddDynamic(this, &UMainMenuWidget::HandleLoadoutSettingsSaved);
-	LoadoutSettingsWidgetInstance->OnLoadoutSettingsClosed.AddDynamic(this, &UMainMenuWidget::HandleLoadoutSettingsClosed);
-	LoadoutSettingsWidgetInstance->AddToViewport(100);
-
-	FInputModeUIOnly InputMode;
-	InputMode.SetWidgetToFocus(LoadoutSettingsWidgetInstance->TakeWidget());
-	PlayerController->SetInputMode(InputMode);
-	PlayerController->bShowMouseCursor = true;
-
-	if (SurvivorButton)
-	{
-		SurvivorButton->SetIsEnabled(false);
-	}
-	if (KillerButton)
-	{
-		KillerButton->SetIsEnabled(false);
-	}
-	if (SettingsButton)
-	{
-		SettingsButton->SetIsEnabled(false);
-	}
-}
-
-void UMainMenuWidget::HandleLoadoutSettingsSaved(const FSPPlayerLoadout& SavedLoadout)
-{
-	UpdateMatchmakingStatus(TEXT("아이템과 퍽 설정을 저장했습니다."), false);
-}
-
-void UMainMenuWidget::HandleLoadoutSettingsClosed()
-{
-	LoadoutSettingsWidgetInstance = nullptr;
-	RefreshMatchmakingControls(false);
-
-	if (APlayerController* PlayerController = GetOwningPlayer())
-	{
-		FInputModeUIOnly InputMode;
-		InputMode.SetWidgetToFocus(TakeWidget());
-		PlayerController->SetInputMode(InputMode);
-		PlayerController->bShowMouseCursor = true;
-	}
+	UE_LOG(LogTemp, Log, TEXT("MainMenu: Settings selected (hook up settings screen when ready)."));
 }
 
 void UMainMenuWidget::OpenLevelAtPath(const FString& LevelPath)
@@ -512,26 +466,6 @@ void UMainMenuWidget::RefreshMatchmakingControls(bool bIsMatchmaking)
 	{
 		CancelMatchmakingButton->SetVisibility(bIsMatchmaking ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
-	if (SettingsButton)
-	{
-		SettingsButton->SetIsEnabled(!bIsMatchmaking);
-	}
-}
-
-bool UMainMenuWidget::IsRoleLoadoutConfigured(const ELobbyPlayerRole PlayerRoleType) const
-{
-	const UGameInstance* GameInstance = GetGameInstance();
-	const USPPlayerLoadoutSubsystem* LoadoutSubsystem = GameInstance
-		? GameInstance->GetSubsystem<USPPlayerLoadoutSubsystem>()
-		: nullptr;
-	if (!LoadoutSubsystem)
-	{
-		return false;
-	}
-
-	return PlayerRoleType == ELobbyPlayerRole::Survivor
-		? LoadoutSubsystem->IsSurvivorLoadoutConfigured()
-		: PlayerRoleType == ELobbyPlayerRole::Killer && LoadoutSubsystem->IsKillerLoadoutConfigured();
 }
 
 void UMainMenuWidget::UpdateRoleCountStatus(int32 SurvivorCount, int32 KillerCount)

@@ -36,8 +36,6 @@ public:
 	void EndHealingChannel(bool bCompleted);
 	void CancelHealingChannel();
 
-	void SetAutoCompleteLoop(bool bEnabled) { bAutoCompleteLoop = bEnabled; }
-
 	void BeginHealingChannelDebug();
 	void CancelHealingChannelDebug();
 
@@ -82,21 +80,12 @@ private:
 	bool ShouldEndLoopChannel() const;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
-	TSoftObjectPtr<UAnimMontage> HealingKneeMontageAsset;
-
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
-	TSoftObjectPtr<UAnimMontage> HealingLoopMontageAsset;
-
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
-	TSoftObjectPtr<UAnimMontage> HealingReturnMontageAsset;
-
-	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> HealingKneeMontage;
 
-	UPROPERTY(Transient)
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
 	TObjectPtr<UAnimMontage> HealingLoopMontage;
 
-	UPROPERTY(Transient)
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
 	TObjectPtr<UAnimMontage> HealingReturnMontage;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Healing")
@@ -125,7 +114,6 @@ private:
 	bool bLoopTransitionTriggered = false;
 	bool bLoopCrossfadeQueued = false;
 	bool bIsEndingHealing = false;
-	bool bAutoCompleteLoop = true;
 	float LoopEndWorldTime = 0.f;
 	float ReturnMontageNotPlayingTime = 0.f;
 	FTimerHandle ReturnMontageFallbackTimer;

@@ -30,8 +30,7 @@ enum class EPerkType : uint8
 	LightWheels,
 	SilentRoll,
 	StageTwoRescue,
-	ThreatSensor,
-	DeliveryPro
+	ThreatSensor
 };
 
 USTRUCT(BlueprintType)

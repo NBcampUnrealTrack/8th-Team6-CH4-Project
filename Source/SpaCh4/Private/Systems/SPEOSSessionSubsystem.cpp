@@ -49,14 +49,6 @@ void USPEOSSessionSubsystem::Deinitialize()
 		{
 			SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
 		}
-		if (StartSessionCompleteDelegateHandle.IsValid())
-		{
-			SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
-		}
-		if (EndSessionCompleteDelegateHandle.IsValid())
-		{
-			SessionInterface->ClearOnEndSessionCompleteDelegate_Handle(EndSessionCompleteDelegateHandle);
-		}
 		if (DestroySessionCompleteDelegateHandle.IsValid())
 		{
 			SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
@@ -186,94 +178,14 @@ void USPEOSSessionSubsystem::CancelMatchmaking()
 	}
 }
 
-void USPEOSSessionSubsystem::StartSession()
-{
-	ResetMatchmakingState();
-
-	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid() || !SessionInterface->GetNamedSession(NAME_GameSession))
-	{
-		return;
-	}
-
-	const EOnlineSessionState::Type SessionState = SessionInterface->GetSessionState(NAME_GameSession);
-	if (SessionState == EOnlineSessionState::InProgress || SessionState == EOnlineSessionState::Starting)
-	{
-		return;
-	}
-
-	if (SessionState != EOnlineSessionState::Pending)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOS session cannot start from state %d."), static_cast<int32>(SessionState));
-		return;
-	}
-
-	if (StartSessionCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
-	}
-
-	StartSessionCompleteDelegateHandle = SessionInterface->AddOnStartSessionCompleteDelegate_Handle(
-		FOnStartSessionCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleStartSessionComplete));
-
-	if (!SessionInterface->StartSession(NAME_GameSession))
-	{
-		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
-		StartSessionCompleteDelegateHandle.Reset();
-		UE_LOG(LogTemp, Warning, TEXT("Failed to start EOS session."));
-	}
-}
-
 void USPEOSSessionSubsystem::EndSession()
 {
-	ResetMatchmakingState();
-
-	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid() || !SessionInterface->GetNamedSession(NAME_GameSession))
-	{
-		OnSessionEnded.Broadcast(true, TEXT("No active session."));
-		return;
-	}
-
-	const EOnlineSessionState::Type SessionState = SessionInterface->GetSessionState(NAME_GameSession);
-	if (SessionState == EOnlineSessionState::Ended || SessionState == EOnlineSessionState::NoSession)
-	{
-		OnSessionEnded.Broadcast(true, TEXT("EOS session is already ended."));
-		return;
-	}
-
-	if (bEndSessionInProgress || SessionState == EOnlineSessionState::Ending)
-	{
-		return;
-	}
-
-	if (EndSessionCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnEndSessionCompleteDelegate_Handle(EndSessionCompleteDelegateHandle);
-	}
-
-	EndSessionCompleteDelegateHandle = SessionInterface->AddOnEndSessionCompleteDelegate_Handle(
-		FOnEndSessionCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleEndSessionComplete));
-	bEndSessionInProgress = true;
-
-	if (!SessionInterface->EndSession(NAME_GameSession))
-	{
-		SessionInterface->ClearOnEndSessionCompleteDelegate_Handle(EndSessionCompleteDelegateHandle);
-		EndSessionCompleteDelegateHandle.Reset();
-		bEndSessionInProgress = false;
-		OnSessionEnded.Broadcast(false, TEXT("Failed to start EOS session end."));
-	}
+	DestroyCurrentSession(false, false);
 }
 
 void USPEOSSessionSubsystem::ReturnToMainMenu(const FString& MainMenuLevelPath)
 {
-	ResetMatchmakingState();
 	PendingMainMenuLevelPath = MainMenuLevelPath;
-	if (bEndSessionInProgress)
-	{
-		bDestroySessionAfterEnd = true;
-		return;
-	}
 	DestroyCurrentSession(true, false);
 }
 
@@ -510,46 +422,6 @@ void USPEOSSessionSubsystem::DestroyCurrentSession(bool bTravelToMainMenu, bool 
 	}
 }
 
-void USPEOSSessionSubsystem::ResetMatchmakingState()
-{
-	bStartMatchmakingAfterLogin = false;
-	bCreateSessionIfSearchStillEmpty = false;
-	bIsMatchmakingActive = false;
-	bTravelToMainMenuAfterDestroy = false;
-	bCreateSessionAfterDestroy = false;
-	PendingMatchmakingRole = ELobbyPlayerRole::None;
-	PendingMatchmakingLevelPath.Reset();
-	FindSessionAttemptCount = 0;
-	SessionSearch.Reset();
-
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(FindSessionsRetryTimerHandle);
-	}
-
-	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid())
-	{
-		return;
-	}
-
-	if (FindSessionsCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
-		FindSessionsCompleteDelegateHandle.Reset();
-	}
-	if (JoinSessionCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
-		JoinSessionCompleteDelegateHandle.Reset();
-	}
-	if (CreateSessionCompleteDelegateHandle.IsValid())
-	{
-		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
-		CreateSessionCompleteDelegateHandle.Reset();
-	}
-}
-
 void USPEOSSessionSubsystem::OpenMainMenuAsListenServer() const
 {
 	UWorld* World = GetWorld();
@@ -718,39 +590,6 @@ void USPEOSSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoi
 
 	BroadcastMatchmakingStatus(true, TEXT("게임 입장중"));
 	PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
-}
-
-void USPEOSSessionSubsystem::HandleStartSessionComplete(FName SessionName, bool bWasSuccessful)
-{
-	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (SessionInterface.IsValid())
-	{
-		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
-	}
-	StartSessionCompleteDelegateHandle.Reset();
-
-	UE_LOG(LogTemp, Log, TEXT("EOS session start completed: %s"), bWasSuccessful ? TEXT("Success") : TEXT("Failed"));
-}
-
-void USPEOSSessionSubsystem::HandleEndSessionComplete(FName SessionName, bool bWasSuccessful)
-{
-	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (SessionInterface.IsValid())
-	{
-		SessionInterface->ClearOnEndSessionCompleteDelegate_Handle(EndSessionCompleteDelegateHandle);
-	}
-	EndSessionCompleteDelegateHandle.Reset();
-	bEndSessionInProgress = false;
-
-	OnSessionEnded.Broadcast(
-		bWasSuccessful,
-		bWasSuccessful ? TEXT("EOS session ended. Match level remains loaded.") : TEXT("EOS session end failed."));
-
-	if (bDestroySessionAfterEnd)
-	{
-		bDestroySessionAfterEnd = false;
-		DestroyCurrentSession(true, false);
-	}
 }
 
 void USPEOSSessionSubsystem::HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful)

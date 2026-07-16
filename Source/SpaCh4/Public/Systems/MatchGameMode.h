@@ -60,15 +60,15 @@ public:
 
 	// 생존자 탈출 등록
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorEscaped(AController* SurvivorController);
+	void RegisterSurvivorEscaped(FName SurvivorNickname);
 
 	// 생존자 사망 등록
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorKilled(AController* SurvivorController);
+	void RegisterSurvivorKilled(FName SurvivorNickname);
 
 	// 생존자 상태 변경
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
-	void RegisterSurvivorStateChanged(AController* SurvivorController, ESurvivorState NewSurvivorState);
+	void RegisterSurvivorStateChanged(FName SurvivorNickname, ESurvivorState NewSurvivorState);
 
 	// 결과 확인
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Result")
@@ -81,7 +81,6 @@ protected:
 	void InitializeMatchState();
 	void RegisterMatchPlayer(AController* PlayerController);
 	void RegisterExistingMatchPlayersFromPlayerStates();
-	bool ApplySurvivorState(AController* SurvivorController, ESurvivorState NewSurvivorState);
 	void HandleMatchTimerTick();
 	void HandleSessionShutdownTimer();
 	// 탈출구 조건 체크

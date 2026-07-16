@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "Interface/SPInteractable.h"
 #include "Cage.generated.h"
 
 class ASurvivorCharacter;
@@ -19,7 +18,7 @@ enum class ECageStatus : uint8
 };
 
 UCLASS()
-class SPACH4_API ACage : public AActor, public ISPInteractable
+class SPACH4_API ACage : public AActor
 {
 	GENERATED_BODY()
 
@@ -29,19 +28,6 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void SetCageStatus(ECageStatus NewStatus);
-	void SetOccupied(ASurvivorCharacter* Survivor);
-
-	virtual void Interact_Implementation(AActor* Interactor) override;
-	virtual void SetHighlight_Implementation(bool bEnabled) override;
-	virtual FGameplayTag GetInteractableTag_Implementation() const override;
-	virtual bool IsInteractable_Implementation() const override;
-	virtual USceneComponent* GetInteractFocusComponent_Implementation() const override;
-
-	ASurvivorCharacter* GetTrappedSurvivor() const { return TrappedSurvivor; }
-	FTransform GetPrisonerAnchorTransform() const;
-
-	UFUNCTION(BlueprintPure, Category = "Cage")
-	float GetRescueDuration() const { return RescueDuration; }
 
 	UFUNCTION(BlueprintPure, Category = "Cage")
 	ECageStatus GetCageStatus() const { return CurrentStatus; }
@@ -57,28 +43,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Cage")
 	float GetStageTwoDuration() const { return StageTwoDuration; }
-	
-	UFUNCTION(BlueprintPure, Category = "Cage")
-	UStaticMeshComponent* GetCageMesh() const { return CageMesh; }
-	
-	UFUNCTION(BlueprintPure, Category = "Cage")
-	FTransform GetCageMeshTransform() const;
-	
-	UFUNCTION()
-	void HandleSurvivorDeath(ASurvivorCharacter* DeadSurvivor);
-	
+
 protected:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
-	
-	// 하강 애니메이션 타이머
-	FTimerHandle MoveTimerHandle;
-    
-	// 삭제 처리 타이머
-	FTimerHandle DeleteTimerHandle;
-	
-	int32 MoveSteps;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -123,9 +92,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cage|Door")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cage|Prisoner")
-	TObjectPtr<UArrowComponent> PrisonerAnchor;
-
 	/** Rotates support mesh, cage mesh, and door together. Synced with SceneRoot when PlacementRoot is the actor root. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cage")
 	FRotator AssemblyRotation = FRotator::ZeroRotator;
@@ -151,7 +117,7 @@ protected:
 	float StageOneDuration = 35.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cage")
-	float StageTwoDuration = 25.0f;
+	float StageTwoDuration = 35.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cage")
 	float RescueDuration = 4.0f;

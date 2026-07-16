@@ -36,33 +36,26 @@ FGameplayTag ASPDeliveryStation::GetInteractableTag_Implementation() const
 	return SPGameplayTags::Interactable::Delivery;
 }
 
-int32 ASPDeliveryStation::SubmitValue(int32 Value) const
+void ASPDeliveryStation::SubmitValue(int32 Value) const
 {
 	if (!HasAuthority())
 	{
-		return 0;
+		return;
 	}
 	
 	AMatchGameMode* MatchGameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMatchGameMode>() : nullptr;
 	if (!MatchGameMode)
 	{
-		return 0;
+		return;
 	}
 
-	const AMatchGameState* MatchGameState = GetWorld()->GetGameState<AMatchGameState>();
-	const int32 PreviousValue = MatchGameState ? MatchGameState->GetDeliveryStationValue(StationId) : 0;
 	if (MatchGameMode->AddDeliveredValue(StationId, Value))
 	{
-		if (MatchGameState)
+		if (const AMatchGameState* MatchGameState = GetWorld()->GetGameState<AMatchGameState>())
 		{
-			const int32 CurrentValue = MatchGameState->GetDeliveryStationValue(StationId);
-			const int32 AcceptedValue = FMath::Max(0, CurrentValue - PreviousValue);
-			UE_LOG(LogTemp, Warning, TEXT("납품소 %s에 %d 반납. 실제 반영 %d, 현재 점수 %d"), *StationId.ToString(), Value, AcceptedValue, CurrentValue);
-			return AcceptedValue;
+			UE_LOG(LogTemp, Warning, TEXT("납품소 %s에 %d 반납. 현재 점수 %d"), *StationId.ToString(), Value, MatchGameState->GetDeliveryStationValue(StationId));
 		}
 	}
-
-	return 0;
 }
 
 bool ASPDeliveryStation::IsComplete() const
