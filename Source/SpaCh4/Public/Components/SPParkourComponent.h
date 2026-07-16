@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Animation/AnimEnums.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "SPParkourComponent.generated.h"
 
 class ACharacter;
@@ -65,6 +66,7 @@ private:
 
 	bool TraceParkourObstacle(FHitResult& OutObstacleHit, float& OutObstacleHeight, FString* OutFailReason = nullptr) const;
 	void GetParkourFacing(FVector& OutForward, FVector& OutRight) const;
+	FRotator ResolveParkourFacingRotation(const FHitResult& ObstacleHit) const;
 	void PlayParkourMontage(
 		UAnimMontage* Montage,
 		AActor* ObstacleActor,
@@ -116,7 +118,7 @@ private:
 	bool ResolveParkourLanding(FVector& OutLocation, FRotator& OutRotation) const;
 	bool SnapParkourLocationToGround(FVector& InOutLocation, bool bIgnoreParkourObstacle = true) const;
 	void ApplyParkourLanding(const FVector& WorldLocation, const FRotator& WorldRotation);
-	void SetParkourObstacleCollisionIgnored(bool bIgnore);
+	void SetParkourWallCollisionDisabled(bool bDisabled, AActor* PrimaryObstacle = nullptr);
 	void SetParkourCollisionSuppressed(bool bSuppressed);
 	void OnParkourEndTimer();
 	float GetParkourArcFactor(float MontageAlpha) const;
@@ -145,6 +147,10 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
 	float ParkourTraceRadius{45.f};
 
+	/** Minimum dot(actor forward, obstacle direction) required to start parkour. 0.65 ~= 49deg cone. */
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour", meta = (ClampMin = "0.2", ClampMax = "0.95"))
+	float ParkourMinFacingDot{0.65f};
+
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
 	float MinObstacleHeight{20.f};
 
@@ -155,7 +161,7 @@ private:
 	float ParkourReferenceObstacleHeight{90.f};
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
-	float ParkourClearanceOverObstacle{55.f};
+	float ParkourClearanceOverObstacle{5.f};
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour")
 	float ParkourLandingForwardOffset{75.f};
@@ -211,7 +217,11 @@ private:
 	TObjectPtr<UAnimMontage> ActiveParkourMontage;
 	FTransform ParkourStartTransform = FTransform::Identity;
 	float ParkourObstacleHeight = 0.f;
+	float ParkourObstacleTopZ = 0.f;
 	float ParkourStartFeetZ = 0.f;
+	FVector ParkourObstacleImpactPoint = FVector::ZeroVector;
+	float ParkourPlannedForwardTravel = 0.f;
+	float ParkourVaultEndGroundZ = 0.f;
 	FVector ParkourVaultEndLocation = FVector::ZeroVector;
 	float ParkourVaultPeakCenterZ = 0.f;
 	float ParkourWallClearForward = 0.f;
@@ -219,12 +229,15 @@ private:
 	bool bParkourVaultEndValid = false;
 	bool bParkourFeetOnGround = false;
 	float ParkourLandNotifyMontageAlpha = -1.f;
+	float ParkourKillerDescentStartAlpha = -1.f;
 	float ParkourMontageElapsed = 0.f;
 	float ParkourMontageDuration = 0.f;
 	TArray<TWeakObjectPtr<ASPParkourZone>> OverlappingParkourZones;
 	TArray<FParkourWallVaultRecord> WallVaultRecords;
+	TArray<TWeakObjectPtr<AActor>> CachedIgnoredWallActors;
 	ERootMotionMode::Type CachedRootMotionMode = ERootMotionMode::NoRootMotionExtraction;
 	TEnumAsByte<EMovementMode> CachedMovementMode = MOVE_Walking;
+	ENetworkSmoothingMode CachedNetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
 	float CachedGravityScale = 1.f;
 	uint8 CachedCapsuleCollision = 3;
 	uint8 CachedMeshCollision = 0;

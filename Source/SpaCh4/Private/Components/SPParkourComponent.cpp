@@ -7,17 +7,16 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PrimitiveComponent.h"
-#include "Components/SPInteractionComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Engine.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
-#include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Parkour/SPParkourZone.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
@@ -65,15 +64,12 @@ namespace SPParkour
 	}
 
 	static float ComputeVaultPeakCenterZ(
-		const float StartFeetZ,
-		const float ObstacleHeight,
+		const float ObstacleTopWorldZ,
 		const float HalfHeight,
-		const float CapsuleRadius,
-		const float Clearance,
-		const float ReferenceHeight)
+		const float Clearance)
 	{
-		const float EffectiveObstacleHeight = FMath::Max(ObstacleHeight, ReferenceHeight * 0.9f);
-		return StartFeetZ + EffectiveObstacleHeight + HalfHeight + Clearance + CapsuleRadius * 0.55f + 35.f;
+		// Capsule bottom sits on the measured wall top (+ optional tiny clearance).
+		return ObstacleTopWorldZ + HalfHeight + Clearance;
 	}
 }
 
@@ -121,15 +117,26 @@ void USPParkourComponent::BeginPlay()
 				ParkourTraceDistance *= RadiusScale;
 				ParkourMaxVaultTravel *= RadiusScale;
 				ParkourTraceRadius = FMath::Max(ParkourTraceRadius, Capsule->GetScaledCapsuleRadius() * 1.1f);
+				ParkourLandingForwardOffset *= RadiusScale;
+				ParkourMinLandingPastWallOffset *= RadiusScale;
 			}
 		}
+
+		ParkourLandByMontageAlpha = FMath::Min(ParkourLandByMontageAlpha, 0.82f);
+		ParkourVaultPeakMontageAlpha = FMath::Clamp(ParkourVaultPeakMontageAlpha, 0.38f, 0.48f);
+		ParkourReferenceObstacleHeight = FMath::Max(ParkourReferenceObstacleHeight, 90.f);
+		ParkourClearanceOverObstacle = FMath::Max(ParkourClearanceOverObstacle, 55.f);
+	}
+	else
+	{
+		MaxObstacleHeight = FMath::Min(MaxObstacleHeight, 130.f);
+		ParkourReferenceObstacleHeight = FMath::Clamp(ParkourReferenceObstacleHeight, 55.f, 100.f);
+		ParkourClearanceOverObstacle = FMath::Clamp(ParkourClearanceOverObstacle, 0.f, 15.f);
 	}
 
 	ParkourMinStartDistance = FMath::Min(ParkourMinStartDistance, 12.f);
 	ParkourMaxStartDistance = FMath::Max(ParkourMaxStartDistance, 100.f);
 	ParkourMaxVaultTravel = FMath::Max(ParkourMaxVaultTravel, 220.f);
-	ParkourReferenceObstacleHeight = FMath::Max(ParkourReferenceObstacleHeight, 90.f);
-	ParkourClearanceOverObstacle = FMath::Max(ParkourClearanceOverObstacle, 55.f);
 	ParkourLandingForwardOffset = FMath::Max(ParkourLandingForwardOffset, 75.f);
 	ParkourMinLandingPastWallOffset = FMath::Max(ParkourMinLandingPastWallOffset, 35.f);
 
@@ -158,13 +165,22 @@ void USPParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	}
 
 	ParkourMontageElapsed += DeltaTime;
-	UpdateParkourRootMotion(DeltaTime);
 
 	ACharacter* Character = GetParkourCharacter();
+	const ENetRole LocalRole = Character ? Character->GetLocalRole() : ROLE_None;
+	const bool bCanDriveParkourMotion = LocalRole == ROLE_Authority || LocalRole == ROLE_AutonomousProxy;
+	if (bCanDriveParkourMotion)
+	{
+		UpdateParkourRootMotion(DeltaTime);
+	}
+
 	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
 	if (!AnimInstance || !AnimInstance->Montage_IsPlaying(ActiveParkourMontage))
 	{
-		EndParkour(false);
+		if (bCanDriveParkourMotion)
+		{
+			EndParkour(false);
+		}
 	}
 }
 
@@ -338,8 +354,7 @@ void USPParkourComponent::Server_JumpOver_Implementation()
 		return;
 	}
 
-	const FVector ToObstacle = ObstacleHit.ImpactPoint - Character->GetActorLocation();
-	const FRotator FacingRotation = FRotator(0.f, FRotationMatrix::MakeFromX(ToObstacle.GetSafeNormal2D()).Rotator().Yaw, 0.f);
+	const FRotator FacingRotation = ResolveParkourFacingRotation(ObstacleHit);
 
 	FString VaultFailReason;
 	if (!PreviewParkourVault(FacingRotation, ObstacleHeight, ObstacleHit.GetActor(), ObstacleHit.ImpactPoint, &VaultFailReason))
@@ -393,6 +408,13 @@ void USPParkourComponent::Multicast_PlayParkourMontage_Implementation(
 
 void USPParkourComponent::GetParkourFacing(FVector& OutForward, FVector& OutRight) const
 {
+	if (bIsParkour)
+	{
+		OutForward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
+		OutRight = ParkourStartTransform.GetRotation().GetRightVector().GetSafeNormal2D();
+		return;
+	}
+
 	const ACharacter* Character = GetParkourCharacter();
 	if (!Character)
 	{
@@ -403,16 +425,25 @@ void USPParkourComponent::GetParkourFacing(FVector& OutForward, FVector& OutRigh
 
 	OutForward = Character->GetActorForwardVector().GetSafeNormal2D();
 	OutRight = Character->GetActorRightVector().GetSafeNormal2D();
+}
 
-	if (const UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+FRotator USPParkourComponent::ResolveParkourFacingRotation(const FHitResult& ObstacleHit) const
+{
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
-		const FVector Velocity2D = FVector(MoveComp->Velocity.X, MoveComp->Velocity.Y, 0.f);
-		if (!Velocity2D.IsNearlyZero(25.f))
-		{
-			OutForward = Velocity2D.GetSafeNormal();
-			OutRight = FVector::CrossProduct(FVector::UpVector, OutForward).GetSafeNormal();
-		}
+		return FRotator::ZeroRotator;
 	}
+
+	FVector SurfaceNormal2D(ObstacleHit.ImpactNormal.X, ObstacleHit.ImpactNormal.Y, 0.f);
+	if (SurfaceNormal2D.SizeSquared() > FMath::Square(0.01f))
+	{
+		// Vault over the wall: travel opposite the wall normal, not toward the impact XY offset.
+		const FVector VaultForward = -SurfaceNormal2D.GetSafeNormal();
+		return FRotator(0.f, FRotationMatrix::MakeFromX(VaultForward).Rotator().Yaw, 0.f);
+	}
+
+	return FRotator(0.f, Character->GetActorRotation().Yaw, 0.f);
 }
 
 bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float& OutObstacleHeight, FString* OutFailReason) const
@@ -454,16 +485,6 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	const FVector TraceEnd = TraceStart + Forward * ParkourTraceDistance;
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourTrace), false, Character);
-	if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Character))
-	{
-		if (const USPInteractionComponent* InteractionComponent = Survivor->GetInteractionComponent())
-		{
-			if (ASPCollectibleItem* CarriedItem = InteractionComponent->GetCarriedItem())
-			{
-				Params.AddIgnoredActor(CarriedItem);
-			}
-		}
-	}
 
 	const FCollisionObjectQueryParams ObjQuery = SPParkour::MakeObstacleObjectQuery();
 	const bool bForwardHit = GetWorld()->SweepSingleByObjectType(
@@ -491,13 +512,58 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	}
 
 	const FVector ActorCenter = Character->GetActorLocation();
+	const FVector ActorForward = Character->GetActorForwardVector().GetSafeNormal2D();
 	const FVector ToObstacle2D(
 		OutObstacleHit.ImpactPoint.X - ActorCenter.X,
 		OutObstacleHit.ImpactPoint.Y - ActorCenter.Y,
 		0.f);
-	const float HitDistance = FMath::Max(0.f, FVector::DotProduct(ToObstacle2D, Forward) - CapsuleRadius);
+	const float ToObstacleDistance2D = ToObstacle2D.Size();
 
-	if (OutObstacleHit.bStartPenetrating && OutObstacleHit.PenetrationDepth > CapsuleRadius * 0.6f)
+	FVector SurfaceNormal2D = FVector(OutObstacleHit.ImpactNormal.X, OutObstacleHit.ImpactNormal.Y, 0.f);
+	if (SurfaceNormal2D.SizeSquared() < FMath::Square(0.01f))
+	{
+		// Flush/penetrating hits often lack a usable XY normal; assume wall faces the actor.
+		SurfaceNormal2D = -ActorForward;
+	}
+	else
+	{
+		SurfaceNormal2D.Normalize();
+	}
+
+	float ObstacleAheadDot = 1.f;
+	float LateralOffset = 0.f;
+	if (ToObstacleDistance2D > 1.f)
+	{
+		const FVector ToObstacleDir = ToObstacle2D / ToObstacleDistance2D;
+		ObstacleAheadDot = FVector::DotProduct(ToObstacleDir, ActorForward);
+		LateralOffset = FMath::Abs(FVector::DotProduct(ToObstacle2D, Right));
+	}
+	else
+	{
+		// Impact shares XY with actor center when pressed against the wall.
+		ObstacleAheadDot = FVector::DotProduct(ActorForward, -SurfaceNormal2D);
+	}
+
+	const float MaxLateralOffset = CapsuleRadius + ParkourTraceRadius * 0.35f;
+
+	if (ObstacleAheadDot < ParkourMinFacingDot)
+	{
+		SetFail(FString::Printf(TEXT("Obstacle not in front (%.2f < %.2f)"), ObstacleAheadDot, ParkourMinFacingDot));
+		return false;
+	}
+
+	if (ToObstacleDistance2D > 1.f && LateralOffset > MaxLateralOffset)
+	{
+		SetFail(TEXT("Obstacle too far sideways"));
+		return false;
+	}
+
+	const float ForwardDist = FVector::DotProduct(ToObstacle2D, Forward);
+	const float HitDistance = ToObstacleDistance2D > 1.f
+		? FMath::Max(0.f, ForwardDist - CapsuleRadius)
+		: 0.f;
+
+	if (OutObstacleHit.bStartPenetrating && OutObstacleHit.PenetrationDepth > CapsuleRadius * 0.92f)
 	{
 		SetFail(TEXT("Inside obstacle"));
 		return false;
@@ -509,27 +575,29 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 		return false;
 	}
 
-	const FVector SurfaceNormal2D = FVector(OutObstacleHit.ImpactNormal.X, OutObstacleHit.ImpactNormal.Y, 0.f).GetSafeNormal();
 	if (!SurfaceNormal2D.IsNearlyZero())
 	{
-		const FVector ActorForward = Character->GetActorForwardVector().GetSafeNormal2D();
-		const float FaceDot = FMath::Max(
-			FVector::DotProduct(Forward, -SurfaceNormal2D),
-			FVector::DotProduct(ActorForward, -SurfaceNormal2D));
-		if (FaceDot < -0.35f)
+		const float FaceDot = FVector::DotProduct(ActorForward, -SurfaceNormal2D);
+		if (FaceDot < ParkourMinFacingDot)
 		{
-			SetFail(TEXT("Must face obstacle"));
+			SetFail(FString::Printf(TEXT("Must face obstacle (%.2f < %.2f)"), FaceDot, ParkourMinFacingDot));
 			return false;
 		}
 	}
 
 	const FVector ImpactNormal = OutObstacleHit.ImpactNormal.GetSafeNormal();
+	if (ImpactNormal.IsNearlyZero())
+	{
+		SetFail(TEXT("Invalid obstacle hit"));
+		return false;
+	}
 	const FVector WallSamplePoint = OutObstacleHit.ImpactPoint - ImpactNormal * 10.f;
 
+	const float TopTraceStartZ = FMath::Max(OutObstacleHit.ImpactPoint.Z, FeetLocation.Z) + MaxObstacleHeight + 15.f;
 	const FVector TopTraceStart(
 		WallSamplePoint.X,
 		WallSamplePoint.Y,
-		FeetLocation.Z + MaxObstacleHeight + 80.f);
+		TopTraceStartZ);
 	const FVector TopTraceEnd(
 		WallSamplePoint.X,
 		WallSamplePoint.Y,
@@ -537,31 +605,21 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 
 	AActor* ForwardHitActor = OutObstacleHit.GetActor();
 
-	TArray<FHitResult> TopHits;
-	const bool bAnyTopHit = GetWorld()->LineTraceMultiByObjectType(
-		TopHits,
+	FHitResult TopHit;
+	const bool bTopHit = GetWorld()->LineTraceSingleByObjectType(
+		TopHit,
 		TopTraceStart,
 		TopTraceEnd,
 		ObjQuery,
 		Params);
 
 	float ObstacleTopZ = -MAX_FLT;
-	if (bAnyTopHit)
+	if (bTopHit && TopHit.bBlockingHit)
 	{
-		for (const FHitResult& Hit : TopHits)
+		const bool bSameObstacle = !ForwardHitActor || TopHit.GetActor() == ForwardHitActor;
+		if (bSameObstacle)
 		{
-			if (!Hit.bBlockingHit)
-			{
-				continue;
-			}
-
-			const bool bSameObstacle = ForwardHitActor && Hit.GetActor() == ForwardHitActor;
-			if (!bSameObstacle)
-			{
-				continue;
-			}
-
-			ObstacleTopZ = FMath::Max(ObstacleTopZ, Hit.ImpactPoint.Z);
+			ObstacleTopZ = TopHit.ImpactPoint.Z;
 		}
 	}
 
@@ -575,15 +633,31 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	}
 
 	OutObstacleHeight = FMath::Clamp(OutObstacleHeight, MinObstacleHeight, MaxObstacleHeight);
-	OutObstacleHeight = FMath::Max(OutObstacleHeight, ParkourReferenceObstacleHeight);
 
 	if (bDrawDebug)
 	{
 		DrawDebugLine(GetWorld(), TopTraceStart, TopTraceEnd, FColor::Cyan, false, 1.5f, 0, 1.5f);
+		if (ObstacleTopZ > -MAX_FLT + 1.f)
+		{
+			const FVector WallTopPoint(OutObstacleHit.ImpactPoint.X, OutObstacleHit.ImpactPoint.Y, ObstacleTopZ);
+			DrawDebugLine(GetWorld(), WallTopPoint - FVector(30.f, 0.f, 0.f), WallTopPoint + FVector(30.f, 0.f, 0.f), FColor::Yellow, false, 1.5f, 0, 3.f);
+			DrawDebugCapsule(
+				GetWorld(),
+				FVector(WallTopPoint.X, WallTopPoint.Y, ObstacleTopZ + HalfHeight + ParkourClearanceOverObstacle),
+				HalfHeight,
+				CapsuleRadius,
+				FQuat::Identity,
+				FColor::Cyan,
+				false,
+				1.5f,
+				0,
+				1.5f);
+		}
+
 		DrawDebugString(
 			GetWorld(),
 			FVector(OutObstacleHit.ImpactPoint.X, OutObstacleHit.ImpactPoint.Y, ObstacleTopZ),
-			FString::Printf(TEXT("H:%.0f D:%.0f"), OutObstacleHeight, HitDistance),
+			FString::Printf(TEXT("H:%.0f D:%.0f Top:%.0f"), OutObstacleHeight, HitDistance, ObstacleTopZ),
 			nullptr,
 			FColor::White,
 			1.5f);
@@ -617,12 +691,16 @@ void USPParkourComponent::PlayParkourMontage(
 	{
 		CachedMovementMode = MoveComp->MovementMode;
 		CachedGravityScale = MoveComp->GravityScale;
+		CachedNetworkSmoothingMode = MoveComp->NetworkSmoothingMode;
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
 		MoveComp->StopMovementImmediately();
 		MoveComp->Velocity = FVector::ZeroVector;
 		MoveComp->GravityScale = 0.f;
 		MoveComp->SetMovementMode(MOVE_None);
 		MoveComp->bAllowPhysicsRotationDuringAnimRootMotion = true;
 	}
+
+	SetParkourCollisionSuppressed(true);
 
 	CachedRootMotionMode = AnimInstance->RootMotionMode;
 	AnimInstance->SetRootMotionMode(ERootMotionMode::IgnoreRootMotion);
@@ -636,9 +714,15 @@ void USPParkourComponent::PlayParkourMontage(
 	{
 		ParkourStartFeetZ = GetParkourFeetZ(Character, Capsule);
 	}
+	ParkourObstacleTopZ = ParkourStartFeetZ + ParkourObstacleHeight;
+	ParkourObstacleImpactPoint = ObstacleImpactPoint;
 
 	LogParkourDebug(
-		FString::Printf(TEXT("Vault H:%.0f (ref %.0f)"), ParkourObstacleHeight, ParkourReferenceObstacleHeight),
+		FString::Printf(
+			TEXT("Vault H:%.0f topZ:%.0f peakZ:%.0f"),
+			ParkourObstacleHeight,
+			ParkourObstacleTopZ,
+			ParkourObstacleTopZ + (Character->GetCapsuleComponent() ? Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f) + ParkourClearanceOverObstacle),
 		FColor::Silver);
 
 	InitParkourVaultTargets(ObstacleActor, ObstacleImpactPoint);
@@ -646,10 +730,8 @@ void USPParkourComponent::PlayParkourMontage(
 	if (ObstacleActor)
 	{
 		CurrentParkourObstacle = ObstacleActor;
-		SetParkourObstacleCollisionIgnored(true);
+		SetParkourWallCollisionDisabled(true, ObstacleActor);
 	}
-
-	SetParkourCollisionSuppressed(true);
 
 	ActiveParkourMontage = Montage;
 	bIsParkour = true;
@@ -681,6 +763,41 @@ void USPParkourComponent::PlayParkourMontage(
 
 	ParkourMontageDuration = Duration;
 	CacheParkourLandNotifyTiming(Montage);
+
+	if (bExemptFromWallVaultLimit)
+	{
+		const float TouchdownAlpha = ParkourLandNotifyMontageAlpha > 0.f
+			? ParkourLandNotifyMontageAlpha
+			: ParkourLandByMontageAlpha;
+		const float ClearAlpha = FMath::Clamp(ParkourWallClearMontageAlpha, 0.30f, TouchdownAlpha - 0.05f);
+		ParkourKillerDescentStartAlpha = FMath::Clamp(ClearAlpha + 0.10f, 0.45f, TouchdownAlpha - 0.04f);
+		if (ParkourLandNotifyMontageAlpha <= 0.f)
+		{
+			ParkourLandNotifyMontageAlpha = TouchdownAlpha;
+		}
+
+		LogParkourDebug(
+			FString::Printf(
+				TEXT("Killer land notify @%.2f, descent %.2f -> %.2f"),
+				ParkourLandNotifyMontageAlpha,
+				ParkourKillerDescentStartAlpha,
+				ParkourLandNotifyMontageAlpha),
+			FColor::Silver);
+	}
+	else if (ParkourLandNotifyMontageAlpha > 0.f)
+	{
+		const float MinLandAlpha = FMath::Clamp(FMath::Max(ParkourWallClearMontageAlpha, 0.78f), 0.55f, 0.92f);
+		if (ParkourLandNotifyMontageAlpha < MinLandAlpha)
+		{
+			LogParkourDebug(
+				FString::Printf(
+					TEXT("Land notify clamped %.2f -> %.2f"),
+					ParkourLandNotifyMontageAlpha,
+					MinLandAlpha),
+				FColor::Yellow);
+			ParkourLandNotifyMontageAlpha = MinLandAlpha;
+		}
+	}
 
 	GetWorld()->GetTimerManager().ClearTimer(ParkourEndTimerHandle);
 	GetWorld()->GetTimerManager().SetTimer(
@@ -738,12 +855,9 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 
 			ParkourVaultEndLocation = StartCenter + Forward * FallbackTravel;
 			ParkourVaultPeakCenterZ = SPParkour::ComputeVaultPeakCenterZ(
-				ParkourStartFeetZ,
-				ParkourObstacleHeight,
+				ParkourObstacleTopZ,
 				HalfHeight,
-				Radius,
-				ParkourClearanceOverObstacle,
-				ParkourReferenceObstacleHeight);
+				ParkourClearanceOverObstacle);
 			ParkourWallClearForward = DistToWallFace + ObstacleDepth + Radius;
 
 			if (SampleParkourGroundCenterZ(ParkourVaultEndLocation, true, ObstacleActor, ParkourVaultPeakCenterZ))
@@ -773,7 +887,17 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 		if (!bParkourVaultEndValid)
 		{
 			ParkourVaultEndLocation = ParkourStartTransform.GetLocation();
-			ParkourVaultPeakCenterZ = ParkourStartTransform.GetLocation().Z + ParkourObstacleHeight;
+			if (Capsule)
+			{
+				ParkourVaultPeakCenterZ = SPParkour::ComputeVaultPeakCenterZ(
+					ParkourObstacleTopZ,
+					Capsule->GetScaledCapsuleHalfHeight(),
+					ParkourClearanceOverObstacle);
+			}
+			else
+			{
+				ParkourVaultPeakCenterZ = ParkourObstacleTopZ;
+			}
 			ParkourWallClearForward = 0.f;
 			ParkourWallClearMontageAlpha = 0.45f;
 			bParkourVaultEndValid = true;
@@ -790,6 +914,11 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 			*ParkourVaultEndLocation.ToCompactString(),
 			ParkourVaultPeakCenterZ),
 		FColor::Silver);
+
+	ParkourPlannedForwardTravel = FVector::DotProduct(
+		ParkourVaultEndLocation - ParkourStartTransform.GetLocation(),
+		ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D());
+	ParkourVaultEndGroundZ = ParkourVaultEndLocation.Z;
 }
 
 bool USPParkourComponent::ResolveParkourVaultTargets(
@@ -827,13 +956,16 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 
 	const float ObstacleDepth = SPParkour::ComputeObstacleDepth(ObstacleActor, Forward);
 
-	const float DistToWallFace = FMath::Max(
-		FVector::DotProduct(ObstacleImpactPoint - StartCenter, Forward),
-		0.f);
+	const float ImpactAlongForward = FVector::DotProduct(ObstacleImpactPoint - StartCenter, Forward);
+	const float DistToWallFace = FMath::Max(ImpactAlongForward, 0.f);
 	const float MinTravelPastWall = DistToWallFace + ObstacleDepth + Radius + ParkourMinLandingPastWallOffset;
 	float TravelPastWall = DistToWallFace + ObstacleDepth + Radius + ParkourLandingForwardOffset;
 	TravelPastWall = FMath::Max(TravelPastWall, MinTravelPastWall);
-	TravelPastWall = FMath::Max(TravelPastWall, DistToWallFace + 100.f);
+	TravelPastWall = FMath::Max(TravelPastWall, ImpactAlongForward + Radius + 95.f);
+	if (bExemptFromWallVaultLimit)
+	{
+		TravelPastWall = FMath::Max(TravelPastWall, ImpactAlongForward + Radius + 120.f);
+	}
 	TravelPastWall = FMath::Clamp(TravelPastWall, MinTravelPastWall, ParkourMaxVaultTravel);
 
 	if (MinTravelPastWall > ParkourMaxVaultTravel + 1.f)
@@ -846,12 +978,9 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 	}
 
 	OutPeakCenterZ = SPParkour::ComputeVaultPeakCenterZ(
-		StartFeetZ,
-		ObstacleHeight,
+		StartFeetZ + ObstacleHeight,
 		HalfHeight,
-		Radius,
-		ParkourClearanceOverObstacle,
-		ParkourReferenceObstacleHeight);
+		ParkourClearanceOverObstacle);
 
 	OutEndLocation = StartCenter + Forward * TravelPastWall;
 	OutEndLocation.Z = StartCenter.Z;
@@ -864,7 +993,7 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 			&& FVector::DotProduct(Forward, -HitNormal2D) > 0.35f;
 		const bool bLandscapeBlock = PathHit.GetActor() && SPParkour::IsLandscapeLikeObstacle(PathHit.GetActor());
 
-		if (bWallLikeBlock && !bLandscapeBlock)
+		if (bWallLikeBlock && !bLandscapeBlock && !bExemptFromWallVaultLimit)
 		{
 			const float BlockedTravel = FVector::DotProduct(PathHit.Location - StartCenter, Forward) - Radius - 8.f;
 			if (BlockedTravel >= MinTravelPastWall)
@@ -1066,6 +1195,7 @@ bool USPParkourComponent::PreviewParkourVault(
 	const float ClampedHeight = FMath::Clamp(ObstacleHeight, MinObstacleHeight, MaxObstacleHeight);
 
 	const float PreviewPeakZ = PreviewFeetZ + ClampedHeight + Capsule->GetScaledCapsuleHalfHeight() + ParkourClearanceOverObstacle;
+	(void)PreviewPeakZ;
 
 	FVector PreviewEnd = FVector::ZeroVector;
 	float PreviewPeakZOut = 0.f;
@@ -1129,14 +1259,14 @@ FVector USPParkourComponent::BuildParkourVaultLocation(float MontageAlpha) const
 
 	float GatedForwardAlpha = ForwardAlpha;
 	const float ClearAlpha = FMath::Clamp(ParkourWallClearMontageAlpha, 0.12f, 0.9f);
-	if (Alpha < ClearAlpha * 0.95f && ArcFactor < 0.72f)
+	if (!bExemptFromWallVaultLimit && Alpha < ClearAlpha * 0.95f && ArcFactor < 0.72f)
 	{
 		const float HeightGate = FMath::Clamp(ArcFactor / 0.72f, 0.f, 1.f);
 		const float MaxForwardBeforeClear = FMath::Lerp(ClearAlpha * 0.45f, ClearAlpha, HeightGate);
 		GatedForwardAlpha = FMath::Min(ForwardAlpha, MaxForwardBeforeClear);
 	}
 
-	if (ParkourLandNotifyMontageAlpha > 0.f && Alpha >= ParkourLandNotifyMontageAlpha)
+	if (!bExemptFromWallVaultLimit && ParkourLandNotifyMontageAlpha > 0.f && Alpha >= ParkourLandNotifyMontageAlpha)
 	{
 		const float LandForwardAlpha = FMath::Clamp(
 			ParkourLandNotifyMontageAlpha / FMath::Max(ParkourLandByMontageAlpha, 0.01f),
@@ -1150,15 +1280,45 @@ FVector USPParkourComponent::BuildParkourVaultLocation(float MontageAlpha) const
 	Location.X = FMath::Lerp(Start.X, End.X, GatedForwardAlpha);
 	Location.Y = FMath::Lerp(Start.Y, End.Y, GatedForwardAlpha);
 
-	float GroundZ = End.Z;
-	FVector GroundSample = Location;
-	if (SampleParkourGroundCenterZ(GroundSample))
+	float GroundZ = bParkourVaultEndValid ? ParkourVaultEndGroundZ : End.Z;
+	if (bParkourFeetOnGround)
 	{
-		GroundZ = GroundSample.Z;
+		FVector GroundSample = Location;
+		if (SampleParkourGroundCenterZ(GroundSample))
+		{
+			GroundZ = GroundSample.Z;
+		}
 	}
 
 	const float TravelT = FMath::SmoothStep(0.f, 1.f, Alpha);
 	const float BaseZ = FMath::Lerp(Start.Z, GroundZ, TravelT);
+	const float ArcZ = BaseZ + ArcHeight * ArcFactor;
+
+	if (bExemptFromWallVaultLimit)
+	{
+		const float TouchdownAlpha = ParkourLandNotifyMontageAlpha > 0.f
+			? ParkourLandNotifyMontageAlpha
+			: ParkourLandByMontageAlpha;
+		const float DescentStart = ParkourKillerDescentStartAlpha > 0.f
+			? ParkourKillerDescentStartAlpha
+			: FMath::Clamp(ParkourWallClearMontageAlpha + 0.10f, 0.45f, TouchdownAlpha - 0.04f);
+
+		if (Alpha >= TouchdownAlpha || bParkourFeetOnGround)
+		{
+			Location.Z = GroundZ;
+		}
+		else if (Alpha > DescentStart)
+		{
+			const float DescentT = FMath::Clamp((Alpha - DescentStart) / FMath::Max(TouchdownAlpha - DescentStart, 0.01f), 0.f, 1.f);
+			Location.Z = FMath::Lerp(ArcZ, GroundZ, FMath::SmoothStep(0.f, 1.f, DescentT));
+		}
+		else
+		{
+			Location.Z = ArcZ;
+		}
+
+		return Location;
+	}
 
 	if (bParkourFeetOnGround)
 	{
@@ -1198,7 +1358,7 @@ float USPParkourComponent::GetParkourArcFactor(float MontageAlpha) const
 		ArcFactor = FMath::Cos(DescentT * UE_PI * 0.5f);
 	}
 
-	if (!bParkourFeetOnGround && ParkourLandNotifyMontageAlpha > 0.f)
+	if (!bParkourFeetOnGround && !bExemptFromWallVaultLimit && ParkourLandNotifyMontageAlpha > 0.f)
 	{
 		const float TaperStart = ParkourLandNotifyMontageAlpha * 0.8f;
 		if (Alpha > TaperStart)
@@ -1352,15 +1512,6 @@ FVector USPParkourComponent::BuildParkourLocationFromRootMotion(
 		Location.Z += (RequiredLiftZ - AnimLiftZ) * VaultCurve;
 	}
 
-	const float ReferenceHeight = FMath::Max(ParkourReferenceObstacleHeight, 1.f);
-	if (ParkourObstacleHeight > ReferenceHeight)
-	{
-		const float HeightScale = ParkourObstacleHeight / ReferenceHeight;
-		const float ScaledLiftZ = AnimLiftZ * HeightScale;
-		const float ScaledZ = StartCenterZ + ScaledLiftZ + (RequiredLiftZ - ScaledLiftZ) * VaultCurve;
-		Location.Z = FMath::Max(Location.Z, ScaledZ);
-	}
-
 	return Location;
 }
 
@@ -1371,9 +1522,91 @@ void USPParkourComponent::OnParkourLandNotify()
 		return;
 	}
 
+	// Killer: snap to ground exactly when the anim land notify fires.
+	if (bExemptFromWallVaultLimit)
+	{
+		ACharacter* Character = GetParkourCharacter();
+		if (!Character)
+		{
+			return;
+		}
+
+		const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
+		const float CurrentTravel = FVector::DotProduct(
+			Character->GetActorLocation() - ParkourStartTransform.GetLocation(),
+			Forward);
+		const float PlannedTravel = FMath::Max(ParkourPlannedForwardTravel, 1.f);
+		const float MinClearTravel = FMath::Max(
+			PlannedTravel * 0.75f,
+			ParkourWallClearForward + ParkourMinLandingPastWallOffset * 0.35f);
+		if (CurrentTravel < MinClearTravel)
+		{
+			LogParkourDebug(
+				FString::Printf(
+					TEXT("Killer land notify deferred (%.0f < %.0f)"),
+					CurrentTravel,
+					MinClearTravel),
+				FColor::Yellow);
+			return;
+		}
+
+		bParkourFeetOnGround = true;
+
+		FVector GroundedLocation = BuildParkourVaultLocation(GetParkourMontageAlpha());
+		if (!SnapParkourLocationToGround(GroundedLocation))
+		{
+			GroundedLocation = ParkourVaultEndLocation;
+			SnapParkourLocationToGround(GroundedLocation);
+		}
+
+		if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+		{
+			MoveComp->StopMovementImmediately();
+			MoveComp->Velocity = FVector::ZeroVector;
+		}
+
+		Character->SetActorLocation(GroundedLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		Character->SetActorRotation(ParkourStartTransform.Rotator());
+
+		if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+		{
+			MoveComp->bJustTeleported = true;
+		}
+
+		LogParkourDebug(
+			FString::Printf(
+				TEXT("Killer land notify @%.2f -> %s"),
+				GetParkourMontageAlpha(),
+				*GroundedLocation.ToCompactString()),
+			FColor::Green);
+		return;
+	}
+
 	ACharacter* Character = GetParkourCharacter();
 	if (!Character)
 	{
+		return;
+	}
+
+	const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
+	const float CurrentTravel = FVector::DotProduct(
+		Character->GetActorLocation() - ParkourStartTransform.GetLocation(),
+		Forward);
+	const float PlannedTravel = FMath::Max(ParkourPlannedForwardTravel, 1.f);
+	const float MinClearTravel = bExemptFromWallVaultLimit
+		? FMath::Max(PlannedTravel * 0.88f, ParkourWallClearForward + ParkourMinLandingPastWallOffset * 0.5f)
+		: FMath::Max(
+			ParkourWallClearForward + ParkourMinLandingPastWallOffset * 0.35f,
+			45.f);
+	if (CurrentTravel < MinClearTravel)
+	{
+		LogParkourDebug(
+			FString::Printf(
+				TEXT("Land notify deferred (%.0f < %.0f, planned %.0f)"),
+				CurrentTravel,
+				MinClearTravel,
+				PlannedTravel),
+			FColor::Yellow);
 		return;
 	}
 
@@ -1644,39 +1877,15 @@ void USPParkourComponent::UpdateParkourRootMotion(float DeltaTime)
 	const FRotator TargetRotation(0.f, (StartRotation * RootMotionRotation).Rotator().Yaw, 0.f);
 
 	const FVector CurrentLocation = Character->GetActorLocation();
-	FVector NewLocation = TargetLocation;
+	const FVector NewLocation = TargetLocation;
+	const FRotator NewRotation = bExemptFromWallVaultLimit
+		? TargetRotation
+		: FMath::RInterpTo(Character->GetActorRotation(), TargetRotation, DeltaTime, 14.f);
 
-	const float SnapPathAlpha = FMath::Max(ParkourWallClearMontageAlpha, ParkourVaultPeakMontageAlpha + 0.08f);
-	const float LandSnapAlpha = ParkourLandNotifyMontageAlpha > 0.f
-		? FMath::Max(SnapPathAlpha, ParkourLandNotifyMontageAlpha)
-		: SnapPathAlpha;
-	if (MontageAlpha <= SnapPathAlpha || bParkourFeetOnGround || MontageAlpha >= LandSnapAlpha)
-	{
-		NewLocation = TargetLocation;
-	}
-	else
-	{
-		NewLocation.X = FMath::FInterpTo(CurrentLocation.X, TargetLocation.X, DeltaTime, 35.f);
-		NewLocation.Y = FMath::FInterpTo(CurrentLocation.Y, TargetLocation.Y, DeltaTime, 35.f);
-		NewLocation.Z = TargetLocation.Z;
-
-		if (MontageAlpha >= ParkourLandByMontageAlpha * 0.85f)
-		{
-			NewLocation.X = TargetLocation.X;
-			NewLocation.Y = TargetLocation.Y;
-		}
-	}
-
-	const FRotator BlendedRotation = FMath::RInterpTo(
-		Character->GetActorRotation(),
-		TargetRotation,
-		DeltaTime,
-		14.f);
-
-	if (!NewLocation.Equals(CurrentLocation, 0.25f) || !Character->GetActorRotation().Equals(BlendedRotation, 0.5f))
+	if (!NewLocation.Equals(CurrentLocation, 0.1f) || !Character->GetActorRotation().Equals(NewRotation, 0.5f))
 	{
 		Character->SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
-		Character->SetActorRotation(BlendedRotation);
+		Character->SetActorRotation(NewRotation);
 		MoveComp->Velocity = FVector::ZeroVector;
 		MoveComp->bJustTeleported = true;
 	}
@@ -1689,13 +1898,11 @@ void USPParkourComponent::UpdateParkourRootMotion(float DeltaTime)
 
 float USPParkourComponent::GetParkourMontageAlpha() const
 {
-	float ElapsedAlpha = 1.f;
-	if (ParkourMontageDuration > KINDA_SMALL_NUMBER)
+	if (ParkourMontageDuration <= KINDA_SMALL_NUMBER)
 	{
-		ElapsedAlpha = FMath::Clamp(ParkourMontageElapsed / ParkourMontageDuration, 0.f, 1.f);
+		return 1.f;
 	}
 
-	float PositionAlpha = ElapsedAlpha;
 	if (ActiveParkourMontage)
 	{
 		if (const ACharacter* Character = GetParkourCharacter())
@@ -1704,20 +1911,23 @@ float USPParkourComponent::GetParkourMontageAlpha() const
 			{
 				if (const UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
 				{
-					const float MontageLength = ActiveParkourMontage->GetPlayLength();
-					if (MontageLength > KINDA_SMALL_NUMBER)
+					if (AnimInstance->Montage_IsPlaying(ActiveParkourMontage))
 					{
-						PositionAlpha = FMath::Clamp(
-							AnimInstance->Montage_GetPosition(ActiveParkourMontage) / MontageLength,
-							0.f,
-							1.f);
+						const float MontageLength = ActiveParkourMontage->GetPlayLength();
+						if (MontageLength > KINDA_SMALL_NUMBER)
+						{
+							return FMath::Clamp(
+								AnimInstance->Montage_GetPosition(ActiveParkourMontage) / MontageLength,
+								0.f,
+								1.f);
+						}
 					}
 				}
 			}
 		}
 	}
 
-	return FMath::Max(ElapsedAlpha, PositionAlpha);
+	return FMath::Clamp(ParkourMontageElapsed / ParkourMontageDuration, 0.f, 1.f);
 }
 
 bool USPParkourComponent::HasSufficientVaultForwardProgress(const FVector& Location) const
@@ -1736,9 +1946,17 @@ bool USPParkourComponent::HasSufficientVaultForwardProgress(const FVector& Locat
 		return false;
 	}
 
-	if (FVector::Dist2D(Location, ParkourVaultEndLocation) <= 100.f)
+	if (FVector::Dist2D(Location, ParkourVaultEndLocation) <= (bExemptFromWallVaultLimit ? 130.f : 100.f))
 	{
 		return true;
+	}
+
+	if (bExemptFromWallVaultLimit)
+	{
+		const float MinRequiredTravel = FMath::Max(
+			ParkourWallClearForward + ParkourMinLandingPastWallOffset * 0.25f,
+			PlannedTravel * 0.22f);
+		return ActualTravel >= MinRequiredTravel;
 	}
 
 	const float MinRequiredTravel = FMath::Max(
@@ -1806,6 +2024,18 @@ bool USPParkourComponent::ResolveParkourLanding(FVector& OutLocation, FRotator& 
 
 	OutRotation = ParkourStartTransform.Rotator();
 
+	if (bExemptFromWallVaultLimit)
+	{
+		OutLocation = ParkourVaultEndLocation;
+		FVector GroundedEnd = OutLocation;
+		SnapParkourLocationToGround(GroundedEnd);
+		OutLocation = GroundedEnd;
+		LogParkourDebug(
+			FString::Printf(TEXT("Killer vault land %s"), *OutLocation.ToCompactString()),
+			FColor::Green);
+		return true;
+	}
+
 	const ACharacter* Character = GetParkourCharacter();
 	if (Character)
 	{
@@ -1852,11 +2082,10 @@ bool USPParkourComponent::SnapParkourLocationToGround(FVector& InOutLocation, bo
 	return SampleParkourGroundCenterZ(InOutLocation, bIgnoreParkourObstacle);
 }
 
-void USPParkourComponent::SetParkourObstacleCollisionIgnored(bool bIgnore)
+void USPParkourComponent::SetParkourWallCollisionDisabled(bool bDisabled, AActor* PrimaryObstacle)
 {
-	AActor* ObstacleActor = CurrentParkourObstacle.Get();
 	ACharacter* Character = GetParkourCharacter();
-	if (!ObstacleActor || !Character)
+	if (!Character || !GetWorld())
 	{
 		return;
 	}
@@ -1864,40 +2093,60 @@ void USPParkourComponent::SetParkourObstacleCollisionIgnored(bool bIgnore)
 	UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
 	USkeletalMeshComponent* MeshComp = Character->GetMesh();
 
-	TArray<UPrimitiveComponent*> CharacterPrimitives;
-	if (Capsule)
+	auto SetActorIgnored = [&](AActor* Actor, bool bIgnore)
 	{
-		CharacterPrimitives.Add(Capsule);
-	}
-	if (MeshComp && MeshComp->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
-	{
-		CharacterPrimitives.Add(MeshComp);
-	}
-
-	TArray<UPrimitiveComponent*> ObstaclePrimitives;
-	ObstacleActor->GetComponents<UPrimitiveComponent>(ObstaclePrimitives);
-
-	for (UPrimitiveComponent* CharacterPrim : CharacterPrimitives)
-	{
-		for (UPrimitiveComponent* ObstaclePrim : ObstaclePrimitives)
+		if (!Actor || Actor == Character || SPParkour::IsLandscapeLikeObstacle(Actor))
 		{
-			if (CharacterPrim && ObstaclePrim)
+			return;
+		}
+
+		if (Capsule)
+		{
+			Capsule->IgnoreActorWhenMoving(Actor, bIgnore);
+		}
+
+		if (MeshComp)
+		{
+			MeshComp->IgnoreActorWhenMoving(Actor, bIgnore);
+		}
+	};
+
+	if (bDisabled)
+	{
+		if (AActor* ObstacleActor = PrimaryObstacle ? PrimaryObstacle : CurrentParkourObstacle.Get())
+		{
+			bool bAlreadyIgnored = false;
+			for (const TWeakObjectPtr<AActor>& Existing : CachedIgnoredWallActors)
 			{
-				CharacterPrim->IgnoreComponentWhenMoving(ObstaclePrim, bIgnore);
-				ObstaclePrim->IgnoreComponentWhenMoving(CharacterPrim, bIgnore);
+				if (Existing.Get() == ObstacleActor)
+				{
+					bAlreadyIgnored = true;
+					break;
+				}
 			}
+
+			if (!bAlreadyIgnored)
+			{
+				CachedIgnoredWallActors.Add(ObstacleActor);
+			}
+
+			SetActorIgnored(ObstacleActor, true);
 		}
 
-		if (CharacterPrim)
-		{
-			CharacterPrim->IgnoreActorWhenMoving(ObstacleActor, bIgnore);
-		}
+		LogParkourDebug(
+			FString::Printf(
+				TEXT("Wall ignored for parkour character only (%d actors)"),
+				CachedIgnoredWallActors.Num()),
+			FColor::Silver);
+		return;
 	}
 
-	if (bIgnore)
+	for (const TWeakObjectPtr<AActor>& CachedActor : CachedIgnoredWallActors)
 	{
-		LogParkourDebug(FString::Printf(TEXT("Ignore collision: %s"), *ObstacleActor->GetName()), FColor::Silver);
+		SetActorIgnored(CachedActor.Get(), false);
 	}
+	CachedIgnoredWallActors.Empty();
+	LogParkourDebug(TEXT("Wall collision ignore restored"), FColor::Silver);
 }
 
 void USPParkourComponent::SetParkourCollisionSuppressed(bool bSuppressed)
@@ -1977,9 +2226,8 @@ void USPParkourComponent::ApplyParkourLanding(const FVector& WorldLocation, cons
 	SnapParkourLocationToGround(ResolvedLocation);
 
 	const FVector CurrentLocation = Character->GetActorLocation();
-	const bool bAlreadyAligned =
-		FVector::Dist2D(CurrentLocation, ResolvedLocation) <= 12.f &&
-		FMath::Abs(CurrentLocation.Z - ResolvedLocation.Z) <= 5.f;
+	const bool bAlreadyAligned = FVector::Dist2D(CurrentLocation, ResolvedLocation) <= 12.f
+		&& FMath::Abs(CurrentLocation.Z - ResolvedLocation.Z) <= 8.f;
 
 	if (!bAlreadyAligned)
 	{
@@ -2112,9 +2360,9 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 		}
 	}
 
-	if (CurrentParkourObstacle.IsValid())
+	if (CurrentParkourObstacle.IsValid() || !CachedIgnoredWallActors.IsEmpty())
 	{
-		SetParkourObstacleCollisionIgnored(false);
+		SetParkourWallCollisionDisabled(false);
 	}
 
 	SetParkourCollisionSuppressed(false);
@@ -2126,6 +2374,7 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 			Character->PrimaryActorTick.RemovePrerequisite(MoveComp, MoveComp->PrimaryComponentTick);
 			MoveComp->bAllowPhysicsRotationDuringAnimRootMotion = false;
 			MoveComp->GravityScale = CachedGravityScale;
+			MoveComp->NetworkSmoothingMode = CachedNetworkSmoothingMode;
 			if (CachedMovementMode != MOVE_None)
 			{
 				MoveComp->SetMovementMode(CachedMovementMode);
@@ -2136,7 +2385,11 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 	CurrentParkourObstacle = nullptr;
 	ActiveParkourMontage = nullptr;
 	ParkourObstacleHeight = 0.f;
+	ParkourObstacleTopZ = 0.f;
 	ParkourStartFeetZ = 0.f;
+	ParkourObstacleImpactPoint = FVector::ZeroVector;
+	ParkourPlannedForwardTravel = 0.f;
+	ParkourVaultEndGroundZ = 0.f;
 	ParkourVaultEndLocation = FVector::ZeroVector;
 	ParkourVaultPeakCenterZ = 0.f;
 	ParkourWallClearForward = 0.f;
@@ -2144,6 +2397,7 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 	bParkourVaultEndValid = false;
 	bParkourFeetOnGround = false;
 	ParkourLandNotifyMontageAlpha = -1.f;
+	ParkourKillerDescentStartAlpha = -1.f;
 	ParkourMontageElapsed = 0.f;
 	ParkourMontageDuration = 0.f;
 
