@@ -4,9 +4,9 @@
 #include "GameFramework/Actor.h"
 #include "SPParkourZone.generated.h"
 
+class ACharacter;
 class UBoxComponent;
 class UBillboardComponent;
-class ASurvivorCharacter;
 
 UCLASS(Blueprintable)
 class SPACH4_API ASPParkourZone : public AActor
@@ -51,5 +51,5 @@ protected:
 	bool bDrawDebugBounds = false;
 
 private:
-	void HandleSurvivorOverlap(ASurvivorCharacter* Survivor, bool bEntered);
+	void HandleCharacterOverlap(ACharacter* Character, bool bEntered);
 };

@@ -7,6 +7,7 @@
 
 class UKillerData;
 class USPKillerCarryAnimComponent;
+class USPParkourComponent;
 //class USPKillerFirstPersonMeshComponent;
 class ACage;
 
@@ -49,6 +50,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     EKillerState GetKillerState() const { return CurrentState; }
 
+    UFUNCTION(BlueprintPure, Category = "Killer|Parkour")
+    bool IsParkouring() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Killer|Parkour")
+    void NotifyParkourEnded();
+
+    USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
+
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
     */
@@ -67,6 +76,7 @@ protected:
 
     // 입력 및 상호작용
     virtual void Interact() override;
+    virtual void JumpOver() override;
     void Attack();
 
     UFUNCTION(Server, Reliable)
@@ -97,6 +107,9 @@ protected:
 
     UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
     TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Parkour")
+    TObjectPtr<USPParkourComponent> ParkourComponent;
 
     TWeakObjectPtr<AActor> PendingPickupTarget;
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->

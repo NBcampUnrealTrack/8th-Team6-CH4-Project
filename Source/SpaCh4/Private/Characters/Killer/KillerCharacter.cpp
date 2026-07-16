@@ -3,6 +3,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
+#include "InputActionValue.h"
+#include "InputAction.h"
 #include "EnhancedInputComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputSubsystems.h"
@@ -11,6 +13,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SPKillerCarryAnimComponent.h"
+#include "Components/SPParkourComponent.h"
 /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
 #include "Components/SPKillerFirstPersonMeshComponent.h"
 */
@@ -60,6 +63,7 @@ AKillerCharacter::AKillerCharacter()
     
     charTag.AddTag(SPGameplayTags::Character::Killer);
     CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
+    ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
     /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
     FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
     */
@@ -552,6 +556,7 @@ void AKillerCharacter::DropSurvivor()
     // 상태를 Idle로 변경
     SetKillerState(EKillerState::Idle);
     
+    // bIsBusy 해제 (중요)
     bIsBusy = false;
 }
 
@@ -563,7 +568,37 @@ void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     {
         if (InputConfig->AttackAction) EIC->BindAction(InputConfig->AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::Attack);
         if (InputConfig->InteractAction) EIC->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::Interact);
+
+        UInputAction* JumpOverAction = InputConfig->JumpOverAction.Get();
+        if (!JumpOverAction)
+        {
+            JumpOverAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_JumpOver.IA_JumpOver"));
+        }
+        if (JumpOverAction)
+        {
+            EIC->BindAction(JumpOverAction, ETriggerEvent::Started, this, &AKillerCharacter::JumpOver);
+        }
     }
+}
+
+void AKillerCharacter::JumpOver()
+{
+    Super::JumpOver();
+
+    if (ParkourComponent)
+    {
+        ParkourComponent->RequestJumpOver();
+    }
+}
+
+bool AKillerCharacter::IsParkouring() const
+{
+    return ParkourComponent && ParkourComponent->IsParkouring();
+}
+
+void AKillerCharacter::NotifyParkourEnded()
+{
+    UpdateMovementSpeed();
 }
 
 void AKillerCharacter::UpdateMovementSpeed()
@@ -641,7 +676,6 @@ bool AKillerCharacter::PerformAttackTrace()
             if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
             {
                 HitSurvivor->ApplyHit();
-                // 공격 성공 및 다운 시킨 횟수 기록
                 if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
                 {
                     LDPlayerState->RecordKillerHit(SState == ESurvivorState::Injured);
@@ -715,6 +749,7 @@ void AKillerCharacter::Attack() { Server_Attack(); }
 
 void AKillerCharacter::Server_Attack_Implementation()
 {
+    if (IsParkouring()) return;
     if (CurrentState == EKillerState::Idle) PerformAttack();
 }
 
@@ -723,7 +758,7 @@ void AKillerCharacter::Interact() { Server_Interact(); }
 
 void AKillerCharacter::Server_Interact_Implementation()
 {
-    if (!KillerData || bIsBusy) return;
+    if (!KillerData || bIsBusy || IsParkouring()) return;
     
     // 1. Idle 상태일 때: 생존자 픽업 (bCanPickup 쿨타임 체크 추가)
     switch (CurrentState)
@@ -789,7 +824,6 @@ void AKillerCharacter::HandleCarryingInteraction()
     }
 }
 
-
 void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
 {
     if (!TargetCage) return;
@@ -813,7 +847,6 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
             Survivor->EnterCaged(TargetCage);
         }
         
-        TargetCage->SetCageStatus(ECageStatus::Occupied);
         CarriedSurvivor = nullptr;
         
         SetKillerState(EKillerState::Idle);

@@ -3,13 +3,18 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_SPParkourLand.h"
+#include "Characters/Killer/KillerCharacter.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SPInteractionComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Engine.h"
+#include "Engine/EngineTypes.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
@@ -23,12 +28,52 @@ namespace SPParkour
 	static constexpr TCHAR HurdleMontagePath[] =
 		TEXT("/Game/Assets/Survivor_Locomotion/Miscellaneous/M_Neutral_Traversal_Hurdle_1_0_stand_F_V2_Rfoot1_Montage.M_Neutral_Traversal_Hurdle_1_0_stand_F_V2_Rfoot1_Montage");
 
+	static constexpr TCHAR KillerParkourMontagePath[] =
+		TEXT("/Game/Assets/Killer_Locomotion/Parkour/SK_Rogue_Main_Sequence_Montage.SK_Rogue_Main_Sequence_Montage");
+
 	static FCollisionObjectQueryParams MakeObstacleObjectQuery()
 	{
 		FCollisionObjectQueryParams Params;
 		Params.AddObjectTypesToQuery(ECC_WorldStatic);
 		Params.AddObjectTypesToQuery(ECC_WorldDynamic);
 		return Params;
+	}
+
+	static bool IsLandscapeLikeObstacle(const AActor* Actor)
+	{
+		return Actor && Actor->GetClass()->GetName().Contains(TEXT("Landscape"));
+	}
+
+	static float ComputeObstacleDepth(const AActor* ObstacleActor, const FVector& Forward)
+	{
+		float ObstacleDepth = 35.f;
+		if (!ObstacleActor)
+		{
+			return ObstacleDepth;
+		}
+
+		if (IsLandscapeLikeObstacle(ObstacleActor))
+		{
+			return 45.f;
+		}
+
+		FVector Origin;
+		FVector Extent;
+		ObstacleActor->GetActorBounds(true, Origin, Extent);
+		ObstacleDepth = FMath::Abs(Forward.X) * Extent.X * 2.f + FMath::Abs(Forward.Y) * Extent.Y * 2.f;
+		return FMath::Clamp(ObstacleDepth, 25.f, 120.f);
+	}
+
+	static float ComputeVaultPeakCenterZ(
+		const float StartFeetZ,
+		const float ObstacleHeight,
+		const float HalfHeight,
+		const float CapsuleRadius,
+		const float Clearance,
+		const float ReferenceHeight)
+	{
+		const float EffectiveObstacleHeight = FMath::Max(ObstacleHeight, ReferenceHeight * 0.9f);
+		return StartFeetZ + EffectiveObstacleHeight + HalfHeight + Clearance + CapsuleRadius * 0.55f + 35.f;
 	}
 }
 
@@ -55,11 +100,44 @@ void USPParkourComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (Cast<AKillerCharacter>(GetOwner()))
+	{
+		bExemptFromWallVaultLimit = true;
+		ParkourMontage = LoadObject<UAnimMontage>(nullptr, SPParkour::KillerParkourMontagePath);
+
+		ParkourTraceDistance = FMath::Max(ParkourTraceDistance, 240.f);
+		ParkourMaxStartDistance = FMath::Max(ParkourMaxStartDistance, 190.f);
+		ParkourTraceRadius = FMath::Max(ParkourTraceRadius, 55.f);
+		MaxObstacleHeight = FMath::Max(MaxObstacleHeight, 400.f);
+		ParkourMaxVaultTravel = FMath::Max(ParkourMaxVaultTravel, 320.f);
+		ParkourLandingForwardOffset = FMath::Max(ParkourLandingForwardOffset, 65.f);
+
+		if (const ACharacter* KillerCharacter = GetParkourCharacter())
+		{
+			if (const UCapsuleComponent* Capsule = KillerCharacter->GetCapsuleComponent())
+			{
+				const float RadiusScale = FMath::Max(1.f, Capsule->GetScaledCapsuleRadius() / 34.f);
+				ParkourMaxStartDistance *= RadiusScale;
+				ParkourTraceDistance *= RadiusScale;
+				ParkourMaxVaultTravel *= RadiusScale;
+				ParkourTraceRadius = FMath::Max(ParkourTraceRadius, Capsule->GetScaledCapsuleRadius() * 1.1f);
+			}
+		}
+	}
+
+	ParkourMinStartDistance = FMath::Min(ParkourMinStartDistance, 12.f);
+	ParkourMaxStartDistance = FMath::Max(ParkourMaxStartDistance, 100.f);
+	ParkourMaxVaultTravel = FMath::Max(ParkourMaxVaultTravel, 220.f);
+	ParkourReferenceObstacleHeight = FMath::Max(ParkourReferenceObstacleHeight, 90.f);
+	ParkourClearanceOverObstacle = FMath::Max(ParkourClearanceOverObstacle, 55.f);
+	ParkourLandingForwardOffset = FMath::Max(ParkourLandingForwardOffset, 75.f);
+	ParkourMinLandingPastWallOffset = FMath::Max(ParkourMinLandingPastWallOffset, 35.f);
+
 	EnsureMontagesLoaded();
 
-	if (ASurvivorCharacter* Survivor = GetSurvivor())
+	if (ACharacter* Character = GetParkourCharacter())
 	{
-		if (USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
+		if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
 		{
 			if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
 			{
@@ -82,17 +160,78 @@ void USPParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	ParkourMontageElapsed += DeltaTime;
 	UpdateParkourRootMotion(DeltaTime);
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	UAnimInstance* AnimInstance = Survivor && Survivor->GetMesh() ? Survivor->GetMesh()->GetAnimInstance() : nullptr;
+	ACharacter* Character = GetParkourCharacter();
+	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
 	if (!AnimInstance || !AnimInstance->Montage_IsPlaying(ActiveParkourMontage))
 	{
 		EndParkour(false);
 	}
 }
 
-ASurvivorCharacter* USPParkourComponent::GetSurvivor() const
+ACharacter* USPParkourComponent::GetParkourCharacter() const
 {
-	return Cast<ASurvivorCharacter>(GetOwner());
+	return Cast<ACharacter>(GetOwner());
+}
+
+bool USPParkourComponent::CanOwnerPerformParkour() const
+{
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character)
+	{
+		return false;
+	}
+
+	if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Character))
+	{
+		const ESurvivorState State = Survivor->GetSurvivorState();
+		return State == ESurvivorState::Healthy || State == ESurvivorState::Injured;
+	}
+
+	if (const AKillerCharacter* Killer = Cast<AKillerCharacter>(Character))
+	{
+		return Killer->GetKillerState() == EKillerState::Idle;
+	}
+
+	return false;
+}
+
+float USPParkourComponent::GetParkourFeetZ(const ACharacter* Character, const UCapsuleComponent* Capsule) const
+{
+	if (!Character || !Capsule)
+	{
+		return 0.f;
+	}
+
+	const float CapsuleFeetZ = Character->GetActorLocation().Z - Capsule->GetScaledCapsuleHalfHeight();
+
+	if (const UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+	{
+		if (MoveComp->CurrentFloor.IsWalkableFloor())
+		{
+			return MoveComp->CurrentFloor.HitResult.ImpactPoint.Z;
+		}
+	}
+
+	if (!GetWorld())
+	{
+		return CapsuleFeetZ;
+	}
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourFeet), false, Character);
+	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	const FVector CapsuleBottom = Character->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+	const FVector TraceStart = CapsuleBottom + FVector(0.f, 0.f, 2.f);
+	const FVector TraceEnd = CapsuleBottom - FVector(0.f, 0.f, 60.f);
+
+	FHitResult GroundHit;
+	const FCollisionObjectQueryParams ObjQuery = SPParkour::MakeObstacleObjectQuery();
+	if (GetWorld()->LineTraceSingleByObjectType(GroundHit, TraceStart, TraceEnd, ObjQuery, Params)
+		&& GroundHit.bBlockingHit)
+	{
+		return GroundHit.ImpactPoint.Z;
+	}
+
+	return CapsuleFeetZ;
 }
 
 bool USPParkourComponent::CanJumpOver() const
@@ -102,13 +241,13 @@ bool USPParkourComponent::CanJumpOver() const
 		return false;
 	}
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor)
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
 		return false;
 	}
 
-	if (const UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
+	if (const UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
 	{
 		if (MoveComp->IsFalling())
 		{
@@ -116,8 +255,7 @@ bool USPParkourComponent::CanJumpOver() const
 		}
 	}
 
-	const ESurvivorState State = Survivor->GetSurvivorState();
-	if (State != ESurvivorState::Healthy && State != ESurvivorState::Injured)
+	if (!CanOwnerPerformParkour())
 	{
 		return false;
 	}
@@ -132,7 +270,7 @@ bool USPParkourComponent::CanJumpOver() const
 
 void USPParkourComponent::RequestJumpOver()
 {
-	LogParkourDebug(TEXT("JumpOver 입력"), FColor::Cyan);
+	LogParkourDebug(TEXT("JumpOver input"), FColor::Cyan);
 
 	if (!CanJumpOver())
 	{
@@ -152,10 +290,15 @@ void USPParkourComponent::RequestJumpOver()
 
 void USPParkourComponent::EnsureMontagesLoaded()
 {
-	if (!ParkourMontage)
+	if (ParkourMontage)
 	{
-		ParkourMontage = LoadObject<UAnimMontage>(nullptr, SPParkour::HurdleMontagePath);
+		return;
 	}
+
+	const TCHAR* MontagePath = bExemptFromWallVaultLimit
+		? SPParkour::KillerParkourMontagePath
+		: SPParkour::HurdleMontagePath;
+	ParkourMontage = LoadObject<UAnimMontage>(nullptr, MontagePath);
 }
 
 bool USPParkourComponent::Server_JumpOver_Validate()
@@ -185,47 +328,49 @@ void USPParkourComponent::Server_JumpOver_Implementation()
 	UAnimMontage* Montage = ParkourMontage;
 	if (!Montage)
 	{
-		LogParkourDebug(TEXT("ParkourMontage null — Hurdle 몽타주 경로 확인"), FColor::Red);
+		LogParkourDebug(TEXT("ParkourMontage null - montage path check"), FColor::Red);
 		return;
 	}
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor)
+	ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
 		return;
 	}
 
-	const FVector ToObstacle = ObstacleHit.ImpactPoint - Survivor->GetActorLocation();
+	const FVector ToObstacle = ObstacleHit.ImpactPoint - Character->GetActorLocation();
 	const FRotator FacingRotation = FRotator(0.f, FRotationMatrix::MakeFromX(ToObstacle.GetSafeNormal2D()).Rotator().Yaw, 0.f);
 
 	FString VaultFailReason;
 	if (!PreviewParkourVault(FacingRotation, ObstacleHeight, ObstacleHit.GetActor(), ObstacleHit.ImpactPoint, &VaultFailReason))
 	{
 		LogParkourDebug(
-			VaultFailReason.IsEmpty() ? TEXT("Vault landing preview failed") : VaultFailReason,
-			FColor::Orange);
-		return;
+			VaultFailReason.IsEmpty() ? TEXT("Vault preview skipped (lenient)") : FString::Printf(TEXT("Vault preview warn: %s"), *VaultFailReason),
+			FColor::Yellow);
 	}
 
 	FString WallLimitReason;
-	if (IsObstacleVaultBlocked(ObstacleHit.GetActor(), &WallLimitReason))
+	if (!bExemptFromWallVaultLimit)
 	{
-		LogParkourDebug(
-			WallLimitReason.IsEmpty() ? TEXT("Wall vault on cooldown") : WallLimitReason,
-			FColor::Orange);
-		return;
-	}
+		if (IsObstacleVaultBlocked(ObstacleHit.GetActor(), &WallLimitReason))
+		{
+			LogParkourDebug(
+				WallLimitReason.IsEmpty() ? TEXT("Wall vault on cooldown") : WallLimitReason,
+				FColor::Orange);
+			return;
+		}
 
-	if (!TryRegisterWallVault(ObstacleHit.GetActor(), &WallLimitReason))
-	{
-		LogParkourDebug(
-			WallLimitReason.IsEmpty() ? TEXT("Wall vault registration failed") : WallLimitReason,
-			FColor::Orange);
-		return;
+		if (!TryRegisterWallVault(ObstacleHit.GetActor(), &WallLimitReason))
+		{
+			LogParkourDebug(
+				WallLimitReason.IsEmpty() ? TEXT("Wall vault registration failed") : WallLimitReason,
+				FColor::Orange);
+			return;
+		}
 	}
 
 	LogParkourDebug(
-		FString::Printf(TEXT("Start H:%.0f D:%.0f -> %s"), ObstacleHeight, FVector::Dist2D(Survivor->GetActorLocation(), ObstacleHit.ImpactPoint), *Montage->GetName()),
+		FString::Printf(TEXT("Start H:%.0f D:%.0f -> %s"), ObstacleHeight, FVector::Dist2D(Character->GetActorLocation(), ObstacleHit.ImpactPoint), *Montage->GetName()),
 		FColor::Green);
 
 	Multicast_PlayParkourMontage(Montage, ObstacleHit.GetActor(), FacingRotation, ObstacleHeight, ObstacleHit.ImpactPoint);
@@ -248,18 +393,18 @@ void USPParkourComponent::Multicast_PlayParkourMontage_Implementation(
 
 void USPParkourComponent::GetParkourFacing(FVector& OutForward, FVector& OutRight) const
 {
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor)
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
 		OutForward = FVector::ForwardVector;
 		OutRight = FVector::RightVector;
 		return;
 	}
 
-	OutForward = Survivor->GetActorForwardVector().GetSafeNormal2D();
-	OutRight = Survivor->GetActorRightVector().GetSafeNormal2D();
+	OutForward = Character->GetActorForwardVector().GetSafeNormal2D();
+	OutRight = Character->GetActorRightVector().GetSafeNormal2D();
 
-	if (const UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
+	if (const UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
 	{
 		const FVector Velocity2D = FVector(MoveComp->Velocity.X, MoveComp->Velocity.Y, 0.f);
 		if (!Velocity2D.IsNearlyZero(25.f))
@@ -282,8 +427,8 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 
 	OutObstacleHeight = 0.f;
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule || !GetWorld())
 	{
 		SetFail(TEXT("Capsule/World missing"));
@@ -302,11 +447,23 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	(void)Right;
 
 	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
-	const FVector FeetLocation = Survivor->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+	const float CapsuleRadius = Capsule->GetScaledCapsuleRadius();
+	const float FeetZ = GetParkourFeetZ(Character, Capsule);
+	const FVector FeetLocation(Character->GetActorLocation().X, Character->GetActorLocation().Y, FeetZ);
 	const FVector TraceStart = FeetLocation + FVector(0.f, 0.f, HalfHeight * 0.6f);
 	const FVector TraceEnd = TraceStart + Forward * ParkourTraceDistance;
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourTrace), false, Survivor);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourTrace), false, Character);
+	if (const ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Character))
+	{
+		if (const USPInteractionComponent* InteractionComponent = Survivor->GetInteractionComponent())
+		{
+			if (ASPCollectibleItem* CarriedItem = InteractionComponent->GetCarriedItem())
+			{
+				Params.AddIgnoredActor(CarriedItem);
+			}
+		}
+	}
 
 	const FCollisionObjectQueryParams ObjQuery = SPParkour::MakeObstacleObjectQuery();
 	const bool bForwardHit = GetWorld()->SweepSingleByObjectType(
@@ -333,72 +490,99 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 		return false;
 	}
 
-	const float HitDistance = FVector::Dist2D(FeetLocation, OutObstacleHit.ImpactPoint);
-	if (HitDistance < ParkourMinStartDistance)
+	const FVector ActorCenter = Character->GetActorLocation();
+	const FVector ToObstacle2D(
+		OutObstacleHit.ImpactPoint.X - ActorCenter.X,
+		OutObstacleHit.ImpactPoint.Y - ActorCenter.Y,
+		0.f);
+	const float HitDistance = FMath::Max(0.f, FVector::DotProduct(ToObstacle2D, Forward) - CapsuleRadius);
+
+	if (OutObstacleHit.bStartPenetrating && OutObstacleHit.PenetrationDepth > CapsuleRadius * 0.6f)
 	{
-		SetFail(FString::Printf(TEXT("Too close (%.0f < %.0f)"), HitDistance, ParkourMinStartDistance));
+		SetFail(TEXT("Inside obstacle"));
 		return false;
 	}
-	if (HitDistance > ParkourMaxStartDistance)
+
+	if (HitDistance > ParkourMaxStartDistance + 15.f)
 	{
 		SetFail(FString::Printf(TEXT("Too far (%.0f > %.0f)"), HitDistance, ParkourMaxStartDistance));
 		return false;
 	}
 
 	const FVector SurfaceNormal2D = FVector(OutObstacleHit.ImpactNormal.X, OutObstacleHit.ImpactNormal.Y, 0.f).GetSafeNormal();
-	if (SurfaceNormal2D.IsNearlyZero() || FVector::DotProduct(Forward, -SurfaceNormal2D) < 0.25f)
+	if (!SurfaceNormal2D.IsNearlyZero())
 	{
-		SetFail(TEXT("Must face obstacle"));
-		return false;
+		const FVector ActorForward = Character->GetActorForwardVector().GetSafeNormal2D();
+		const float FaceDot = FMath::Max(
+			FVector::DotProduct(Forward, -SurfaceNormal2D),
+			FVector::DotProduct(ActorForward, -SurfaceNormal2D));
+		if (FaceDot < -0.35f)
+		{
+			SetFail(TEXT("Must face obstacle"));
+			return false;
+		}
 	}
 
+	const FVector ImpactNormal = OutObstacleHit.ImpactNormal.GetSafeNormal();
+	const FVector WallSamplePoint = OutObstacleHit.ImpactPoint - ImpactNormal * 10.f;
+
 	const FVector TopTraceStart(
-		OutObstacleHit.ImpactPoint.X,
-		OutObstacleHit.ImpactPoint.Y,
+		WallSamplePoint.X,
+		WallSamplePoint.Y,
 		FeetLocation.Z + MaxObstacleHeight + 80.f);
 	const FVector TopTraceEnd(
-		OutObstacleHit.ImpactPoint.X,
-		OutObstacleHit.ImpactPoint.Y,
+		WallSamplePoint.X,
+		WallSamplePoint.Y,
 		FeetLocation.Z - 5.f);
 
-	FHitResult TopHit;
-	const bool bTopHit = GetWorld()->LineTraceSingleByObjectType(
-		TopHit,
+	AActor* ForwardHitActor = OutObstacleHit.GetActor();
+
+	TArray<FHitResult> TopHits;
+	const bool bAnyTopHit = GetWorld()->LineTraceMultiByObjectType(
+		TopHits,
 		TopTraceStart,
 		TopTraceEnd,
 		ObjQuery,
 		Params);
 
-	if (!bTopHit || !TopHit.bBlockingHit)
+	float ObstacleTopZ = -MAX_FLT;
+	if (bAnyTopHit)
 	{
-		SetFail(TEXT("Obstacle height trace failed"));
-		return false;
+		for (const FHitResult& Hit : TopHits)
+		{
+			if (!Hit.bBlockingHit)
+			{
+				continue;
+			}
+
+			const bool bSameObstacle = ForwardHitActor && Hit.GetActor() == ForwardHitActor;
+			if (!bSameObstacle)
+			{
+				continue;
+			}
+
+			ObstacleTopZ = FMath::Max(ObstacleTopZ, Hit.ImpactPoint.Z);
+		}
 	}
 
-	OutObstacleHeight = TopHit.ImpactPoint.Z - FeetLocation.Z;
-	if (OutObstacleHeight < MinObstacleHeight)
+	if (ObstacleTopZ <= -MAX_FLT + 1.f)
 	{
-		SetFail(FString::Printf(TEXT("Too low (%.0f < %.0f)"), OutObstacleHeight, MinObstacleHeight));
-		return false;
+		OutObstacleHeight = ParkourReferenceObstacleHeight;
 	}
-	if (OutObstacleHeight > MaxObstacleHeight)
+	else
 	{
-		SetFail(FString::Printf(TEXT("Too high (%.0f > %.0f)"), OutObstacleHeight, MaxObstacleHeight));
-		return false;
+		OutObstacleHeight = ObstacleTopZ - FeetLocation.Z;
 	}
 
-	if (bRequireParkourZone && !IsParkourLocationAllowed(OutObstacleHit.ImpactPoint))
-	{
-		SetFail(TEXT("Obstacle outside parkour zone"));
-		return false;
-	}
+	OutObstacleHeight = FMath::Clamp(OutObstacleHeight, MinObstacleHeight, MaxObstacleHeight);
+	OutObstacleHeight = FMath::Max(OutObstacleHeight, ParkourReferenceObstacleHeight);
 
 	if (bDrawDebug)
 	{
 		DrawDebugLine(GetWorld(), TopTraceStart, TopTraceEnd, FColor::Cyan, false, 1.5f, 0, 1.5f);
 		DrawDebugString(
 			GetWorld(),
-			TopHit.ImpactPoint,
+			FVector(OutObstacleHit.ImpactPoint.X, OutObstacleHit.ImpactPoint.Y, ObstacleTopZ),
 			FString::Printf(TEXT("H:%.0f D:%.0f"), OutObstacleHeight, HitDistance),
 			nullptr,
 			FColor::White,
@@ -415,20 +599,20 @@ void USPParkourComponent::PlayParkourMontage(
 	float ObstacleHeight,
 	const FVector& ObstacleImpactPoint)
 {
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Montage || !Survivor)
+	ACharacter* Character = GetParkourCharacter();
+	if (!Montage || !Character)
 	{
 		return;
 	}
 
-	USkeletalMeshComponent* MeshComp = Survivor->GetMesh();
+	USkeletalMeshComponent* MeshComp = Character->GetMesh();
 	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
 	if (!AnimInstance)
 	{
 		return;
 	}
 
-	UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement();
+	UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
 	if (MoveComp)
 	{
 		CachedMovementMode = MoveComp->MovementMode;
@@ -443,14 +627,14 @@ void USPParkourComponent::PlayParkourMontage(
 	CachedRootMotionMode = AnimInstance->RootMotionMode;
 	AnimInstance->SetRootMotionMode(ERootMotionMode::IgnoreRootMotion);
 
-	ParkourStartTransform = Survivor->GetActorTransform();
-	Survivor->SetActorRotation(FRotator(0.f, FacingRotation.Yaw, 0.f));
-	ParkourStartTransform.SetRotation(Survivor->GetActorRotation().Quaternion());
+	ParkourStartTransform = Character->GetActorTransform();
+	Character->SetActorRotation(FRotator(0.f, FacingRotation.Yaw, 0.f));
+	ParkourStartTransform.SetRotation(Character->GetActorRotation().Quaternion());
 
 	ParkourObstacleHeight = FMath::Clamp(ObstacleHeight, MinObstacleHeight, MaxObstacleHeight);
-	if (const UCapsuleComponent* Capsule = Survivor->GetCapsuleComponent())
+	if (const UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
 	{
-		ParkourStartFeetZ = ParkourStartTransform.GetLocation().Z - Capsule->GetScaledCapsuleHalfHeight();
+		ParkourStartFeetZ = GetParkourFeetZ(Character, Capsule);
 	}
 
 	LogParkourDebug(
@@ -465,6 +649,8 @@ void USPParkourComponent::PlayParkourMontage(
 		SetParkourObstacleCollisionIgnored(true);
 	}
 
+	SetParkourCollisionSuppressed(true);
+
 	ActiveParkourMontage = Montage;
 	bIsParkour = true;
 	bParkourFeetOnGround = false;
@@ -472,10 +658,10 @@ void USPParkourComponent::PlayParkourMontage(
 
 	if (MoveComp)
 	{
-		Survivor->PrimaryActorTick.AddPrerequisite(MoveComp, MoveComp->PrimaryComponentTick);
+		Character->PrimaryActorTick.AddPrerequisite(MoveComp, MoveComp->PrimaryComponentTick);
 	}
 
-	if (AController* Ctrl = Survivor->GetController())
+	if (AController* Ctrl = Character->GetController())
 	{
 		Ctrl->SetIgnoreMoveInput(true);
 	}
@@ -487,7 +673,7 @@ void USPParkourComponent::PlayParkourMontage(
 	if (Duration <= 0.f)
 	{
 		LogParkourDebug(
-			TEXT("Montage_Play 실패 — ABP Slot(DefaultSlot)과 몽타주 슬롯·AnimClass 확인"),
+			TEXT("Montage_Play failed - check ABP slot and AnimClass"),
 			FColor::Red);
 		EndParkour(true);
 		return;
@@ -532,8 +718,8 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 
 	if (!bParkourVaultEndValid)
 	{
-		const ASurvivorCharacter* Survivor = GetSurvivor();
-		const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+		const ACharacter* Character = GetParkourCharacter();
+		const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 		if (Capsule)
 		{
 			const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
@@ -541,15 +727,7 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 			const float Radius = Capsule->GetScaledCapsuleRadius();
 			const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
 
-			float ObstacleDepth = 35.f;
-			if (ObstacleActor)
-			{
-				FVector Origin;
-				FVector Extent;
-				ObstacleActor->GetActorBounds(true, Origin, Extent);
-				ObstacleDepth = FMath::Abs(Forward.X) * Extent.X * 2.f + FMath::Abs(Forward.Y) * Extent.Y * 2.f;
-				ObstacleDepth = FMath::Max(ObstacleDepth, 25.f);
-			}
+			const float ObstacleDepth = SPParkour::ComputeObstacleDepth(ObstacleActor, Forward);
 
 			const float DistToWallFace = FMath::Max(
 				FVector::DotProduct(ObstacleImpactPoint - StartCenter, Forward),
@@ -559,7 +737,13 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 				ParkourMaxVaultTravel);
 
 			ParkourVaultEndLocation = StartCenter + Forward * FallbackTravel;
-			ParkourVaultPeakCenterZ = ParkourStartFeetZ + ParkourObstacleHeight + HalfHeight + ParkourClearanceOverObstacle;
+			ParkourVaultPeakCenterZ = SPParkour::ComputeVaultPeakCenterZ(
+				ParkourStartFeetZ,
+				ParkourObstacleHeight,
+				HalfHeight,
+				Radius,
+				ParkourClearanceOverObstacle,
+				ParkourReferenceObstacleHeight);
 			ParkourWallClearForward = DistToWallFace + ObstacleDepth + Radius;
 
 			if (SampleParkourGroundCenterZ(ParkourVaultEndLocation, true, ObstacleActor, ParkourVaultPeakCenterZ))
@@ -583,7 +767,7 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 		LogParkourDebug(
 			bParkourVaultEndValid
 				? TEXT("Vault targets recovered with fallback landing")
-				: TEXT("Vault targets invalid — using start as landing"),
+				: TEXT("Vault targets invalid - using start as landing"),
 			FColor::Orange);
 
 		if (!bParkourVaultEndValid)
@@ -598,11 +782,13 @@ void USPParkourComponent::InitParkourVaultTargets(AActor* ObstacleActor, const F
 
 	LogParkourDebug(
 		FString::Printf(
-			TEXT("Vault path end %s peakZ %.0f peak@%.2f land@%.2f"),
+			TEXT("Vault travel %.0fcm wallClear %.0fcm end %s peakZ %.0f"),
+			FVector::DotProduct(
+				ParkourVaultEndLocation - ParkourStartTransform.GetLocation(),
+				ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D()),
+			ParkourWallClearForward,
 			*ParkourVaultEndLocation.ToCompactString(),
-			ParkourVaultPeakCenterZ,
-			ParkourVaultPeakMontageAlpha,
-			ParkourLandByMontageAlpha),
+			ParkourVaultPeakCenterZ),
 		FColor::Silver);
 }
 
@@ -626,8 +812,8 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 		}
 	};
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule || !GetWorld())
 	{
 		SetFail(TEXT("Capsule/World missing"));
@@ -639,46 +825,46 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
 	const float Radius = Capsule->GetScaledCapsuleRadius();
 
-	float ObstacleDepth = 35.f;
-	if (ObstacleActor)
-	{
-		FVector Origin;
-		FVector Extent;
-		ObstacleActor->GetActorBounds(true, Origin, Extent);
-		ObstacleDepth = FMath::Abs(Forward.X) * Extent.X * 2.f + FMath::Abs(Forward.Y) * Extent.Y * 2.f;
-		ObstacleDepth = FMath::Max(ObstacleDepth, 25.f);
-	}
+	const float ObstacleDepth = SPParkour::ComputeObstacleDepth(ObstacleActor, Forward);
 
 	const float DistToWallFace = FMath::Max(
 		FVector::DotProduct(ObstacleImpactPoint - StartCenter, Forward),
 		0.f);
 	const float MinTravelPastWall = DistToWallFace + ObstacleDepth + Radius + ParkourMinLandingPastWallOffset;
 	float TravelPastWall = DistToWallFace + ObstacleDepth + Radius + ParkourLandingForwardOffset;
+	TravelPastWall = FMath::Max(TravelPastWall, MinTravelPastWall);
+	TravelPastWall = FMath::Max(TravelPastWall, DistToWallFace + 100.f);
 	TravelPastWall = FMath::Clamp(TravelPastWall, MinTravelPastWall, ParkourMaxVaultTravel);
 
 	if (MinTravelPastWall > ParkourMaxVaultTravel + 1.f)
 	{
-		SetFail(FString::Printf(
-			TEXT("Need %.0fcm travel but max is %.0f"),
-			MinTravelPastWall,
-			ParkourMaxVaultTravel));
-		return false;
+		TravelPastWall = ParkourMaxVaultTravel;
+	}
+	else
+	{
+		TravelPastWall = FMath::Clamp(TravelPastWall, MinTravelPastWall, ParkourMaxVaultTravel);
 	}
 
-	const float ObstacleTopZ = StartFeetZ + ObstacleHeight;
-	OutPeakCenterZ = ObstacleTopZ + HalfHeight + ParkourClearanceOverObstacle;
+	OutPeakCenterZ = SPParkour::ComputeVaultPeakCenterZ(
+		StartFeetZ,
+		ObstacleHeight,
+		HalfHeight,
+		Radius,
+		ParkourClearanceOverObstacle,
+		ParkourReferenceObstacleHeight);
 
 	OutEndLocation = StartCenter + Forward * TravelPastWall;
 	OutEndLocation.Z = StartCenter.Z;
 
 	FHitResult PathHit;
-	if (SweepParkourCapsulePath(StartCenter, OutEndLocation, Forward, PathHit, ObstacleActor))
+	if (SweepParkourCapsulePath(StartCenter, OutEndLocation, Forward, PathHit, ObstacleActor, OutPeakCenterZ))
 	{
 		const FVector HitNormal2D = FVector(PathHit.ImpactNormal.X, PathHit.ImpactNormal.Y, 0.f).GetSafeNormal();
 		const bool bWallLikeBlock = !HitNormal2D.IsNearlyZero()
 			&& FVector::DotProduct(Forward, -HitNormal2D) > 0.35f;
+		const bool bLandscapeBlock = PathHit.GetActor() && SPParkour::IsLandscapeLikeObstacle(PathHit.GetActor());
 
-		if (bWallLikeBlock)
+		if (bWallLikeBlock && !bLandscapeBlock)
 		{
 			const float BlockedTravel = FVector::DotProduct(PathHit.Location - StartCenter, Forward) - Radius - 8.f;
 			if (BlockedTravel >= MinTravelPastWall)
@@ -693,14 +879,13 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 	FVector GroundSample = OutEndLocation;
 	if (!SampleParkourGroundCenterZ(GroundSample, true, ObstacleActor, OutPeakCenterZ))
 	{
-		SetFail(TEXT("No ground at vault landing"));
-		return false;
+		GroundSample.Z = StartCenter.Z;
 	}
 	OutEndLocation = GroundSample;
 
-	if (!ValidateParkourLandingLocation(StartTransform, StartFeetZ, OutEndLocation, OutFailReason))
+	if (!ValidateParkourLandingLocation(StartTransform, StartFeetZ, OutEndLocation, nullptr))
 	{
-		return false;
+		// Lenient: keep computed landing even if validation is imperfect.
 	}
 
 	const float TotalForwardDist = FVector::DotProduct(OutEndLocation - StartCenter, Forward);
@@ -725,22 +910,31 @@ bool USPParkourComponent::SweepParkourCapsulePath(
 	const FVector& End,
 	const FVector& Forward,
 	FHitResult& OutHit,
-	AActor* IgnoredObstacle) const
+	AActor* IgnoredObstacle,
+	float SweepCenterZOverride) const
 {
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule || !GetWorld())
 	{
 		return false;
 	}
 
-	const FVector Delta = End - Start;
+	FVector SweepStart = Start;
+	FVector SweepEnd = End;
+	if (SweepCenterZOverride >= 0.f)
+	{
+		SweepStart.Z = SweepCenterZOverride;
+		SweepEnd.Z = SweepCenterZOverride;
+	}
+
+	const FVector Delta = SweepEnd - SweepStart;
 	if (Delta.SizeSquared2D() < FMath::Square(5.f))
 	{
 		return false;
 	}
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourVaultSweep), false, Survivor);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourVaultSweep), false, Character);
 	if (IgnoredObstacle)
 	{
 		Params.AddIgnoredActor(IgnoredObstacle);
@@ -757,8 +951,8 @@ bool USPParkourComponent::SweepParkourCapsulePath(
 	const FCollisionObjectQueryParams ObjQuery = SPParkour::MakeObstacleObjectQuery();
 	const bool bHit = GetWorld()->SweepSingleByObjectType(
 		OutHit,
-		Start,
-		End,
+		SweepStart,
+		SweepEnd,
 		FQuat::Identity,
 		ObjQuery,
 		SweepShape,
@@ -770,7 +964,7 @@ bool USPParkourComponent::SweepParkourCapsulePath(
 	{
 		DrawDebugCapsule(
 			GetWorld(),
-			Start,
+			SweepStart,
 			Capsule->GetScaledCapsuleHalfHeight(),
 			Capsule->GetScaledCapsuleRadius(),
 			FQuat::Identity,
@@ -779,7 +973,7 @@ bool USPParkourComponent::SweepParkourCapsulePath(
 			1.5f,
 			0,
 			1.f);
-		DrawDebugLine(GetWorld(), Start, End, bHit ? FColor::Orange : FColor::Green, false, 1.5f, 0, 2.f);
+		DrawDebugLine(GetWorld(), SweepStart, SweepEnd, bHit ? FColor::Orange : FColor::Green, false, 1.5f, 0, 2.f);
 		if (bHit)
 		{
 			DrawDebugSphere(GetWorld(), OutHit.Location, 10.f, 8, FColor::Orange, false, 1.5f);
@@ -803,8 +997,8 @@ bool USPParkourComponent::ValidateParkourLandingLocation(
 		}
 	};
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule)
 	{
 		SetFail(TEXT("Capsule missing"));
@@ -854,21 +1048,21 @@ bool USPParkourComponent::PreviewParkourVault(
 	const FVector& ObstacleImpactPoint,
 	FString* OutFailReason) const
 {
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
-	if (!Survivor || !Capsule)
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	if (!Character || !Capsule)
 	{
 		if (OutFailReason)
 		{
-			*OutFailReason = TEXT("Survivor/Capsule missing");
+			*OutFailReason = TEXT("Character/Capsule missing");
 		}
 		return false;
 	}
 
-	FTransform PreviewStart = Survivor->GetActorTransform();
+	FTransform PreviewStart = Character->GetActorTransform();
 	PreviewStart.SetRotation(FRotator(0.f, FacingRotation.Yaw, 0.f).Quaternion());
 
-	const float PreviewFeetZ = PreviewStart.GetLocation().Z - Capsule->GetScaledCapsuleHalfHeight();
+	const float PreviewFeetZ = GetParkourFeetZ(Character, Capsule);
 	const float ClampedHeight = FMath::Clamp(ObstacleHeight, MinObstacleHeight, MaxObstacleHeight);
 
 	const float PreviewPeakZ = PreviewFeetZ + ClampedHeight + Capsule->GetScaledCapsuleHalfHeight() + ParkourClearanceOverObstacle;
@@ -896,15 +1090,7 @@ bool USPParkourComponent::PreviewParkourVault(
 	const FVector StartCenter = PreviewStart.GetLocation();
 	const float Radius = Capsule->GetScaledCapsuleRadius();
 
-	float ObstacleDepth = 35.f;
-	if (ObstacleActor)
-	{
-		FVector Origin;
-		FVector Extent;
-		ObstacleActor->GetActorBounds(true, Origin, Extent);
-		ObstacleDepth = FMath::Abs(Forward.X) * Extent.X * 2.f + FMath::Abs(Forward.Y) * Extent.Y * 2.f;
-		ObstacleDepth = FMath::Max(ObstacleDepth, 25.f);
-	}
+	const float ObstacleDepth = SPParkour::ComputeObstacleDepth(ObstacleActor, Forward);
 
 	const float DistToWallFace = FMath::Max(
 		FVector::DotProduct(ObstacleImpactPoint - StartCenter, Forward),
@@ -938,11 +1124,31 @@ FVector USPParkourComponent::BuildParkourVaultLocation(float MontageAlpha) const
 	const FVector Start = ParkourStartTransform.GetLocation();
 	const FVector End = ParkourVaultEndLocation;
 
-	FVector Location;
-	Location.X = FMath::Lerp(Start.X, End.X, ForwardAlpha);
-	Location.Y = FMath::Lerp(Start.Y, End.Y, ForwardAlpha);
-
 	const float ArcHeight = FMath::Max(0.f, ParkourVaultPeakCenterZ - FMath::Max(Start.Z, End.Z));
+	const float ArcFactor = GetParkourArcFactor(Alpha);
+
+	float GatedForwardAlpha = ForwardAlpha;
+	const float ClearAlpha = FMath::Clamp(ParkourWallClearMontageAlpha, 0.12f, 0.9f);
+	if (Alpha < ClearAlpha * 0.95f && ArcFactor < 0.72f)
+	{
+		const float HeightGate = FMath::Clamp(ArcFactor / 0.72f, 0.f, 1.f);
+		const float MaxForwardBeforeClear = FMath::Lerp(ClearAlpha * 0.45f, ClearAlpha, HeightGate);
+		GatedForwardAlpha = FMath::Min(ForwardAlpha, MaxForwardBeforeClear);
+	}
+
+	if (ParkourLandNotifyMontageAlpha > 0.f && Alpha >= ParkourLandNotifyMontageAlpha)
+	{
+		const float LandForwardAlpha = FMath::Clamp(
+			ParkourLandNotifyMontageAlpha / FMath::Max(ParkourLandByMontageAlpha, 0.01f),
+			0.f,
+			1.f);
+		const float MinForwardAfterLand = 1.f - FMath::Pow(1.f - FMath::Max(LandForwardAlpha, 0.72f), 1.85f);
+		GatedForwardAlpha = FMath::Max(GatedForwardAlpha, MinForwardAfterLand);
+	}
+
+	FVector Location;
+	Location.X = FMath::Lerp(Start.X, End.X, GatedForwardAlpha);
+	Location.Y = FMath::Lerp(Start.Y, End.Y, GatedForwardAlpha);
 
 	float GroundZ = End.Z;
 	FVector GroundSample = Location;
@@ -956,11 +1162,20 @@ FVector USPParkourComponent::BuildParkourVaultLocation(float MontageAlpha) const
 
 	if (bParkourFeetOnGround)
 	{
+		const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
+		const float PlannedTravel = FVector::DotProduct(End - Start, Forward);
+		const float MinLandTravel = FMath::Max(PlannedTravel * 0.72f, ParkourWallClearForward + ParkourMinLandingPastWallOffset);
+		const float CurrentTravel = FVector::DotProduct(Location - Start, Forward);
+		if (CurrentTravel < MinLandTravel && PlannedTravel > KINDA_SMALL_NUMBER)
+		{
+			const float BoostedAlpha = FMath::Clamp(MinLandTravel / PlannedTravel, GatedForwardAlpha, 1.f);
+			Location.X = FMath::Lerp(Start.X, End.X, BoostedAlpha);
+			Location.Y = FMath::Lerp(Start.Y, End.Y, BoostedAlpha);
+		}
+
 		Location.Z = GroundZ;
 		return Location;
 	}
-
-	const float ArcFactor = GetParkourArcFactor(Alpha);
 
 	Location.Z = BaseZ + ArcHeight * ArcFactor;
 	return Location;
@@ -1057,8 +1272,8 @@ bool USPParkourComponent::SampleParkourGroundCenterZ(
 	AActor* IgnoredObstacleOverride,
 	float PeakCenterZOverride) const
 {
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule || !GetWorld())
 	{
 		return false;
@@ -1070,7 +1285,7 @@ bool USPParkourComponent::SampleParkourGroundCenterZ(
 	const FVector TraceStart(InOutCenterLocation.X, InOutCenterLocation.Y, TraceHighZ);
 	const FVector TraceEnd(InOutCenterLocation.X, InOutCenterLocation.Y, InOutCenterLocation.Z - 400.f);
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourLandSample), false, Survivor);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourLandSample), false, Character);
 	if (bIgnoreParkourObstacle)
 	{
 		if (IgnoredObstacleOverride)
@@ -1084,15 +1299,19 @@ bool USPParkourComponent::SampleParkourGroundCenterZ(
 	}
 
 	FHitResult GroundHit;
-	if (GetWorld()->LineTraceSingleByChannel(
-		GroundHit,
-		TraceStart,
-		TraceEnd,
-		ECC_Visibility,
-		Params))
+	const ECollisionChannel GroundChannels[] = { ECC_Visibility, ECC_WorldStatic, ECC_WorldDynamic };
+	for (const ECollisionChannel Channel : GroundChannels)
 	{
-		InOutCenterLocation.Z = GroundHit.ImpactPoint.Z + HalfHeight;
-		return true;
+		if (GetWorld()->LineTraceSingleByChannel(
+			GroundHit,
+			TraceStart,
+			TraceEnd,
+			Channel,
+			Params))
+		{
+			InOutCenterLocation.Z = GroundHit.ImpactPoint.Z + HalfHeight;
+			return true;
+		}
 	}
 
 	return false;
@@ -1111,8 +1330,8 @@ FVector USPParkourComponent::BuildParkourLocationFromRootMotion(
 		return Location;
 	}
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	const UCapsuleComponent* Capsule = Survivor ? Survivor->GetCapsuleComponent() : nullptr;
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
 	if (!Capsule)
 	{
 		return Location;
@@ -1152,29 +1371,33 @@ void USPParkourComponent::OnParkourLandNotify()
 		return;
 	}
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor)
+	ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
 		return;
 	}
 
 	bParkourFeetOnGround = true;
 
-	FVector GroundedLocation = Survivor->GetActorLocation();
-	if (SnapParkourLocationToGround(GroundedLocation))
+	FVector GroundedLocation = BuildParkourVaultLocation(GetParkourMontageAlpha());
+	if (!SnapParkourLocationToGround(GroundedLocation))
 	{
-		if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-		{
-			MoveComp->StopMovementImmediately();
-			MoveComp->Velocity = FVector::ZeroVector;
-		}
+		GroundedLocation = ParkourVaultEndLocation;
+		SnapParkourLocationToGround(GroundedLocation);
+	}
 
-		Survivor->TeleportTo(GroundedLocation, Survivor->GetActorRotation(), false, true);
+	if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->Velocity = FVector::ZeroVector;
+	}
 
-		if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-		{
-			MoveComp->bJustTeleported = true;
-		}
+	Character->SetActorLocation(GroundedLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	Character->SetActorRotation(ParkourStartTransform.Rotator());
+
+	if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+	{
+		MoveComp->bJustTeleported = true;
 	}
 
 	LogParkourDebug(
@@ -1219,27 +1442,24 @@ bool USPParkourComponent::IsInsideParkourZone() const
 		return true;
 	}
 
-	for (const TWeakObjectPtr<ASPParkourZone>& ZonePtr : OverlappingParkourZones)
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character || !GetWorld())
 	{
-		if (ZonePtr.IsValid())
+		return false;
+	}
+
+	const FVector CharacterLocation = Character->GetActorLocation();
+	for (TActorIterator<ASPParkourZone> It(GetWorld()); It; ++It)
+	{
+		if (It->ContainsPoint(CharacterLocation))
 		{
 			return true;
 		}
 	}
 
-	return false;
-}
-
-bool USPParkourComponent::IsParkourLocationAllowed(const FVector& WorldLocation) const
-{
-	if (!bRequireParkourZone)
-	{
-		return true;
-	}
-
 	for (const TWeakObjectPtr<ASPParkourZone>& ZonePtr : OverlappingParkourZones)
 	{
-		if (ZonePtr.IsValid() && ZonePtr->ContainsPoint(WorldLocation))
+		if (ZonePtr.IsValid())
 		{
 			return true;
 		}
@@ -1300,6 +1520,11 @@ void USPParkourComponent::PruneWallVaultRecord(FParkourWallVaultRecord& Record, 
 
 bool USPParkourComponent::IsObstacleVaultBlocked(AActor* ObstacleActor, FString* OutFailReason) const
 {
+	if (bExemptFromWallVaultLimit)
+	{
+		return false;
+	}
+
 	auto SetFail = [OutFailReason](const FString& Reason)
 	{
 		if (OutFailReason)
@@ -1334,6 +1559,11 @@ bool USPParkourComponent::IsObstacleVaultBlocked(AActor* ObstacleActor, FString*
 
 bool USPParkourComponent::TryRegisterWallVault(AActor* ObstacleActor, FString* OutFailReason)
 {
+	if (bExemptFromWallVaultLimit)
+	{
+		return true;
+	}
+
 	auto SetFail = [OutFailReason](const FString& Reason)
 	{
 		if (OutFailReason)
@@ -1393,11 +1623,11 @@ void USPParkourComponent::UpdateParkourRootMotion(float DeltaTime)
 		return;
 	}
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	USkeletalMeshComponent* MeshComp = Survivor ? Survivor->GetMesh() : nullptr;
+	ACharacter* Character = GetParkourCharacter();
+	USkeletalMeshComponent* MeshComp = Character ? Character->GetMesh() : nullptr;
 	UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
-	UCharacterMovementComponent* MoveComp = Survivor ? Survivor->GetCharacterMovement() : nullptr;
-	if (!Survivor || !AnimInstance || !MoveComp)
+	UCharacterMovementComponent* MoveComp = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Character || !AnimInstance || !MoveComp)
 	{
 		return;
 	}
@@ -1413,20 +1643,40 @@ void USPParkourComponent::UpdateParkourRootMotion(float DeltaTime)
 	const FVector TargetLocation = BuildParkourVaultLocation(MontageAlpha);
 	const FRotator TargetRotation(0.f, (StartRotation * RootMotionRotation).Rotator().Yaw, 0.f);
 
-	const FVector CurrentLocation = Survivor->GetActorLocation();
+	const FVector CurrentLocation = Character->GetActorLocation();
 	FVector NewLocation = TargetLocation;
-	NewLocation.X = FMath::FInterpTo(CurrentLocation.X, TargetLocation.X, DeltaTime, 20.f);
-	NewLocation.Y = FMath::FInterpTo(CurrentLocation.Y, TargetLocation.Y, DeltaTime, 20.f);
+
+	const float SnapPathAlpha = FMath::Max(ParkourWallClearMontageAlpha, ParkourVaultPeakMontageAlpha + 0.08f);
+	const float LandSnapAlpha = ParkourLandNotifyMontageAlpha > 0.f
+		? FMath::Max(SnapPathAlpha, ParkourLandNotifyMontageAlpha)
+		: SnapPathAlpha;
+	if (MontageAlpha <= SnapPathAlpha || bParkourFeetOnGround || MontageAlpha >= LandSnapAlpha)
+	{
+		NewLocation = TargetLocation;
+	}
+	else
+	{
+		NewLocation.X = FMath::FInterpTo(CurrentLocation.X, TargetLocation.X, DeltaTime, 35.f);
+		NewLocation.Y = FMath::FInterpTo(CurrentLocation.Y, TargetLocation.Y, DeltaTime, 35.f);
+		NewLocation.Z = TargetLocation.Z;
+
+		if (MontageAlpha >= ParkourLandByMontageAlpha * 0.85f)
+		{
+			NewLocation.X = TargetLocation.X;
+			NewLocation.Y = TargetLocation.Y;
+		}
+	}
 
 	const FRotator BlendedRotation = FMath::RInterpTo(
-		Survivor->GetActorRotation(),
+		Character->GetActorRotation(),
 		TargetRotation,
 		DeltaTime,
 		14.f);
 
-	if (!NewLocation.Equals(CurrentLocation, 0.25f) || !Survivor->GetActorRotation().Equals(BlendedRotation, 0.5f))
+	if (!NewLocation.Equals(CurrentLocation, 0.25f) || !Character->GetActorRotation().Equals(BlendedRotation, 0.5f))
 	{
-		Survivor->TeleportTo(NewLocation, BlendedRotation, false, true);
+		Character->SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		Character->SetActorRotation(BlendedRotation);
 		MoveComp->Velocity = FVector::ZeroVector;
 		MoveComp->bJustTeleported = true;
 	}
@@ -1448,9 +1698,9 @@ float USPParkourComponent::GetParkourMontageAlpha() const
 	float PositionAlpha = ElapsedAlpha;
 	if (ActiveParkourMontage)
 	{
-		if (const ASurvivorCharacter* Survivor = GetSurvivor())
+		if (const ACharacter* Character = GetParkourCharacter())
 		{
-			if (const USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
+			if (const USkeletalMeshComponent* MeshComp = Character->GetMesh())
 			{
 				if (const UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
 				{
@@ -1472,6 +1722,11 @@ float USPParkourComponent::GetParkourMontageAlpha() const
 
 bool USPParkourComponent::HasSufficientVaultForwardProgress(const FVector& Location) const
 {
+	if (bParkourFeetOnGround)
+	{
+		return true;
+	}
+
 	const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
 	const FVector StartCenter = ParkourStartTransform.GetLocation();
 	const float PlannedTravel = FVector::DotProduct(ParkourVaultEndLocation - StartCenter, Forward);
@@ -1481,12 +1736,15 @@ bool USPParkourComponent::HasSufficientVaultForwardProgress(const FVector& Locat
 		return false;
 	}
 
-	if (FVector::Dist2D(Location, ParkourVaultEndLocation) <= 35.f)
+	if (FVector::Dist2D(Location, ParkourVaultEndLocation) <= 100.f)
 	{
 		return true;
 	}
 
-	return ActualTravel >= PlannedTravel * 0.85f;
+	const float MinRequiredTravel = FMath::Max(
+		PlannedTravel * 0.3f,
+		FMath::Max(ParkourWallClearForward * 0.25f, 30.f));
+	return ActualTravel >= MinRequiredTravel;
 }
 
 bool USPParkourComponent::ExtractMontageRootMotionAtTime(
@@ -1548,10 +1806,10 @@ bool USPParkourComponent::ResolveParkourLanding(FVector& OutLocation, FRotator& 
 
 	OutRotation = ParkourStartTransform.Rotator();
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	if (Survivor)
+	const ACharacter* Character = GetParkourCharacter();
+	if (Character)
 	{
-		OutLocation = Survivor->GetActorLocation();
+		OutLocation = Character->GetActorLocation();
 		FVector GroundedLocation = OutLocation;
 		if (HasSufficientVaultForwardProgress(OutLocation) &&
 			SampleParkourGroundCenterZ(GroundedLocation) &&
@@ -1563,12 +1821,12 @@ bool USPParkourComponent::ResolveParkourLanding(FVector& OutLocation, FRotator& 
 				FColor::Green);
 			return true;
 		}
-		else if (bDrawDebug)
+		else
 		{
 			const FVector Forward = ParkourStartTransform.GetRotation().GetForwardVector().GetSafeNormal2D();
 			const float ActualTravel = FVector::DotProduct(OutLocation - ParkourStartTransform.GetLocation(), Forward);
 			LogParkourDebug(
-				FString::Printf(TEXT("Tracked landing insufficient (%.0fcm) — using vault end"), ActualTravel),
+				FString::Printf(TEXT("Tracked landing insufficient (%.0fcm) - using vault end"), ActualTravel),
 				FColor::Orange);
 		}
 	}
@@ -1597,14 +1855,14 @@ bool USPParkourComponent::SnapParkourLocationToGround(FVector& InOutLocation, bo
 void USPParkourComponent::SetParkourObstacleCollisionIgnored(bool bIgnore)
 {
 	AActor* ObstacleActor = CurrentParkourObstacle.Get();
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!ObstacleActor || !Survivor)
+	ACharacter* Character = GetParkourCharacter();
+	if (!ObstacleActor || !Character)
 	{
 		return;
 	}
 
-	UCapsuleComponent* Capsule = Survivor->GetCapsuleComponent();
-	USkeletalMeshComponent* MeshComp = Survivor->GetMesh();
+	UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
+	USkeletalMeshComponent* MeshComp = Character->GetMesh();
 
 	TArray<UPrimitiveComponent*> CharacterPrimitives;
 	if (Capsule)
@@ -1642,15 +1900,72 @@ void USPParkourComponent::SetParkourObstacleCollisionIgnored(bool bIgnore)
 	}
 }
 
-void USPParkourComponent::ApplyParkourLanding(const FVector& WorldLocation, const FRotator& WorldRotation)
+void USPParkourComponent::SetParkourCollisionSuppressed(bool bSuppressed)
 {
-	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor)
+	ACharacter* Character = GetParkourCharacter();
+	if (!Character)
 	{
 		return;
 	}
 
-	UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement();
+	if (bSuppressed)
+	{
+		if (bParkourCollisionSuppressed)
+		{
+			return;
+		}
+
+		if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+		{
+			CachedCapsuleCollision = static_cast<uint8>(Capsule->GetCollisionEnabled());
+			Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+
+		if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
+		{
+			CachedMeshCollision = static_cast<uint8>(MeshComp->GetCollisionEnabled());
+			if (static_cast<ECollisionEnabled::Type>(CachedMeshCollision) != ECollisionEnabled::NoCollision)
+			{
+				MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
+
+		bParkourCollisionSuppressed = true;
+		LogParkourDebug(TEXT("Parkour collision suppressed"), FColor::Silver);
+		return;
+	}
+
+	if (!bParkourCollisionSuppressed)
+	{
+		return;
+	}
+
+	if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(static_cast<ECollisionEnabled::Type>(CachedCapsuleCollision));
+	}
+
+	if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
+	{
+		if (static_cast<ECollisionEnabled::Type>(CachedMeshCollision) != ECollisionEnabled::NoCollision)
+		{
+			MeshComp->SetCollisionEnabled(static_cast<ECollisionEnabled::Type>(CachedMeshCollision));
+		}
+	}
+
+	bParkourCollisionSuppressed = false;
+	LogParkourDebug(TEXT("Parkour collision restored"), FColor::Silver);
+}
+
+void USPParkourComponent::ApplyParkourLanding(const FVector& WorldLocation, const FRotator& WorldRotation)
+{
+	ACharacter* Character = GetParkourCharacter();
+	if (!Character)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
 	if (MoveComp)
 	{
 		MoveComp->StopMovementImmediately();
@@ -1661,24 +1976,24 @@ void USPParkourComponent::ApplyParkourLanding(const FVector& WorldLocation, cons
 	FVector ResolvedLocation = WorldLocation;
 	SnapParkourLocationToGround(ResolvedLocation);
 
-	const FVector CurrentLocation = Survivor->GetActorLocation();
+	const FVector CurrentLocation = Character->GetActorLocation();
 	const bool bAlreadyAligned =
 		FVector::Dist2D(CurrentLocation, ResolvedLocation) <= 12.f &&
 		FMath::Abs(CurrentLocation.Z - ResolvedLocation.Z) <= 5.f;
 
 	if (!bAlreadyAligned)
 	{
-		Survivor->TeleportTo(ResolvedLocation, WorldRotation, false, true);
+		Character->TeleportTo(ResolvedLocation, WorldRotation, false, true);
 	}
-	else if (!Survivor->GetActorRotation().Equals(WorldRotation, 1.f))
+	else if (!Character->GetActorRotation().Equals(WorldRotation, 1.f))
 	{
-		Survivor->SetActorRotation(WorldRotation);
+		Character->SetActorRotation(WorldRotation);
 	}
 	else if (FMath::Abs(CurrentLocation.Z - ResolvedLocation.Z) > 1.f)
 	{
 		FVector AdjustedLocation = CurrentLocation;
 		AdjustedLocation.Z = ResolvedLocation.Z;
-		Survivor->SetActorLocation(AdjustedLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		Character->SetActorLocation(AdjustedLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	if (MoveComp)
@@ -1687,7 +2002,7 @@ void USPParkourComponent::ApplyParkourLanding(const FVector& WorldLocation, cons
 		MoveComp->bJustTeleported = true;
 		MoveComp->bForceNextFloorCheck = true;
 
-		if (UCapsuleComponent* Capsule = Survivor->GetCapsuleComponent())
+		if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
 		{
 			MoveComp->FindFloor(Capsule->GetComponentLocation(), MoveComp->CurrentFloor, false, nullptr);
 		}
@@ -1725,9 +2040,9 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 		return;
 	}
 
-	ASurvivorCharacter* Survivor = GetSurvivor();
+	ACharacter* Character = GetParkourCharacter();
 
-	if (!bInterrupted && bParkourVaultEndValid && Survivor)
+	if (!bInterrupted && bParkourVaultEndValid && Character)
 	{
 		ParkourMontageElapsed = ParkourMontageDuration;
 		UpdateParkourRootMotion(1.f / 60.f);
@@ -1741,15 +2056,26 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 	bool bHasLanding = ResolveParkourLanding(LandingLocation, LandingRotation);
 	if (!bHasLanding)
 	{
-		LandingLocation = ParkourStartTransform.GetLocation();
-		LandingRotation = ParkourStartTransform.Rotator();
-		bHasLanding = true;
-		LogParkourDebug(TEXT("Invalid landing — snapped back to start"), FColor::Orange);
+		if (bParkourVaultEndValid)
+		{
+			LandingLocation = ParkourVaultEndLocation;
+			SnapParkourLocationToGround(LandingLocation);
+			LandingRotation = ParkourStartTransform.Rotator();
+			bHasLanding = true;
+			LogParkourDebug(TEXT("Invalid landing - using vault end"), FColor::Orange);
+		}
+		else
+		{
+			LandingLocation = ParkourStartTransform.GetLocation();
+			LandingRotation = ParkourStartTransform.Rotator();
+			bHasLanding = true;
+			LogParkourDebug(TEXT("Invalid landing - snapped back to start"), FColor::Orange);
+		}
 	}
 
-	if (Survivor)
+	if (Character)
 	{
-		if (USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
+		if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
 		{
 			if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
 			{
@@ -1770,9 +2096,9 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 		}
 	}
 
-	if (Survivor)
+	if (Character)
 	{
-		if (USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
+		if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
 		{
 			if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
 			{
@@ -1791,11 +2117,13 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 		SetParkourObstacleCollisionIgnored(false);
 	}
 
-	if (Survivor)
+	SetParkourCollisionSuppressed(false);
+
+	if (Character)
 	{
-		if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
+		if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
 		{
-			Survivor->PrimaryActorTick.RemovePrerequisite(MoveComp, MoveComp->PrimaryComponentTick);
+			Character->PrimaryActorTick.RemovePrerequisite(MoveComp, MoveComp->PrimaryComponentTick);
 			MoveComp->bAllowPhysicsRotationDuringAnimRootMotion = false;
 			MoveComp->GravityScale = CachedGravityScale;
 			if (CachedMovementMode != MOVE_None)
@@ -1819,14 +2147,21 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 	ParkourMontageElapsed = 0.f;
 	ParkourMontageDuration = 0.f;
 
-	if (Survivor)
+	if (Character)
 	{
-		if (AController* Ctrl = Survivor->GetController())
+		if (AController* Ctrl = Character->GetController())
 		{
 			Ctrl->ResetIgnoreMoveInput();
 		}
 
-		Survivor->NotifyParkourEnded();
+		if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Character))
+		{
+			Survivor->NotifyParkourEnded();
+		}
+		else if (AKillerCharacter* Killer = Cast<AKillerCharacter>(Character))
+		{
+			Killer->NotifyParkourEnded();
+		}
 	}
 
 	LogParkourDebug(bInterrupted ? TEXT("Parkour ended (interrupted)") : TEXT("Parkour ended"), FColor::Cyan);
@@ -1834,12 +2169,7 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 
 void USPParkourComponent::LogParkourDebug(const FString& Message, FColor Color) const
 {
-	if (!bDrawDebug)
-	{
-		return;
-	}
-
-	if (GEngine)
+	if (bDrawDebug && GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, Color, FString::Printf(TEXT("[Parkour] %s"), *Message));
 	}
