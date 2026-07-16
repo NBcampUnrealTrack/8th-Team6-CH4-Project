@@ -174,6 +174,11 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 	CurrentCage = Cage;
 	
 	++CagedCount;
+	// 케이지 당한 횟수 기록
+	if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		LDPlayerState->RecordCaged();
+	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
 
@@ -566,5 +571,13 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	if (NewState == ESurvivorState::Escaped)
 	{
 		GameMode->RegisterSurvivorEscaped(GetController());
+		return;
 	}
+	if (NewState == ESurvivorState::Dead)
+	{
+		GameMode->RegisterSurvivorKilled(GetController());
+		return;
+	}
+
+	GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
 }
