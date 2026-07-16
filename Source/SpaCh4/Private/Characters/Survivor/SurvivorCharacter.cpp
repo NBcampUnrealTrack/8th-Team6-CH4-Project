@@ -641,6 +641,7 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	}
 	else if (NewState == ESurvivorState::Caged)
 	{
-		GameMode->RegisterSurvivorStateChanged(FName(*LDPS->GetPlayerName()), NewState);
+		GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+
 	}
 }
