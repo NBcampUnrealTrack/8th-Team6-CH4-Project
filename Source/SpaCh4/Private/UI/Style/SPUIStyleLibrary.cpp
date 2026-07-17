@@ -8,6 +8,41 @@
 
 namespace SPUIStyleLibrary
 {
+	/** Stale/deleted UObject* sentinels must not reach IsValid(). */
+	static bool IsUsableObjectPointer(const void* Ptr)
+	{
+		if (!Ptr)
+		{
+			return false;
+		}
+
+		const intptr_t Address = reinterpret_cast<intptr_t>(Ptr);
+		if (Address <= 0)
+		{
+			return false;
+		}
+
+		constexpr intptr_t MaxUserSpaceAddress = 0x00007FFFFFFFFFFFLL;
+		return Address >= 0x10000 && Address <= MaxUserSpaceAddress;
+	}
+
+	template<typename TObject>
+	TObject* GetValidObjectPtr(const TObjectPtr<TObject>& Ptr)
+	{
+		if (Ptr.IsNull())
+		{
+			return nullptr;
+		}
+
+		UObject* Raw = Ptr.Get();
+		if (!IsUsableObjectPointer(Raw) || !IsValid(Raw))
+		{
+			return nullptr;
+		}
+
+		return Cast<TObject>(Raw);
+	}
+
 	namespace Paths
 	{
 		static const FSoftObjectPath GameHUDStyleAsset(
@@ -100,19 +135,41 @@ namespace SPUIStyleLibrary
 	}
 
 	template<typename TData>
-	TData* LoadStyleAsset(const FSoftObjectPath& Path, TData*& BuiltInFallback)
+	TData* EnsureRootedBuiltInFallback(TData*& BuiltInFallback)
 	{
-		if (TData* Authored = LoadAsset<TData>(Path))
-		{
-			return Authored;
-		}
-
-		if (!BuiltInFallback)
+		if (!IsValid(BuiltInFallback))
 		{
 			BuiltInFallback = NewObject<TData>(GetTransientPackage(), NAME_None, RF_Transient | RF_Public);
+			if (IsValid(BuiltInFallback))
+			{
+				// Transient-package objects are GC'd between PIE sessions; root so the static
+				// fallback pointer stays valid on the second Play.
+				BuiltInFallback->AddToRoot();
+			}
 		}
 
 		return BuiltInFallback;
+	}
+
+	template<typename TData>
+	TData* LoadStyleAsset(const FSoftObjectPath& Path, TData*& BuiltInFallback)
+	{
+		// Missing style DAs stay missing for the editor session — without this cache the
+		// 0.2s HUD refresh re-attempts a disk package load (hitch + log spam) every tick.
+		// (Creating the DA mid-session requires an editor restart to be picked up.)
+		static TSet<FName> FailedStylePaths;
+		const FName PathName(*Path.ToString());
+
+		if (!FailedStylePaths.Contains(PathName))
+		{
+			if (TData* Authored = LoadAsset<TData>(Path))
+			{
+				return Authored;
+			}
+			FailedStylePaths.Add(PathName);
+		}
+
+		return EnsureRootedBuiltInFallback(BuiltInFallback);
 	}
 
 	static void EnsureBuiltInGameHUDStyle(USPGameHUDStyleData* Style)
@@ -158,9 +215,21 @@ namespace SPUIStyleLibrary
 		{
 			Style->DeliveryStackEmpty = LoadAsset<UTexture2D>(Paths::DeliveryStackEmpty);
 		}
+		if (!Style->DeliveryStackEmpty)
+		{
+			Style->DeliveryStackEmpty = Style->DeliveryProgressBackground
+				? Style->DeliveryProgressBackground
+				: Style->DeliveryProgressEmptyFallback;
+		}
 		if (!Style->DeliveryStackFilled)
 		{
 			Style->DeliveryStackFilled = LoadAsset<UTexture2D>(Paths::DeliveryStackFilled);
+		}
+		if (!Style->DeliveryStackFilled)
+		{
+			Style->DeliveryStackFilled = Style->DeliveryProgressFillTexture
+				? Style->DeliveryProgressFillTexture
+				: Style->DeliveryProgressFillTextureFallback;
 		}
 		if (Style->DeliveryProgressSegmentTextures.Num() == 0)
 		{
@@ -170,19 +239,19 @@ namespace SPUIStyleLibrary
 				Style->DeliveryProgressSegmentTextures[Index] = LoadAsset<UTexture2D>(Paths::DeliveryProgressSegment(Index));
 			}
 		}
-		if (!Style->PortraitSlotFrame)
+		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitSlotFrame))
 		{
 			Style->PortraitSlotFrame = LoadAsset<UTexture2D>(Paths::PortraitSlotFrame);
 		}
-		if (!Style->PortraitHealthy)
+		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitHealthy))
 		{
 			Style->PortraitHealthy = LoadAsset<UTexture2D>(Paths::PortraitHealthy);
 		}
-		if (!Style->PortraitInjured)
+		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitInjured))
 		{
 			Style->PortraitInjured = LoadAsset<UTexture2D>(Paths::PortraitInjured);
 		}
-		if (!Style->PortraitDead)
+		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitDead))
 		{
 			Style->PortraitDead = LoadAsset<UTexture2D>(Paths::PortraitDead);
 		}
@@ -274,20 +343,20 @@ namespace SPUIStyleLibrary
 		}
 	}
 
-	const USPGameHUDStyleData& ResolveGameHUDStyle(const USPGameHUDStyleData* Override)
-	{
-		static USPGameHUDStyleData* BuiltInFallback = nullptr;
-		USPGameHUDStyleData* Resolved = Override
-			? const_cast<USPGameHUDStyleData*>(Override)
-			: LoadStyleAsset<USPGameHUDStyleData>(Paths::GameHUDStyleAsset, BuiltInFallback);
-		EnsureBuiltInGameHUDStyle(Resolved);
-		return *Resolved;
-	}
+const USPGameHUDStyleData& ResolveGameHUDStyle(const USPGameHUDStyleData* Override)
+{
+	static USPGameHUDStyleData* BuiltInFallback = nullptr;
+	USPGameHUDStyleData* Resolved = (IsUsableObjectPointer(Override) && IsValid(Override))
+		? const_cast<USPGameHUDStyleData*>(Override)
+		: LoadStyleAsset<USPGameHUDStyleData>(Paths::GameHUDStyleAsset, BuiltInFallback);
+	EnsureBuiltInGameHUDStyle(Resolved);
+	return *Resolved;
+}
 
 	const USPMainMenuStyleData& ResolveMainMenuStyle(const USPMainMenuStyleData* Override)
 	{
 		static USPMainMenuStyleData* BuiltInFallback = nullptr;
-		USPMainMenuStyleData* Resolved = Override
+		USPMainMenuStyleData* Resolved = (IsUsableObjectPointer(Override) && IsValid(Override))
 			? const_cast<USPMainMenuStyleData*>(Override)
 			: LoadStyleAsset<USPMainMenuStyleData>(Paths::MainMenuStyleAsset, BuiltInFallback);
 		EnsureBuiltInMainMenuStyle(Resolved);
@@ -297,7 +366,7 @@ namespace SPUIStyleLibrary
 	const USPUIFontStyleData& ResolveFontStyle(const USPUIFontStyleData* Override)
 	{
 		static USPUIFontStyleData* BuiltInFallback = nullptr;
-		USPUIFontStyleData* Resolved = Override
+		USPUIFontStyleData* Resolved = (IsUsableObjectPointer(Override) && IsValid(Override))
 			? const_cast<USPUIFontStyleData*>(Override)
 			: LoadStyleAsset<USPUIFontStyleData>(Paths::FontStyleAsset, BuiltInFallback);
 		EnsureBuiltInFontStyle(Resolved);

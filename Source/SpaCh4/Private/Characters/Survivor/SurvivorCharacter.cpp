@@ -13,6 +13,7 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "EngineUtils.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
@@ -21,6 +22,7 @@
 #include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/MatchGameMode.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
@@ -65,7 +67,21 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsChannelingLever() || IsChannelingHealing())
+	{
+		if (InteractionComponent)
+		{
+			InteractionComponent->NotifyMoveInput();
+		}
+		return;
+	}
+
 	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	{
+		return;
+	}
+
+	if (InteractionComponent && InteractionComponent->IsInteracting())
 	{
 		return;
 	}
@@ -154,31 +170,122 @@ void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun
 
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
-	if (!HasAuthority()) return;
-	++CagedCount;
+	if (!HasAuthority() || !Cage) return;
 
+	CurrentCage = Cage;
+	++CagedCount;
+	
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s 갇힘! 현재 누적: %d"), *GetName(), CagedCount);
+	// 케이지 당한 횟수 기록
+	if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		LDPlayerState->RecordCaged();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
+	Multicast_ApplyCagedPose(Anchor.GetLocation(), Anchor.Rotator());
+	
 	if (CagedCount >= 3)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 3회 누적되어 즉시 사망 처리합니다."));
 		SetSurvivorState(ESurvivorState::Dead);
 		return;
 	}
 
+	Cage->SetOccupied(this);
 	SetSurvivorState(ESurvivorState::Caged);
+
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
 	GetWorldTimerManager().SetTimer(
-		CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, false);
+	CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, true);
 }
 
 void ASurvivorCharacter::OnCageExpired()
 {
-	SetSurvivorState(ESurvivorState::Dead);
+	++CagedCount;
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 시간 경과! 누적 카운트 증가: %d"), CagedCount);
+	
+	if (CagedCount >= 3)
+	{
+		GetWorldTimerManager().ClearTimer(CageTimerHandle);
+		SetSurvivorState(ESurvivorState::Dead);
+	}
 }
 
-void ASurvivorCharacter::RescueFromCage()
+void ASurvivorCharacter::Multicast_ApplyCagedPose_Implementation(FVector Location, FRotator Rotation)
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = false;
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+	}
+	SetActorLocationAndRotation(Location, Rotation);
+}
+
+void ASurvivorCharacter::Multicast_RestoreOrientRotation_Implementation()
+{
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+	}
+}
+
+void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 {
 	if (!HasAuthority()) return;
 	GetWorldTimerManager().ClearTimer(CageTimerHandle);
-	SetSurvivorState(ESurvivorState::Downed);
+
+	Multicast_RestoreOrientRotation();
+
+	if (Rescuer)
+	{
+		const FVector DropLocation = Rescuer->GetActorLocation() + Rescuer->GetActorRightVector() * RescueDropOffset;
+		SetActorLocation(DropLocation);
+	}
+
+	SetSurvivorState(ESurvivorState::Injured);
+}
+
+void ASurvivorCharacter::BeginRescue(ACage* Cage)
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->BeginRescue(Cage);
+	}
+}
+
+void ASurvivorCharacter::DebugCageSelf()
+{
+	Server_DebugCageSelf();
+}
+
+void ASurvivorCharacter::Server_DebugCageSelf_Implementation()
+{
+	if (SurvivorState == ESurvivorState::Caged || SurvivorState == ESurvivorState::Dead)
+	{
+		return;
+	}
+
+	ACage* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+	const FVector MyLocation = GetActorLocation();
+	for (TActorIterator<ACage> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(MyLocation, It->GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+
+	if (Nearest)
+	{
+		EnterCaged(Nearest);
+	}
 }
 
 void ASurvivorCharacter::ApplyHit()
@@ -189,11 +296,31 @@ void ASurvivorCharacter::ApplyHit()
 	case ESurvivorState::Healthy: 
 		SetSurvivorState(ESurvivorState::Injured); 
 		break;
-	case ESurvivorState::Injured: 
-		SetSurvivorState(ESurvivorState::Downed);  
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Downed);
 		break;
-	default: 
-		break; 
+	default:
+		break;
+	}
+}
+
+void ASurvivorCharacter::RecoverOneStep()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	switch (SurvivorState)
+	{
+	case ESurvivorState::Downed:
+		SetSurvivorState(ESurvivorState::Injured);
+		break;
+	case ESurvivorState::Injured:
+		SetSurvivorState(ESurvivorState::Healthy);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -254,9 +381,6 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 			}
 		}
 	}
-
-	PlayerInputComponent->BindKey(EKeys::U, IE_Pressed, this, &ASurvivorCharacter::DebugTestHealingAnimPressed);
-	PlayerInputComponent->BindKey(EKeys::U, IE_Released, this, &ASurvivorCharacter::DebugTestHealingAnimReleased);
 }
 
 void ASurvivorCharacter::SelectSlot(int32 Index)
@@ -327,6 +451,11 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
+	
+	if (SurvivorState == ESurvivorState::Dead && CurrentCage)
+	{
+		CurrentCage->HandleSurvivorDeath(this);
+	}
 
 	if (MovementComponent)
 	{
@@ -377,6 +506,11 @@ bool ASurvivorCharacter::IsPullingLever() const
 	return EscapeLeverComponent && EscapeLeverComponent->IsPullingLever();
 }
 
+bool ASurvivorCharacter::IsChannelingLever() const
+{
+	return EscapeLeverComponent && EscapeLeverComponent->IsChannelingLever();
+}
+
 bool ASurvivorCharacter::IsPlayingPickupAnim() const
 {
 	return PickupAnimComponent && PickupAnimComponent->IsPlayingPickupAnim();
@@ -402,6 +536,11 @@ bool ASurvivorCharacter::IsHealing() const
 	return HealingAnimComponent && HealingAnimComponent->IsHealing();
 }
 
+bool ASurvivorCharacter::IsChannelingHealing() const
+{
+	return HealingAnimComponent && HealingAnimComponent->IsChannelingHealing();
+}
+
 void ASurvivorCharacter::NotifyHealingAnimEnded()
 {
 	if (AController* Ctrl = GetController())
@@ -420,49 +559,6 @@ void ASurvivorCharacter::NotifyHealingAnimEnded()
 	ApplyStateEffects();
 }
 
-void ASurvivorCharacter::DebugTestHealingAnimPressed()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->BeginHealingChannelDebug();
-	}
-}
-
-void ASurvivorCharacter::DebugTestHealingAnimReleased()
-{
-	if (!IsLocallyControlled() || !HealingAnimComponent)
-	{
-		return;
-	}
-
-	if (HasAuthority())
-	{
-		HealingAnimComponent->CancelHealingChannelDebug();
-	}
-
-	// Return 재생 중에는 여기서 입력을 건드리지 않는다.
-	// FinishHealingChannel -> NotifyHealingAnimEnded 가 복구한다.
-	if (!HealingAnimComponent->IsHealing())
-	{
-		RestoreDebugMovementInput();
-	}
-}
-
-void ASurvivorCharacter::RestoreDebugMovementInput()
-{
-	if (AController* Ctrl = GetController())
-	{
-		Ctrl->ResetIgnoreMoveInput();
-	}
-
-	ApplyStateEffects();
-}
-
 void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 {
 	if (MovementComponent)
@@ -474,6 +570,11 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 
 void ASurvivorCharacter::ApplyStateEffects()
 {
+	if (SurvivorState == ESurvivorState::Carried)
+	{
+		return; 
+	}
+	
 	if (AController* Ctrl = GetController())
 	{
 		Ctrl->ResetIgnoreMoveInput();
@@ -549,9 +650,17 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	{
 		return;
 	}
-
 	if (NewState == ESurvivorState::Escaped)
 	{
-		GameMode->RegisterSurvivorEscaped(NAME_None);
+		GameMode->RegisterSurvivorEscaped(GetController());
+		return;
 	}
+	if (NewState == ESurvivorState::Dead)
+	{
+		GameMode->RegisterSurvivorKilled(GetController());
+		return;
+	}
+	// 타 플레이어hud연동을 위해 모든 StateChange를 등록
+	GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+
 }

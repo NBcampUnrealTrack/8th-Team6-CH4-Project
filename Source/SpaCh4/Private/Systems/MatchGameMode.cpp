@@ -129,11 +129,7 @@ void AMatchGameMode::Logout(AController* Exiting)
 	{
 		if (const ALDPlayerState* LDPlayerState = Exiting ? Exiting->GetPlayerState<ALDPlayerState>() : nullptr)
 		{
-			const FString PlayerName = LDPlayerState->GetPlayerName();
-			if (!PlayerName.IsEmpty())
-			{
-				MatchGameState->SetMatchPlayerConnected(FName(*PlayerName), false);
-			}
+			MatchGameState->SetMatchPlayerConnected(LDPlayerState->GetPlayerId(), false);
 		}
 	}
 
@@ -154,6 +150,14 @@ void AMatchGameMode::StartMatch()
 	if (!IsValid(MatchGameState))
 	{
 		return;
+	}
+
+	for (APlayerState* PlayerState : MatchGameState->PlayerArray)
+	{
+		if (ALDPlayerState* LDPlayerState = Cast<ALDPlayerState>(PlayerState))
+		{
+			LDPlayerState->ResetMatchStats();
+		}
 	}
 	
 	// 게임 상태 초기화
@@ -240,7 +244,7 @@ bool AMatchGameMode::CanSpawnHatch() const
 	return IsValid(MatchGameState) && MatchGameState->CanSpawnHatch();
 }
 
-void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorNickname)
+void AMatchGameMode::RegisterSurvivorEscaped(AController* SurvivorController)
 {
 	if (!HasAuthority())
 	{
@@ -253,13 +257,21 @@ void AMatchGameMode::RegisterSurvivorEscaped(FName SurvivorNickname)
 		return;
 	}
 
-	RegisterSurvivorStateChanged(SurvivorNickname, ESurvivorState::Escaped);
+	if (!ApplySurvivorState(SurvivorController, ESurvivorState::Escaped))
+	{
+		return;
+	}
+
+	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordEscaped(ESurvivorEscapeMethod::None);
+	}
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
 
-void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorNickname)
+void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
 {
 	if (!HasAuthority())
 	{
@@ -272,26 +284,67 @@ void AMatchGameMode::RegisterSurvivorKilled(FName SurvivorNickname)
 		return;
 	}
 
-	RegisterSurvivorStateChanged(SurvivorNickname, ESurvivorState::Dead);
+	if (!ApplySurvivorState(SurvivorController, ESurvivorState::Dead))
+	{
+		return;
+	}
+	
+	// 생존자의 완전 사망 처리, 추후 Cage액터로 이동
+	// 케이지의 구출도 케이지 또는 생존자에서 PlayerState->RecordCageRescue()
+	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordKilled();
+	}
+
+	for (APlayerState* PlayerState : MatchGameState->PlayerArray)
+	{
+		ALDPlayerState* KillerPlayerState = Cast<ALDPlayerState>(PlayerState);
+		if (IsValid(KillerPlayerState) && KillerPlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
+		{
+			KillerPlayerState->RecordKillerElimination();
+			break;
+		}
+	}
 
 	RefreshEscapeConditions();
 	TryFinishMatchFromSurvivorCounts();
 }
 
-void AMatchGameMode::RegisterSurvivorStateChanged(FName SurvivorNickname, ESurvivorState NewSurvivorState)
+void AMatchGameMode::RegisterSurvivorStateChanged(AController* SurvivorController, const ESurvivorState NewSurvivorState)
 {
-	if (!HasAuthority())
+	ApplySurvivorState(SurvivorController, NewSurvivorState);
+}
+
+bool AMatchGameMode::ApplySurvivorState(AController* SurvivorController, const ESurvivorState NewSurvivorState)
+{
+	if (!HasAuthority() || !IsValid(SurvivorController))
 	{
-		return;
+		return false;
 	}
 
+	const ALDPlayerState* LDPlayerState = SurvivorController->GetPlayerState<ALDPlayerState>();
 	AMatchGameState* MatchGameState = GetMatchGameState();
-	if (!IsValid(MatchGameState))
+	if (!IsValid(LDPlayerState)
+		|| LDPlayerState->GetPlayerRole() != ELobbyPlayerRole::Survivor
+		|| LDPlayerState->GetPlayerId() == INDEX_NONE
+		|| !IsValid(MatchGameState))
 	{
-		return;
+		return false;
 	}
 
-	MatchGameState->SetSurvivorState(SurvivorNickname, NewSurvivorState);
+	FMatchPlayerState MatchPlayerState;
+	if (!MatchGameState->GetMatchPlayerState(LDPlayerState->GetPlayerId(), MatchPlayerState)
+		|| MatchPlayerState.PlayerRole != ELobbyPlayerRole::Survivor)
+	{
+		return false;
+	}
+	if (MatchPlayerState.SurvivorState == NewSurvivorState)
+	{
+		return false;
+	}
+
+	MatchGameState->SetSurvivorState(LDPlayerState->GetPlayerId(), NewSurvivorState);
+	return true;
 }
 
 EMatchResult AMatchGameMode::CalculateMatchResult() const

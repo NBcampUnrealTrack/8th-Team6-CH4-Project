@@ -6,7 +6,11 @@
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
-class USPKillerFirstPersonMeshComponent;
+class USPKillerCarryAnimComponent;
+class USPParkourComponent;
+class UAnimMontage;
+class UAnimSequence;
+//class USPKillerFirstPersonMeshComponent;
 class ACage;
 
 // ---------------------------------------------------------------
@@ -45,9 +49,16 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     const UKillerData* GetKillerData() const { return KillerData; }
 
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
-    */
+    UFUNCTION(BlueprintPure, Category = "Killer")
+    EKillerState GetKillerState() const { return CurrentState; }
+
+    UFUNCTION(BlueprintPure, Category = "Killer|Parkour")
+    bool IsParkouring() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Killer|Parkour")
+    void NotifyParkourEnded();
+
+    USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 
 protected:
     bool bCanPickup = true;
@@ -55,14 +66,24 @@ protected:
     UPROPERTY(ReplicatedUsing = OnRep_CurrentState)
     EKillerState CurrentState = EKillerState::Idle;
 
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayAttackMontage(UAnimMontage* MontageToPlay);
+
     UFUNCTION()
     void OnRep_CurrentState();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayGroggyMontage();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_StopGroggyMontage();
 
     UPROPERTY(Replicated)
     bool bIsBusy = false;
 
     // 입력 및 상호작용
     virtual void Interact() override;
+    virtual void JumpOver() override;
     void Attack();
 
     UFUNCTION(Server, Reliable)
@@ -73,23 +94,35 @@ protected:
 
     void PerformAttack();
     void SetKillerState(EKillerState NewState);
+    UAnimMontage* ResolveGroggyMontage();
+    void StopGroggyMontageLocal(float BlendOut = 0.15f);
     void UpdateMovementSpeed();
     void SetupKillerFirstPersonCamera();
     void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
     
     // 로직
     bool PerformAttackTrace();
+    void AttachCarriedSurvivor(AActor* Target);
+    void ApplyCarryAttachmentTransform(AActor* Target);
     void PickupSurvivor(AActor* Target);
     void DropSurvivor();
+    void HandlePickupAttachWindow();
+    void HandlePickupMontageFinished();
     void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent);
     AActor* FindInteractableActor(float Radius);
 
     UPROPERTY(EditDefaultsOnly, Category = "Killer Data")
     TObjectPtr<UKillerData> KillerData;
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
-    TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
-    */
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
+    TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Parkour")
+    TObjectPtr<USPParkourComponent> ParkourComponent;
+
+    TWeakObjectPtr<AActor> PendingPickupTarget;
+    
+    void InitializeInputSubsystem();
 
     /** Bone (or socket) on the killer mesh where the first-person camera is anchored. */
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
@@ -118,11 +151,37 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
     TArray<TObjectPtr<UMeshComponent>> OwnerHiddenMeshComponents;
 
+    // --- 카메라 각도 제한 설정 ---
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    float MinPitch = -45.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Camera")
+    float MaxPitch = 45.0f;
+    // ----------------------------------
+    
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> AttackMontage;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> GroggyMontage;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TSoftObjectPtr<UAnimSequence> FallbackGroggySequence;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> RuntimeGroggyMontage;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> ActiveGroggyMontage;
+
+    UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;
+
+    UFUNCTION()
+    void OnRep_CarriedSurvivor(AActor* PreviousCarriedSurvivor);
 
     UPROPERTY(VisibleAnywhere, Category = "Tags")
     FGameplayTagContainer charTag;

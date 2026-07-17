@@ -26,7 +26,10 @@ public:
 	virtual bool IsInteractable_Implementation() const override;
 
 	bool IsSpawned() const { return bIsSpawned; }
-	
+
+	float GetEscapeProgress() const { return EscapeProgress; }
+	float GetEscapeDuration() const { return EscapeDuration; }
+
 	void SetEscaper(ASurvivorCharacter* Escaper);
 	void ClearEscaper(ASurvivorCharacter* Escaper);
 

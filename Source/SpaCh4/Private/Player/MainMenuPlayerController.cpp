@@ -4,8 +4,10 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
+#include "Player/LDPlayerState.h"
 #include "Player/MainMenuExposureCameraModifier.h"
 #include "Systems/MainMenuGameMode.h"
+#include "Systems/SPPlayerLoadoutSubsystem.h"
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "UI/MainMenuWidget.h"
 
@@ -31,7 +33,20 @@ void AMainMenuPlayerController::BeginPlay()
 	FocusMainMenuCamera();
 	InstallExposureLockModifier();
 	ShowMainMenuWidget();
+	SubmitCachedPlayerLoadout();
 	SubmitPendingMatchmakingRole();
+}
+
+void AMainMenuPlayerController::SubmitCachedPlayerLoadout()
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const USPPlayerLoadoutSubsystem* LoadoutSubsystem = GameInstance
+		? GameInstance->GetSubsystem<USPPlayerLoadoutSubsystem>()
+		: nullptr;
+	if (LoadoutSubsystem && LoadoutSubsystem->IsLoadoutComplete())
+	{
+		ServerSavePlayerLoadout(LoadoutSubsystem->GetCachedLoadout());
+	}
 }
 
 void AMainMenuPlayerController::SubmitPendingMatchmakingRole()
@@ -73,6 +88,26 @@ void AMainMenuPlayerController::CancelMainMenuMatchmaking()
 	}
 }
 
+void AMainMenuPlayerController::SavePlayerLoadout(const FSPPlayerLoadout& NewLoadout)
+{
+	if (!SPPlayerLoadout::IsComplete(NewLoadout))
+	{
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템과 퍽 설정이 완성되지 않았습니다."));
+		return;
+	}
+
+	UGameInstance* GameInstance = GetGameInstance();
+	USPPlayerLoadoutSubsystem* LoadoutSubsystem = GameInstance
+		? GameInstance->GetSubsystem<USPPlayerLoadoutSubsystem>()
+		: nullptr;
+	if (LoadoutSubsystem)
+	{
+		LoadoutSubsystem->SaveCachedLoadout(NewLoadout);
+	}
+
+	ServerSavePlayerLoadout(NewLoadout);
+}
+
 void AMainMenuPlayerController::ServerSubmitMainMenuMatchmakingRole_Implementation(ELobbyPlayerRole SelectedRole, const FString& Nickname)
 {
 	AMainMenuGameMode* MainMenuGameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMainMenuGameMode>() : nullptr;
@@ -85,6 +120,15 @@ void AMainMenuPlayerController::ServerSubmitMainMenuMatchmakingRole_Implementati
 	FString StatusMessage;
 	const bool bWasSubmitted = MainMenuGameMode->SubmitMatchmakingRole(this, Nickname, SelectedRole, StatusMessage);
 	ClientReceiveMainMenuMatchmakingStatus(bWasSubmitted, StatusMessage);
+}
+
+void AMainMenuPlayerController::ServerSavePlayerLoadout_Implementation(const FSPPlayerLoadout& NewLoadout)
+{
+	ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>();
+	if (!LDPlayerState || !LDPlayerState->SetPlayerLoadout(NewLoadout))
+	{
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템과 퍽 설정을 저장하지 못했습니다."));
+	}
 }
 
 void AMainMenuPlayerController::ClientReceiveMainMenuMatchmakingStatus_Implementation(bool bWasSuccessful, const FString& StatusMessage)
