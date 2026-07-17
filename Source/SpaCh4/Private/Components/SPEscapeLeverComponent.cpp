@@ -97,7 +97,8 @@ void USPEscapeLeverComponent::TickComponent(float DeltaTime, ELevelTick TickType
 
 	const float MontageLength = LeverPulldownMontage->GetPlayLength();
 	const float MontagePosition = AnimInstance->Montage_GetPosition(LeverPulldownMontage);
-	const float BlendIn = FMath::Clamp(LeverPulldownToWatchBlendIn, 0.05f, MontageLength * 0.5f);
+	const float Crossfade = FMath::Max(FMath::Max(LeverPulldownToWatchBlendIn, LeverPulldownMontage->BlendOut.GetBlendTime()), 0.2f);
+	const float BlendIn = FMath::Clamp(Crossfade, 0.05f, MontageLength * 0.5f);
 
 	if (MontagePosition >= MontageLength - BlendIn)
 	{
@@ -183,6 +184,14 @@ void USPEscapeLeverComponent::CancelLeverChannel()
 	}
 }
 
+void USPEscapeLeverComponent::OnLeverPullNotify()
+{
+	if (ASPEscapeGate* Gate = CurrentGate.Get())
+	{
+		Gate->NotifyLeverPullStart();
+	}
+}
+
 void USPEscapeLeverComponent::BeginLeverChannelDebug()
 {
 	if (bIsPullingLever)
@@ -255,7 +264,8 @@ void USPEscapeLeverComponent::StartLeverChannelInternal(ASPEscapeGate* Gate)
 		if (UWorld* World = GetWorld())
 		{
 			const float PulldownLength = LeverPulldownMontage->GetPlayLength();
-			const float TransitionDelay = FMath::Max(0.05f, PulldownLength - LeverPulldownToWatchBlendIn);
+			const float Crossfade = FMath::Max(FMath::Max(LeverPulldownToWatchBlendIn, LeverPulldownMontage->BlendOut.GetBlendTime()), 0.2f);
+			const float TransitionDelay = FMath::Max(0.05f, PulldownLength - Crossfade);
 			FTimerHandle WatchTransitionTimer;
 			World->GetTimerManager().SetTimer(WatchTransitionTimer, this, &USPEscapeLeverComponent::TransitionPulldownToWatch, TransitionDelay, false);
 			UE_LOG(LogTemp, Warning, TEXT("[LEVER] Pulldown length=%f, scheduled Watch in %f"), PulldownLength, TransitionDelay);
@@ -284,7 +294,7 @@ void USPEscapeLeverComponent::Multicast_CancelLeverChannel_Implementation()
 		return;
 	}
 
-	ExitLeverState(true);
+	ExitLeverState(false);
 }
 
 bool USPEscapeLeverComponent::IsLeverChannelActive() const
@@ -300,6 +310,15 @@ void USPEscapeLeverComponent::EnterLeverState()
 	if (!Survivor)
 	{
 		return;
+	}
+
+	if (const ASPEscapeGate* Gate = CurrentGate.Get())
+	{
+		const FTransform Anchor = Gate->GetInteractAnchorTransform();
+		FVector SnapLocation = Anchor.GetLocation();
+		SnapLocation.Z = Survivor->GetActorLocation().Z;
+		const FRotator SnapRotation(0.f, Anchor.Rotator().Yaw, 0.f);
+		Survivor->SetActorLocationAndRotation(SnapLocation, SnapRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
@@ -447,7 +466,8 @@ void USPEscapeLeverComponent::TransitionPulldownToWatch()
 	SetLeverTickEnabled(true);
 	UpdateChannelEndTime();
 
-	PlayWatchMontage(LeverPulldownToWatchBlendIn, true);
+	const float Crossfade = FMath::Max(FMath::Max(LeverPulldownToWatchBlendIn, LeverPulldownMontage ? LeverPulldownMontage->BlendOut.GetBlendTime() : 0.f), 0.2f);
+	PlayWatchMontage(Crossfade, true);
 }
 
 void USPEscapeLeverComponent::PlayWatchMontage(float BlendInTime, bool bCrossfadeFromPrevious)
@@ -477,7 +497,7 @@ void USPEscapeLeverComponent::PlayWatchMontage(float BlendInTime, bool bCrossfad
 	float Duration = 0.f;
 	if (BlendInTime > 0.f)
 	{
-		const float BlendIn = FMath::Clamp(BlendInTime, 0.05f, 0.25f);
+		const float BlendIn = FMath::Clamp(BlendInTime, 0.05f, 0.8f);
 		const FAlphaBlendArgs BlendInArgs(BlendIn);
 		Duration = AnimInstance->Montage_PlayWithBlendIn(LeverWatchMontage, BlendInArgs, 1.f, EMontagePlayReturnType::MontageLength, 0.f, bCrossfadeFromPrevious);
 	}
@@ -567,6 +587,15 @@ void USPEscapeLeverComponent::ExitLeverState(bool bPlayReturnAnim)
 	SetLeverTickEnabled(false);
 	bWatchTransitionTriggered = true;
 	bIsPullingLever = false;
+
+	if (!bPlayReturnAnim)
+	{
+		if (ASPEscapeGate* Gate = CurrentGate.Get())
+		{
+			Gate->NotifyLeverRelease();
+		}
+	}
+
 	CurrentGate = nullptr;
 
 	if (bPlayReturnAnim && LeverReturnMontage)

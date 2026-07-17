@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Player/SPPlayerLoadout.h"
 #include "Systems/LobbyGameState.h"
 #include "MainMenuWidget.generated.h"
 
@@ -9,6 +10,7 @@ class UButton;
 class UImage;
 class UTextBlock;
 class USPMainMenuStyleData;
+class USPLoadoutSettingsWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FMainMenuMatchmakingStatusSignature, bool, bWasSuccessful, const FString&, StatusMessage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FMainMenuMatchmakingRoleCountSignature, int32, SurvivorCount, int32, KillerCount);
@@ -79,6 +81,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Travel")
 	FString MainMenuLevelPath;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Loadout")
+	TSubclassOf<USPLoadoutSettingsWidget> LoadoutSettingsWidgetClass;
+
 	/** 미지정 시 /Game/UI/Data/DA_MainMenuStyle 또는 SPUIStyleLibrary 기본값 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MainMenu|Style")
 	TObjectPtr<USPMainMenuStyleData> VisualStyle;
@@ -116,6 +121,12 @@ private:
 	UFUNCTION()
 	void HandleLobbyCountdownChanged(int32 CountdownRemainingTime);
 
+	UFUNCTION()
+	void HandleLoadoutSettingsSaved(const FSPPlayerLoadout& SavedLoadout);
+
+	UFUNCTION()
+	void HandleLoadoutSettingsClosed();
+
 	void BindMenuButtons();
 	void BindOnlineEvents();
 	void BindLobbyStateEvents();
@@ -127,6 +138,7 @@ private:
 	void StartOnlineMatchmakingAsRole(ELobbyPlayerRole SelectedRole);
 	void RefreshMatchmakingControls(bool bIsMatchmaking);
 	void UpdateRoleCountStatus(int32 SurvivorCount, int32 KillerCount);
+	bool IsRoleLoadoutConfigured(ELobbyPlayerRole PlayerRoleType) const;
 
 	void ConfigureButtonStyle(
 		UButton* Button,
@@ -136,4 +148,7 @@ private:
 		float HorizontalScale = 1.0f) const;
 
 	ELobbyPlayerRole SelectedMatchmakingRole = ELobbyPlayerRole::None;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USPLoadoutSettingsWidget> LoadoutSettingsWidgetInstance;
 };

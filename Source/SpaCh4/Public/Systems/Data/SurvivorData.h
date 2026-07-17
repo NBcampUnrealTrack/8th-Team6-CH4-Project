@@ -31,6 +31,10 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float SurvivorInjuredSpeedMultiplier = 0.92;
+
+	/** Crawl / prone movement speed while Downed. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
+	float SurvivorDownedCrawlSpeed = 120.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	float HitEscapeSprintDuration = 3.00;

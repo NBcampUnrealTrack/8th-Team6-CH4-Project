@@ -5,11 +5,13 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SPPickupAnimComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
+#include "Components/SPHealingAnimComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
@@ -17,8 +19,8 @@
 #include "Interface/SPInteractable.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
 #include "Systems/Data/SurvivorData.h"
-#include "Systems/MatchGameState.h"
 #include "TimerManager.h"
 
 USPInteractionComponent::USPInteractionComponent()
@@ -32,6 +34,7 @@ void USPInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(USPInteractionComponent, bIsInteract);
+	DOREPLIFETIME_CONDITION(USPInteractionComponent, InteractProgress, COND_OwnerOnly);
 }
 
 void USPInteractionComponent::BeginPlay()
@@ -43,6 +46,11 @@ void USPInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	UpdateInteract();
+
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		InteractProgress = ComputeInteractProgress();
+	}
 }
 
 ASurvivorCharacter* USPInteractionComponent::GetSurvivor() const
@@ -153,6 +161,57 @@ bool USPInteractionComponent::TraceInteractable(FHitResult& OutHit) const
 	return bHit;
 }
 
+float USPInteractionComponent::ComputeInteractProgress() const
+{
+	if (!bIsInteract)
+	{
+		return 0.f;
+	}
+
+	if (const ASPEscapeGate* Gate = CurrentEscapeGate.Get())
+	{
+		const float Duration = Gate->GetOpenDuration();
+		return Duration > 0.f ? FMath::Clamp(Gate->GetOpenProgress() / Duration, 0.f, 1.f) : 0.f;
+	}
+
+	if (const ASPHatch* Hatch = CurrentHatch.Get())
+	{
+		const float Duration = Hatch->GetEscapeDuration();
+		return Duration > 0.f ? FMath::Clamp(Hatch->GetEscapeProgress() / Duration, 0.f, 1.f) : 0.f;
+	}
+
+	if (CurrentCage.IsValid())
+	{
+		FTimerManager& TimerManager = GetWorld()->GetTimerManager();
+		const float Rate = TimerManager.GetTimerRate(RescueTimer);
+		return Rate > 0.f ? FMath::Clamp(TimerManager.GetTimerElapsed(RescueTimer) / Rate, 0.f, 1.f) : 0.f;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& TimerManager = World->GetTimerManager();
+		if (TimerManager.IsTimerActive(HealTimer))
+		{
+			const float Rate = TimerManager.GetTimerRate(HealTimer);
+			if (Rate > 0.f)
+			{
+				return FMath::Clamp(TimerManager.GetTimerElapsed(HealTimer) / Rate, 0.f, 1.f);
+			}
+		}
+
+		if (TimerManager.IsTimerActive(PickupDropTimer))
+		{
+			const float Rate = TimerManager.GetTimerRate(PickupDropTimer);
+			if (Rate > 0.f)
+			{
+				return FMath::Clamp(TimerManager.GetTimerElapsed(PickupDropTimer) / Rate, 0.f, 1.f);
+			}
+		}
+	}
+
+	return 0.f;
+}
+
 bool USPInteractionComponent::Server_Interact_Validate()
 {
 	return true;
@@ -175,10 +234,110 @@ void USPInteractionComponent::Server_Interact_Implementation()
 		return;
 	}
 
-	BeginDrop();
+	TryBeginSelfHeal();
 }
 
-void USPInteractionComponent::FaceInteractTarget(const AActor* Target)
+void USPInteractionComponent::TryBeginSelfHeal()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract)
+	{
+		return;
+	}
+
+	if (Survivor->GetSurvivorState() != ESurvivorState::Injured || !IsSelectedSlotMedkit())
+	{
+		return;
+	}
+
+	bIsSelfHealing = true;
+	bIsInteract = true;
+
+	if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+	{
+		HealAnim->SetAutoCompleteLoop(false);
+		HealAnim->BeginHealingChannel();
+	}
+
+	const USurvivorData* Data = GetSurvivorData();
+	const float Duration = Data ? Data->MedkitDuration : 3.f;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			HealTimer, this, &USPInteractionComponent::CompleteHeal, Duration, false);
+	}
+}
+
+bool USPInteractionComponent::IsSelectedSlotMedkit() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	return Inventory && Inventory->IsSlotConsumable(Survivor->GetSelectedSlotIndex(), EConsumableItemType::Medkit);
+}
+
+bool USPInteractionComponent::CanSelfHeal() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || bIsInteract || LastActor.IsValid())
+	{
+		return false;
+	}
+
+	return Survivor->GetSurvivorState() == ESurvivorState::Injured && IsSelectedSlotMedkit();
+}
+
+void USPInteractionComponent::CompleteHeal()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+
+	bIsInteract = false;
+	bIsSelfHealing = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HealTimer);
+	}
+
+	if (Survivor)
+	{
+		if (USPInventoryComponent* Inventory = Survivor->GetInventoryComponent())
+		{
+			Inventory->RemoveConsumable(EConsumableItemType::Medkit);
+		}
+
+		if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+		{
+			HealAnim->EndHealingChannel(true);
+			HealAnim->SetAutoCompleteLoop(true);
+		}
+
+		Survivor->RecoverOneStep();
+		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+		{
+			PlayerState->RecordSuccessfulSelfHeal();
+		}
+	}
+}
+
+void USPInteractionComponent::CancelHealChannel()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HealTimer);
+	}
+
+	if (ASurvivorCharacter* Survivor = GetSurvivor())
+	{
+		if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
+		{
+			HealAnim->CancelHealingChannel();
+			HealAnim->SetAutoCompleteLoop(true);
+		}
+	}
+
+	bIsSelfHealing = false;
+}
+
+void USPInteractionComponent::FaceInteractTarget(AActor* Target)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Target)
@@ -186,7 +345,16 @@ void USPInteractionComponent::FaceInteractTarget(const AActor* Target)
 		return;
 	}
 
-	const FVector ToTarget = Target->GetActorLocation() - Survivor->GetActorLocation();
+	FVector FocusLocation = Target->GetActorLocation();
+	if (Target->Implements<USPInteractable>())
+	{
+		if (const USceneComponent* FocusComponent = ISPInteractable::Execute_GetInteractFocusComponent(Target))
+		{
+			FocusLocation = FocusComponent->GetComponentLocation();
+		}
+	}
+
+	const FVector ToTarget = FocusLocation - Survivor->GetActorLocation();
 	if (ToTarget.SizeSquared2D() < KINDA_SMALL_NUMBER)
 	{
 		return;
@@ -246,6 +414,7 @@ void USPInteractionComponent::CancelInteract()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PickupDropTimer);
+		World->GetTimerManager().ClearTimer(RescueTimer);
 	}
 
 	ASurvivorCharacter* Survivor = GetSurvivor();
@@ -255,6 +424,11 @@ void USPInteractionComponent::CancelInteract()
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
 	StopInteractMontage();
+
+	if (bIsSelfHealing)
+	{
+		CancelHealChannel();
+	}
 
 	if (bWasPickup && Survivor && Survivor->GetPickupAnimComponent())
 	{
@@ -280,6 +454,8 @@ void USPInteractionComponent::CancelInteract()
 		Hatch->ClearEscaper(Survivor);
 	}
 	CurrentHatch = nullptr;
+
+	CurrentCage = nullptr;
 }
 
 void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
@@ -306,7 +482,16 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	bIsInteract = true;
-	PlayInteractMontage(PickupMontage.LoadSynchronous());
+
+	if (USPPickupAnimComponent* PickupAnim = Survivor->GetPickupAnimComponent())
+	{
+		PickupAnim->BeginPickupAnim();
+	}
+	else
+	{
+		PlayInteractMontage(PickupMontage.LoadSynchronous());
+	}
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
@@ -488,7 +673,14 @@ void USPInteractionComponent::CompleteDelivery()
 
 	if (Value > 0)
 	{
-		Station->SubmitValue(Value);
+		const int32 AcceptedValue = Station->SubmitValue(Value);
+		if (AcceptedValue > 0)
+		{
+			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+			{
+				PlayerState->RecordDelivery(AcceptedValue);
+			}
+		}
 	}
 
 	if (Item)
@@ -505,8 +697,7 @@ void USPInteractionComponent::BeginEscapeOpen(ASPEscapeGate* Gate)
 		return;
 	}
 
-	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
-	if (!MatchGameState || !MatchGameState->CanActivateEscapeGates())
+	if (!Gate->CanBeOpened())
 	{
 		return;
 	}
@@ -561,6 +752,54 @@ void USPInteractionComponent::CompleteHatchEscape()
 	StopInteractMontage();
 	if (ASurvivorCharacter* Survivor = GetSurvivor())
 	{
+		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+		{
+			PlayerState->RecordEscaped(ESurvivorEscapeMethod::Hatch);
+		}
 		Survivor->SetSurvivorState(ESurvivorState::Escaped);
 	}
+}
+
+void USPInteractionComponent::BeginRescue(ACage* Cage)
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Survivor->CanInteract() || !Cage)
+	{
+		return;
+	}
+
+	ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor();
+	if (!Victim || Victim->GetSurvivorState() != ESurvivorState::Caged)
+	{
+		return;
+	}
+
+	CurrentCage = Cage;
+	bIsInteract = true;
+	PlayInteractMontage(RescueMontage.LoadSynchronous());
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			RescueTimer, this, &USPInteractionComponent::CompleteRescue, Cage->GetRescueDuration(), false);
+	}
+}
+
+void USPInteractionComponent::CompleteRescue()
+{
+	bIsInteract = false;
+	StopInteractMontage();
+
+	ACage* Cage = CurrentCage.Get();
+	CurrentCage = nullptr;
+	if (!Cage)
+	{
+		return;
+	}
+
+	if (ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor())
+	{
+		Victim->RescueFromCage(GetSurvivor());
+	}
+	Cage->SetCageStatus(ECageStatus::Empty);
 }

@@ -12,6 +12,7 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class UAnimMontage;
+class ACage;
 
 
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
@@ -25,20 +26,32 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	
-	void RequestInteract();   
-	void NotifyMoveInput();   
+	void RequestInteract();
+	void NotifyMoveInput();
 	void BeginPickup(ASPCollectibleItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
 	void BeginHatchEscape(ASPHatch* Hatch);
 	void CompleteHatchEscape();
+	void BeginRescue(ACage* Cage);
 	void CancelInteract();
 
 	bool IsCarrying() const;
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	bool IsInteracting() const { return bIsInteract; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
+	bool CanSelfHeal() const;
+
 	bool ShouldCancelOnMove() const { return bCancelInteractOnMove; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	FGameplayTag GetInteractableTag() const { return InteractableTag; }
+
+	UFUNCTION(BlueprintPure, Category = "SP|Interact")
+	float GetInteractProgress() const { return InteractProgress; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,13 +77,19 @@ private:
 
 	void UpdateInteract();
 	bool TraceInteractable(FHitResult& OutHit) const;
+	float ComputeInteractProgress() const;
 
 	void CompletePickup();
 	void BeginDrop();
 	void CompleteDrop();
 	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
 	void CompleteDelivery();
-	void FaceInteractTarget(const AActor* Target);
+	void CompleteRescue();
+	void TryBeginSelfHeal();
+	bool IsSelectedSlotMedkit() const;
+	void CompleteHeal();
+	void CancelHealChannel();
+	void FaceInteractTarget(AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
 	void StopInteractMontage();
 
@@ -106,16 +125,27 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
 	TSoftObjectPtr<UAnimMontage> HatchEscapeMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> RescueMontage;
 	
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
 
+	UPROPERTY(Replicated)
+	float InteractProgress{0.f};
+
+
+	bool bIsSelfHealing{false};
 
 	FTimerHandle PickupDropTimer;
+	FTimerHandle HealTimer;
+	FTimerHandle RescueTimer;
 	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
 	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
 	TWeakObjectPtr<ASPHatch> CurrentHatch;
+	TWeakObjectPtr<ACage> CurrentCage;
 	TWeakObjectPtr<AActor> LastActor;
 	FGameplayTag InteractableTag;
 };

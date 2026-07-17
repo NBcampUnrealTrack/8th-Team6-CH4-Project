@@ -3,19 +3,57 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
+#include "InputActionValue.h"
+#include "InputAction.h"
 #include "EnhancedInputComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputSubsystems.h"
 #include "Camera/CameraComponent.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/SPKillerCarryAnimComponent.h"
+#include "Components/SPParkourComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
+#include "UObject/ConstructorHelpers.h"
 /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
 #include "Components/SPKillerFirstPersonMeshComponent.h"
 */
 #include "GameFramework/SpringArmComponent.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Type/SPGameplayTag.h"
+#include "Engine/SkeletalMesh.h"
+#include "ReferenceSkeleton.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/LDPlayerState.h"
+
+namespace
+{
+    FTransform GetRefPoseComponentSpaceTransform(const USkeletalMeshComponent* Mesh, const FName BoneName)
+    {
+        const USkeletalMesh* Asset = Mesh ? Mesh->GetSkeletalMeshAsset() : nullptr;
+        if (!Asset)
+        {
+            return FTransform::Identity;
+        }
+
+        const FReferenceSkeleton& RefSkeleton = Asset->GetRefSkeleton();
+        int32 BoneIndex = RefSkeleton.FindBoneIndex(BoneName);
+        if (BoneIndex == INDEX_NONE)
+        {
+            return FTransform::Identity;
+        }
+
+        FTransform Result = RefSkeleton.GetRefBonePose()[BoneIndex];
+        while ((BoneIndex = RefSkeleton.GetParentIndex(BoneIndex)) != INDEX_NONE)
+        {
+            Result *= RefSkeleton.GetRefBonePose()[BoneIndex];
+        }
+        return Result;
+    }
+}
 
 AKillerCharacter::AKillerCharacter()
 {
@@ -28,20 +66,39 @@ AKillerCharacter::AKillerCharacter()
     }
     
     charTag.AddTag(SPGameplayTags::Character::Killer);
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
-    */
+    CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
+    ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Attack/AM_Attack_Montage.AM_Attack_Montage"));
+    if (AttackMontageFinder.Succeeded())
+    {
+        AttackMontage = AttackMontageFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> GroggyMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AM_Groggy_Montage.AM_Groggy_Montage"));
+    if (GroggyMontageFinder.Succeeded())
+    {
+        GroggyMontage = GroggyMontageFinder.Object;
+    }
+    else
+    {
+        static ConstructorHelpers::FObjectFinder<UAnimMontage> LegacyGroggyMontageFinder(
+            TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Montage.AS_Zombie_Idle_Montage"));
+        if (LegacyGroggyMontageFinder.Succeeded())
+        {
+            GroggyMontage = LegacyGroggyMontageFinder.Object;
+        }
+    }
+
+    FallbackGroggySequence = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Rogue.AS_Zombie_Idle_Rogue")));
 }
 
 void AKillerCharacter::NotifyControllerChanged()
 {
     Super::NotifyControllerChanged();
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-    }
-    */
 }
 
 void AKillerCharacter::PostInitializeComponents()
@@ -121,6 +178,10 @@ void AKillerCharacter::SetupKillerFirstPersonCamera()
         return;
     }
 
+    // Keep the camera rigidly fixed to the animated head while moving.
+    SpringArm->bEnableCameraLag = false;
+    SpringArm->bEnableCameraRotationLag = false;
+
     FName AttachName = CameraAttachBoneName;
     if (AttachName.IsNone() || !SkelMesh->DoesSocketExist(AttachName))
     {
@@ -155,8 +216,11 @@ void AKillerCharacter::SetupKillerFirstPersonCamera()
         return;
     }
 
-    SkelMesh->SetOwnerNoSee(bShowFirstPersonArmsOnly);
-    if (bHideOwnerShadow)
+    // Keep the killer body visible unless a dedicated first-person arms mesh
+    // actually exists to replace it.
+    const bool bUseFirstPersonArmsOnly = bShowFirstPersonArmsOnly && FirstPersonArmsMesh != nullptr;
+    SkelMesh->SetOwnerNoSee(bUseFirstPersonArmsOnly);
+    if (bHideOwnerShadow && bUseFirstPersonArmsOnly)
     {
         SkelMesh->SetCastShadow(false);
     }
@@ -165,15 +229,15 @@ void AKillerCharacter::SetupKillerFirstPersonCamera()
     {
         if (MeshComp)
         {
-            MeshComp->SetOwnerNoSee(true);
-            if (bHideOwnerShadow)
+            MeshComp->SetOwnerNoSee(bUseFirstPersonArmsOnly);
+            if (bHideOwnerShadow && bUseFirstPersonArmsOnly)
             {
                 MeshComp->SetCastShadow(false);
             }
         }
     }
 
-    if (bShowFirstPersonArmsOnly && FirstPersonArmsMesh)
+    if (bUseFirstPersonArmsOnly)
     {
         if (USkeletalMesh* BodyMeshAsset = SkelMesh->GetSkeletalMeshAsset())
         {
@@ -204,30 +268,27 @@ void AKillerCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (UCameraComponent* FollowCamera = GetCameraComponent())
+    if (CarryAnimComponent)
     {
-        FollowCamera->SetProjectionMode(ECameraProjectionMode::Perspective);
-    }
-
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-        FirstPersonMeshComp->EnsureAnimationSetup();
-    }*/
-    
-    if (GetMesh() && SpringArm)
-    {
-        SpringArm->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("head"));
-        SpringArm->SetRelativeLocation(FVector(0, 0, 0)); // 오프셋 조정 필요
-    }
-
-    // 2. 1인칭 메쉬 설정
-    if (GetMesh())
-    {
-        GetMesh()->SetOwnerNoSee(true); // 내 몸은 안 보이게
+        CarryAnimComponent->OnPickupAttachRequested.AddUObject(this, &AKillerCharacter::HandlePickupAttachWindow);
+        CarryAnimComponent->OnPickupFinished.AddUObject(this, &AKillerCharacter::HandlePickupMontageFinished);
     }
     
+    SetupKillerFirstPersonCamera(); // 카메라 초기화 분리
+    InitializeInputSubsystem();
+ 
+    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    UpdateMovementSpeed();
+    
+    if (APlayerController* PC = Cast<APlayerController>(GetController()))
+    {
+        PC->PlayerCameraManager->ViewPitchMin = MinPitch;
+        PC->PlayerCameraManager->ViewPitchMax = MaxPitch;
+    }
+}
+
+void AKillerCharacter::InitializeInputSubsystem()
+{
     if (APlayerController* PC = Cast<APlayerController>(GetController()))
     {
         if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
@@ -236,30 +297,27 @@ void AKillerCharacter::BeginPlay()
             {
                 for (const FInputMappingContextEntry& Entry : InputConfig->MappingContexts)
                 {
-                    if (Entry.MappingContext) Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
+                    if (Entry.MappingContext) 
+                    {
+                        Subsystem->AddMappingContext(Entry.MappingContext, Entry.Priority);
+                    }
                 }
             }
         }
     }
-    
-    if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-    UpdateMovementSpeed();
-    
-    if (APlayerController* PC = Cast<APlayerController>(GetController()))
-    {
-        // 최소 Pitch와 최대 Pitch 설정
-        // -45도(위) ~ +45도(아래) 범위로 제한하려면 아래와 같이 설정
-        PC->PlayerCameraManager->ViewPitchMin = -45.0f;
-        PC->PlayerCameraManager->ViewPitchMax = 45.0f;
-        UE_LOG(LogTemp, Warning, TEXT("Pitch 제한 설정 완료: Min=%f, Max=%f"), PC->PlayerCameraManager->ViewPitchMin, PC->PlayerCameraManager->ViewPitchMax);
-    }
 }
+
 
 void AKillerCharacter::PerformAttack()
 {
     if (!KillerData) return;
 
     SetKillerState(EKillerState::Attacking);
+
+    if (HasAuthority() && AttackMontage)
+    {
+        Multicast_PlayAttackMontage(AttackMontage);
+    }
     
     // 공격 시작 시 이동 차단
     if (GetCharacterMovement())
@@ -271,15 +329,10 @@ void AKillerCharacter::PerformAttack()
     FTimerHandle WindupTimer;
     GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
         
-        // 2. Active 판정 (0.4s)
-        FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
-        FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
-        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, 2.0f, 0, 2.0f);
-
+        // Active 판정 및 Trace는 서버에서만 수행
         bool bHit = PerformAttackTrace();
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
 
-        // 3. 결과에 따른 상태 전이 및 복귀 로직
         auto RestoreMovement = [this]() {
             if (GetCharacterMovement())
             {
@@ -290,13 +343,11 @@ void AKillerCharacter::PerformAttack()
 
         if (bHit) 
         {
-            // 적중: 후딜 시간 뒤 이동 복구
             FTimerHandle RecoveryTimer;
             GetWorldTimerManager().SetTimer(RecoveryTimer, RestoreMovement, KillerData->TaserRecoveryHit, false);
         } 
         else 
         {
-            // 빗나감: 그로기 진입 후 이동 복구
             SetKillerState(EKillerState::Groggy);
             FTimerHandle GroggyTimer;
             GetWorldTimerManager().SetTimer(GroggyTimer, RestoreMovement, KillerData->TaserGroggyOnMiss, false);
@@ -304,20 +355,123 @@ void AKillerCharacter::PerformAttack()
     }, KillerData->TaserWindup, false);
 }
 
-void AKillerCharacter::PickupSurvivor(AActor* Target)
+void AKillerCharacter::Server_Attack_Implementation()
 {
-    if (!Target) return;
-    
-    if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target))
+    if (CurrentState == EKillerState::Idle)
     {
-        Survivor->SetSurvivorState(ESurvivorState::Carried);
+        PerformAttack();
     }
+}
+
+void AKillerCharacter::Multicast_PlayAttackMontage_Implementation(UAnimMontage* MontageToPlay)
+{
+    if (!MontageToPlay)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    AnimInstance->Montage_Play(MontageToPlay);
+}
+
+UAnimMontage* AKillerCharacter::ResolveGroggyMontage()
+{
+    if (UAnimSequence* Sequence = FallbackGroggySequence.LoadSynchronous())
+    {
+        RuntimeGroggyMontage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
+            Sequence,
+            TEXT("DefaultSlot"),
+            0.15f,
+            0.15f,
+            1.f,
+            1);
+        if (RuntimeGroggyMontage && RuntimeGroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
+        {
+            return RuntimeGroggyMontage;
+        }
+    }
+
+    if (GroggyMontage && GroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
+    {
+        return GroggyMontage;
+    }
+
+    return nullptr;
+}
+
+void AKillerCharacter::StopGroggyMontageLocal(float BlendOut)
+{
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (ActiveGroggyMontage && AnimInstance->Montage_IsPlaying(ActiveGroggyMontage))
+    {
+        AnimInstance->Montage_Stop(BlendOut, ActiveGroggyMontage);
+    }
+    else if (UAnimMontage* ResolvedMontage = ResolveGroggyMontage())
+    {
+        if (AnimInstance->Montage_IsPlaying(ResolvedMontage))
+        {
+            AnimInstance->Montage_Stop(BlendOut, ResolvedMontage);
+        }
+    }
+
+    ActiveGroggyMontage = nullptr;
+}
+
+void AKillerCharacter::Multicast_StopGroggyMontage_Implementation()
+{
+    StopGroggyMontageLocal();
+}
+
+void AKillerCharacter::Multicast_PlayGroggyMontage_Implementation()
+{
+    UAnimMontage* MontageToPlay = ResolveGroggyMontage();
+    if (!MontageToPlay)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Groggy montage missing - check AM_Groggy_Montage / AS_Zombie_Idle_Rogue"));
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (AttackMontage && AnimInstance->Montage_IsPlaying(AttackMontage))
+    {
+        AnimInstance->Montage_Stop(0.12f, AttackMontage);
+    }
+
+    ActiveGroggyMontage = MontageToPlay;
+    const float PlayRate = 1.f;
+    AnimInstance->Montage_Play(MontageToPlay, PlayRate);
+}
+
+
+void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
+{
+    ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target);
+    if (!Survivor || Survivor->GetSurvivorState() != ESurvivorState::Downed) return;
     
     CarriedSurvivor = Target;
+    Survivor->SetSurvivorState(ESurvivorState::Carried);
 
     // 1. 살인마와 생존자 서로 간의 충돌 무시
     GetCapsuleComponent()->IgnoreActorWhenMoving(CarriedSurvivor, true);
-    
+
     // 2. 생존자의 무브먼트 및 물리 완전 정지
     if (UCharacterMovementComponent* MoveComp = CarriedSurvivor->FindComponentByClass<UCharacterMovementComponent>())
     {
@@ -335,20 +489,150 @@ void AKillerCharacter::PickupSurvivor(AActor* Target)
         Comp->SetCollisionResponseToAllChannels(ECR_Ignore); // 모든 채널 무시
     }
 
-    // 4. [핵심] 캡슐 반지름보다 더 먼 위치(예: 150cm)로 강제 배치
-    CarriedSurvivor->AttachToActor(this, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-    CarriedSurvivor->SetActorRelativeLocation(FVector(150.f, 0.f, 0.f)); 
+    ApplyCarryAttachmentTransform(CarriedSurvivor);
+}
 
+void AKillerCharacter::ApplyCarryAttachmentTransform(AActor* Target)
+{
+    if (!Target)
+    {
+        return;
+    }
+
+    if (ACharacter* TargetCharacter = Cast<ACharacter>(Target))
+    {
+        if (UCharacterMovementComponent* TargetMovement = TargetCharacter->GetCharacterMovement())
+        {
+            TargetMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+        }
+    }
+
+    for (UActorComponent* Component : GetComponents())
+    {
+        if (!Component || Component->GetFName() != TEXT("CarryAttachPoint"))
+        {
+            continue;
+        }
+
+        USceneComponent* CarryAttachPoint = Cast<USceneComponent>(Component);
+        if (!CarryAttachPoint)
+        {
+            continue;
+        }
+
+        USkeletalMeshComponent* CarryMesh = GetMesh();
+        const FName CarryBone(TEXT("spine_03"));
+        if (CarryMesh
+            && (CarryMesh->DoesSocketExist(CarryBone) || CarryMesh->GetBoneIndex(CarryBone) != INDEX_NONE))
+        {
+            // CarryAttachPoint is tuned in the BP viewport relative to the capsule.
+            // Convert that authored pose to spine_03 space so it follows the animated body.
+            const FTransform BoneActorTransform =
+                GetRefPoseComponentSpaceTransform(CarryMesh, CarryBone) * CarryMesh->GetRelativeTransform();
+            const FTransform PointActorTransform =
+                CarryAttachPoint->GetComponentTransform().GetRelativeTransform(GetActorTransform());
+            const FTransform RelativeToBone =
+                PointActorTransform.GetRelativeTransform(BoneActorTransform);
+
+            Target->AttachToComponent(
+                CarryMesh,
+                FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+                CarryBone);
+
+            Target->SetActorRelativeLocation(RelativeToBone.GetLocation() + FVector(10.f, 0.f, 10.f));
+            //Target->SetActorRelativeLocation(RelativeToBone.GetLocation());
+            Target->SetActorRelativeRotation(RelativeToBone.Rotator());
+            return;
+        }
+
+        Target->AttachToComponent(
+            CarryAttachPoint,
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+        Target->SetActorRelativeLocation(FVector::ZeroVector);
+        Target->SetActorRelativeRotation(FRotator::ZeroRotator);
+        return;
+    }
+
+    // Safety fallback for non-BP killer classes.
+    Target->AttachToActor(this, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    Target->SetActorRelativeLocation(FVector(150.f, 0.f, 0.f));
+}
+
+void AKillerCharacter::PickupSurvivor(AActor* Target)
+{
+    if (!CarriedSurvivor)
+    {
+        AttachCarriedSurvivor(Target);
+    }
+
+    if (!CarriedSurvivor)
+    {
+        PendingPickupTarget = nullptr;
+        bIsBusy = false;
+        SetKillerState(EKillerState::Idle);
+        if (GetCharacterMovement())
+        {
+            GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+        }
+        return;
+    }
+
+    // The survivor becomes Carried only after the pickup montage has fully
+    // completed. The carried-pose animation switches on this state change.
+    if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
+    {
+        Survivor->SetSurvivorState(ESurvivorState::Carried);
+    }
+
+    if (CarryAnimComponent)
+    {
+        CarryAnimComponent->BeginCarryingAnim();
+    }
     SetKillerState(EKillerState::Carrying);
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }
+    PendingPickupTarget = nullptr;
+    bIsBusy = false;
+}
+
+void AKillerCharacter::HandlePickupAttachWindow()
+{
+    if (HasAuthority() && !CarriedSurvivor)
+    {
+        AttachCarriedSurvivor(PendingPickupTarget.Get());
+    }
+}
+
+void AKillerCharacter::HandlePickupMontageFinished()
+{
+    if (HasAuthority())
+    {
+        PickupSurvivor(PendingPickupTarget.IsValid() ? PendingPickupTarget.Get() : CarriedSurvivor);
+    }
 }
 
 void AKillerCharacter::DropSurvivor()
 {
     if (!CarriedSurvivor) return;
 
+    if (CarryAnimComponent)
+    {
+        CarryAnimComponent->EndCarryAnims();
+    }
+
     if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
     {
         Survivor->SetSurvivorState(ESurvivorState::Downed);
+    }
+        
+    if (ACharacter* DroppedCharacter = Cast<ACharacter>(CarriedSurvivor))
+        {
+        if (UCharacterMovementComponent* DroppedMovement = DroppedCharacter->GetCharacterMovement())
+        {
+            DroppedMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+        }
     }
     
     // 1. 살인마와 생존자 간 충돌 무시 해제
@@ -403,7 +687,37 @@ void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     {
         if (InputConfig->AttackAction) EIC->BindAction(InputConfig->AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::Attack);
         if (InputConfig->InteractAction) EIC->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::Interact);
+
+        UInputAction* JumpOverAction = InputConfig->JumpOverAction.Get();
+        if (!JumpOverAction)
+        {
+            JumpOverAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_JumpOver.IA_JumpOver"));
+        }
+        if (JumpOverAction)
+        {
+            EIC->BindAction(JumpOverAction, ETriggerEvent::Started, this, &AKillerCharacter::JumpOver);
+        }
     }
+}
+
+void AKillerCharacter::JumpOver()
+{
+    Super::JumpOver();
+
+    if (ParkourComponent)
+    {
+        ParkourComponent->RequestJumpOver();
+    }
+}
+
+bool AKillerCharacter::IsParkouring() const
+{
+    return ParkourComponent && ParkourComponent->IsParkouring();
+}
+
+void AKillerCharacter::NotifyParkourEnded()
+{
+    UpdateMovementSpeed();
 }
 
 void AKillerCharacter::UpdateMovementSpeed()
@@ -464,22 +778,52 @@ bool AKillerCharacter::PerformAttackTrace()
     {
         for (const FOverlapResult& Overlap : Overlaps)
         {
-            if (ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(Overlap.GetActor()))
+            AActor* HitActor = Overlap.GetActor();
+            ASurvivorCharacter* HitSurvivor = Cast<ASurvivorCharacter>(HitActor);
+            
+            // 1. Cast 실패 여부 확인
+            if (!HitSurvivor) 
             {
-                // [수정] Healthy 또는 Injured 상태일 때만 공격 적중 처리
-                ESurvivorState SState = HitSurvivor->GetSurvivorState();
-                if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
+                UE_LOG(LogTemp, Warning, TEXT("충돌체 감지됨, 하지만 ASurvivorCharacter가 아님: %s"), HitActor ? *HitActor->GetName() : TEXT("Null"));
+                continue;
+            }
+
+            // 2. 상태 체크 로직
+            ESurvivorState SState = HitSurvivor->GetSurvivorState();
+            UE_LOG(LogTemp, Warning, TEXT("생존자 감지됨: %s, 상태: %d"), *HitSurvivor->GetName(), (int32)SState);
+
+            if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
+            {
+                HitSurvivor->ApplyHit();
+                if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
                 {
-                    UE_LOG(LogTemp, Warning, TEXT("공격 적중: %s"), *HitSurvivor->GetName());
-                    
-                    // 여기서 실제 데미지 로직을 호출하거나 상태를 변경하세요.
-                    // HitSurvivor->SetSurvivorState(ESurvivorState::Injured); // 예시
-                    return true;
+                    LDPlayerState->RecordKillerHit(SState == ESurvivorState::Injured);
                 }
+                return true;
             }
         }
     }
     return false;
+}
+
+void AKillerCharacter::OnRep_CarriedSurvivor(AActor* PreviousCarriedSurvivor)
+{
+    if (ACharacter* PreviousCharacter = Cast<ACharacter>(PreviousCarriedSurvivor))
+    {
+        if (UCharacterMovementComponent* PreviousMovement = PreviousCharacter->GetCharacterMovement())
+        {
+            PreviousMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+        }
+    }
+
+    if (CarriedSurvivor)
+    {
+        ApplyCarryAttachmentTransform(CarriedSurvivor);
+        if (CarryAnimComponent)
+        {
+            CarryAnimComponent->EnsureCarryingMontagePlaying();
+        }
+    }
 }
 
 void AKillerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
@@ -487,25 +831,64 @@ void AKillerCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AKillerCharacter, CurrentState);
     DOREPLIFETIME(AKillerCharacter, bIsBusy);
+    DOREPLIFETIME(AKillerCharacter, CarriedSurvivor);
 }
 
-// 상태 변경 시 모든 클라이언트가 속도 업데이트
-void AKillerCharacter::OnRep_CurrentState() { UpdateMovementSpeed(); }
+// 상태 변경 시 모든 클라이언트가 속도·캐리 애니메이션 업데이트
+void AKillerCharacter::OnRep_CurrentState()
+{
+    UpdateMovementSpeed();
+
+    if (CurrentState == EKillerState::Groggy)
+    {
+        if (UAnimMontage* MontageToPlay = ResolveGroggyMontage())
+        {
+            USkeletalMeshComponent* SkelMesh = GetMesh();
+            UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+            if (AnimInstance && !AnimInstance->Montage_IsPlaying(MontageToPlay))
+            {
+                Multicast_PlayGroggyMontage_Implementation();
+            }
+        }
+    }
+    else
+    {
+        StopGroggyMontageLocal();
+    }
+
+    if (!CarryAnimComponent)
+    {
+        return;
+    }
+
+    if (CurrentState == EKillerState::Carrying)
+    {
+        if (!CarryAnimComponent->WantsCarryingAnim())
+        {
+            CarryAnimComponent->BeginCarryingAnim();
+        }
+        else
+        {
+            CarryAnimComponent->EnsureCarryingMontagePlaying();
+        }
+    }
+    else if (CurrentState != EKillerState::PickingUp
+        && CurrentState != EKillerState::Interacting
+        && CarryAnimComponent->WantsCarryingAnim())
+    {
+        CarryAnimComponent->EndCarryAnims();
+    }
+}
 
 // 서버 공격 RPC
 void AKillerCharacter::Attack() { Server_Attack(); }
-
-void AKillerCharacter::Server_Attack_Implementation()
-{
-    if (CurrentState == EKillerState::Idle) PerformAttack();
-}
 
 // 서버 상호작용 RPC
 void AKillerCharacter::Interact() { Server_Interact(); }
 
 void AKillerCharacter::Server_Interact_Implementation()
 {
-    if (!KillerData || bIsBusy) return;
+    if (!KillerData || bIsBusy || IsParkouring()) return;
     
     // 1. Idle 상태일 때: 생존자 픽업 (bCanPickup 쿨타임 체크 추가)
     switch (CurrentState)
@@ -530,10 +913,20 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
     {
         if (CurrentState != NewState)
         {
-            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)CurrentState, (int32)NewState);
+            const EKillerState PreviousState = CurrentState;
+            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)PreviousState, (int32)NewState);
             CurrentState = NewState;
             UpdateMovementSpeed();
             OnRep_CurrentState();
+
+            if (NewState == EKillerState::Groggy)
+            {
+                Multicast_PlayGroggyMontage();
+            }
+            else if (PreviousState == EKillerState::Groggy)
+            {
+                Multicast_StopGroggyMontage();
+            }
         }
     }
 }
@@ -541,21 +934,19 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
 // 상태별 처리 함수 분리
 void AKillerCharacter::HandlePickupInteraction()
 {
-    if (!bCanPickup) return;
+    if (!bCanPickup || !CarryAnimComponent) return;
 
     AActor* Target = FindInteractableActor(KillerData->PickupRange);
     if (!Target) return;
 
+    ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target);
+    if (!Survivor || Survivor->GetSurvivorState() != ESurvivorState::Downed) return;
+
+    PendingPickupTarget = Target;
     bIsBusy = true;
     SetKillerState(EKillerState::PickingUp);
     GetCharacterMovement()->DisableMovement();
-
-    FTimerHandle TimerHandle;
-    GetWorldTimerManager().SetTimer(TimerHandle, [this, Target]() {
-        PickupSurvivor(Target);
-        if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-        bIsBusy = false;
-    }, KillerData->PickupDuration, false);
+    CarryAnimComponent->BeginPickupAnim();
 }
 
 void AKillerCharacter::HandleCarryingInteraction()
@@ -575,27 +966,34 @@ void AKillerCharacter::HandleCarryingInteraction()
 
 void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
 {
+    if (!TargetCage) return;
+
     bIsBusy = true;
     SetKillerState(EKillerState::Interacting);
-    GetCharacterMovement()->DisableMovement();
+    if (GetCharacterMovement())
+    {
+        GetCharacterMovement()->DisableMovement();
+    }
+
+    if (CarryAnimComponent)
+    {
+        CarryAnimComponent->EndCarryAnims();
+    }
 
     FTimerHandle TimerHandle;
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
-            Survivor->SetSurvivorState(ESurvivorState::Caged);
-            Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-            Survivor->SetActorLocation(TargetCage->GetActorLocation());
+            Survivor->EnterCaged(TargetCage);
         }
-        
-        TargetCage->SetCageStatus(ECageStatus::Occupied);
+        TargetCage->SetCageStatus(
+        ECageStatus::Occupied);
         CarriedSurvivor = nullptr;
         
         SetKillerState(EKillerState::Idle);
         bIsBusy = false;
         if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
         
-        // 쿨타임 시작 로직...
     }, KillerData->CageDepositDuration, false);
 }
 

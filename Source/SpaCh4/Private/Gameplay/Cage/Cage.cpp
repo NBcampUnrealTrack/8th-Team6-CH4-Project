@@ -1,10 +1,12 @@
 ﻿#include "Gameplay/Cage/Cage.h"
 
+#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Type/SPCollisionChannels.h"
+#include "Type/SPGameplayTag.h"
 
 namespace
 {
@@ -47,12 +49,16 @@ ACage::ACage()
 	SupportMesh->SetupAttachment(SupportMeshScaleRoot);
 	SupportMesh->SetRelativeScale3D(FVector::OneVector);
 	SupportMesh->SetCollisionProfileName(TEXT("BlockAll"));
+	SupportMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
 
 	CageMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CageMesh"));
 	CageMesh->SetupAttachment(CageRoot);
 	CageMesh->SetIsReplicated(true);
 	CageMesh->SetCollisionProfileName(TEXT("BlockAll"));
 	CageMesh->SetCollisionObjectType(SPCollisionChannels::Cage);
+	CageMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
+	CageMesh->SetCustomDepthStencilValue(250);
+	CageMesh->SetRenderCustomDepth(false);
 
 	DoorPivot = CreateDefaultSubobject<UArrowComponent>(TEXT("DoorPivot"));
 	DoorPivot->SetupAttachment(CageMesh);
@@ -65,6 +71,14 @@ ACage::ACage()
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
 	DoorMesh->SetupAttachment(DoorPivot);
 	DoorMesh->SetCollisionProfileName(TEXT("NoCollision"));
+	DoorMesh->SetCustomDepthStencilValue(250);
+	DoorMesh->SetRenderCustomDepth(false);
+
+	PrisonerAnchor = CreateDefaultSubobject<UArrowComponent>(TEXT("PrisonerAnchor"));
+	PrisonerAnchor->SetupAttachment(CageRoot);
+	PrisonerAnchor->SetArrowColor(FLinearColor::Yellow);
+	PrisonerAnchor->bIsScreenSizeScaled = true;
+	PrisonerAnchor->SetHiddenInGame(true);
 
 	ApplySupportMeshScale();
 }
@@ -350,3 +364,146 @@ void ACage::ConfigureCollisionChannels()
 	}
 }
 
+void ACage::SetOccupied(ASurvivorCharacter* Survivor)
+{
+	TrappedSurvivor = Survivor;
+	SetCageStatus(ECageStatus::Occupied);
+}
+
+FTransform ACage::GetPrisonerAnchorTransform() const
+{
+	return PrisonerAnchor ? PrisonerAnchor->GetComponentTransform() : GetActorTransform();
+}
+
+void ACage::Interact_Implementation(AActor* Interactor)
+{
+	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Interactor))
+	{
+		Survivor->BeginRescue(this);
+	}
+}
+
+void ACage::SetHighlight_Implementation(bool bEnabled)
+{
+	if (CageMesh)
+	{
+		CageMesh->SetRenderCustomDepth(bEnabled);
+	}
+	if (DoorMesh)
+	{
+		DoorMesh->SetRenderCustomDepth(bEnabled);
+	}
+}
+
+FGameplayTag ACage::GetInteractableTag_Implementation() const
+{
+	return SPGameplayTags::Interactable::Cage;
+}
+
+bool ACage::IsInteractable_Implementation() const
+{
+	return CurrentStatus == ECageStatus::Occupied;
+}
+
+USceneComponent* ACage::GetInteractFocusComponent_Implementation() const
+{
+	return DoorMesh;
+}
+
+FTransform ACage::GetCageMeshTransform() const
+{
+	if (CageMesh)
+	{
+		return CageMesh->GetComponentTransform();
+	}
+	return GetActorTransform();
+}
+
+void ACage::HandleSurvivorDeath(ASurvivorCharacter* DeadSurvivor)
+{
+	// 서버에서 상태 처리 및 생존자 파괴
+	if (HasAuthority())
+	{
+		SetCageStatus(ECageStatus::Dead);
+		if (IsValid(DeadSurvivor)) DeadSurvivor->Destroy();
+	}
+
+	if (!HasAuthority() || !CageMesh) return;
+
+	TWeakObjectPtr<ACage> WeakThis(this);
+	MoveSteps = 0;
+	const int32 TotalSteps = 200;
+
+	GetWorldTimerManager().SetTimer(MoveTimerHandle, [WeakThis, TotalSteps]() {
+		if (!WeakThis.IsValid()) return;
+        
+		ACage* Cage = WeakThis.Get();
+        
+		// 1. 이동 로직: SetRelativeLocation 사용
+		if (Cage->MoveSteps < TotalSteps)
+		{
+			// 부드러운 하강을 위해 현재 위치에서 계속 0.5씩 감소
+			FVector NewLoc = Cage->CageMesh->GetRelativeLocation() + FVector(0, 0, -0.5f);
+			Cage->Multicast_UpdateCageLocation(NewLoc); // 모든 클라이언트에게 위치 전송
+			Cage->MoveSteps++;
+
+			// 2. 디버그 로그 추가 (10스텝마다 한 번씩만 출력하여 로그 도배 방지)
+			if (Cage->MoveSteps % 10 == 0)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("케이지 하강 중... [%d/%d], 현재 위치: %s"), 
+					Cage->MoveSteps, TotalSteps, *NewLoc.ToString());
+			}
+		}
+		else
+		{
+			// 3. 종료 로직
+			UE_LOG(LogTemp, Warning, TEXT("케이지 하강 완료. 삭제 처리 시작."));
+			Cage->GetWorldTimerManager().ClearTimer(Cage->MoveTimerHandle);
+			Cage->Multicast_DestroyCageMesh();
+		}
+	}, 0.03f, true);
+}
+
+void ACage::Multicast_DestroyCageMesh_Implementation()
+{
+	if (!IsValid(CageMesh)) return;
+
+	// 1. 모든 자식 컴포넌트(DoorMesh 포함)를 찾아서 비활성화
+	TArray<USceneComponent*> ChildComponents; // 변수명 변경 (에러 해결)
+	CageMesh->GetChildrenComponents(true, ChildComponents);
+
+	for (USceneComponent* Child : ChildComponents)
+	{
+		if (IsValid(Child))
+		{
+			Child->SetVisibility(false, true);
+			// 충돌 설정 안전 캐스팅
+			if (UPrimitiveComponent* PrimitiveChild = Cast<UPrimitiveComponent>(Child))
+			{
+				PrimitiveChild->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
+	}
+
+	// 2. 메인 메시와 문을 포함한 모든 자식 지연 삭제
+	FTimerHandle DelayHandle;
+	GetWorldTimerManager().SetTimer(DelayHandle, [this, ChildComponents]() { // 변경된 변수명 사용
+	   // 자식부터 삭제
+	   for (USceneComponent* Child : ChildComponents)
+	   {
+		  if (IsValid(Child)) Child->DestroyComponent();
+	   }
+        
+	   // 마지막으로 메인 메시 삭제
+	   if (IsValid(CageMesh))
+	   {
+		  CageMesh->DestroyComponent();
+		  CageMesh = nullptr;
+	   }
+	}, 0.2f, false);
+}
+
+void ACage::Multicast_UpdateCageLocation_Implementation(FVector NewLocation)
+{
+	if (CageMesh) CageMesh->SetRelativeLocation(NewLocation);
+}
