@@ -119,16 +119,6 @@ void USPPickupAnimComponent::EnterPickupState()
 		return;
 	}
 
-	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-	{
-		MoveComp->StopMovementImmediately();
-		MoveComp->Velocity = FVector::ZeroVector;
-	}
-
-	if (AController* Controller = Survivor->GetController())
-	{
-		Controller->SetIgnoreMoveInput(true);
-	}
 }
 
 void USPPickupAnimComponent::ExitPickupState()
@@ -146,11 +136,6 @@ void USPPickupAnimComponent::ExitPickupState()
 
 	if (ASurvivorCharacter* Survivor = GetSurvivor())
 	{
-		if (AController* Controller = Survivor->GetController())
-		{
-			Controller->ResetIgnoreMoveInput();
-		}
-
 		Survivor->NotifyPickupAnimEnded();
 	}
 }

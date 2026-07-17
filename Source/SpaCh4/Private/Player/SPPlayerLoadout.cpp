@@ -22,7 +22,7 @@ namespace
 
 bool SPPlayerLoadout::IsValidSurvivorItem(const EConsumableItemType ItemType)
 {
-	return ItemType == EConsumableItemType::Medkit || ItemType == EConsumableItemType::SpeedBoost;
+	return ItemType == EConsumableItemType::Medkit || ItemType == EConsumableItemType::SpeedPotion;
 }
 
 bool SPPlayerLoadout::IsValidSurvivorPerk(const EPerkType PerkType)

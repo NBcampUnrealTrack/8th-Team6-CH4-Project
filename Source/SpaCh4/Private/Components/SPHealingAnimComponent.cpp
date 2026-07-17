@@ -309,26 +309,6 @@ void USPHealingAnimComponent::EnterHealingState()
 		return;
 	}
 
-	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-	{
-		if (MoveComp->MovementMode != MOVE_None)
-		{
-			CachedMovementMode = MoveComp->MovementMode;
-			CachedGravityScale = MoveComp->GravityScale;
-			bHasCachedMovementMode = true;
-		}
-		else if (!bHasCachedMovementMode)
-		{
-			CachedMovementMode = MOVE_Walking;
-			CachedGravityScale = MoveComp->GravityScale;
-			bHasCachedMovementMode = true;
-		}
-
-		MoveComp->StopMovementImmediately();
-		MoveComp->Velocity = FVector::ZeroVector;
-		MoveComp->SetMovementMode(MOVE_None);
-	}
-
 	if (USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
 	{
 		if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
@@ -337,10 +317,6 @@ void USPHealingAnimComponent::EnterHealingState()
 		}
 	}
 
-	if (AController* Controller = Survivor->GetController())
-	{
-		Controller->SetIgnoreMoveInput(true);
-	}
 }
 
 void USPHealingAnimComponent::ExitHealingState(const bool bPlayReturnAnim)
@@ -733,26 +709,7 @@ void USPHealingAnimComponent::RestoreMovementAfterHealing()
 		}
 	}
 
-	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-	{
-		MoveComp->GravityScale = bHasCachedMovementMode ? CachedGravityScale : MoveComp->GravityScale;
-
-		if (bHasCachedMovementMode && CachedMovementMode != MOVE_None)
-		{
-			MoveComp->SetMovementMode(CachedMovementMode);
-		}
-		else
-		{
-			MoveComp->SetDefaultMovementMode();
-		}
-
-		bHasCachedMovementMode = false;
-	}
-
-	if (AController* Controller = Survivor->GetController())
-	{
-		Controller->ResetIgnoreMoveInput();
-	}
+	bHasCachedMovementMode = false;
 }
 
 void USPHealingAnimComponent::SetHealingTickEnabled(const bool bEnabled)

@@ -8,6 +8,14 @@ class ASurvivorCharacter;
 class USurvivorData;
 enum class ESurvivorState : uint8;
 
+UENUM(BlueprintType)
+enum class ESpeedPotionPhase : uint8
+{
+	None,
+	Boost,
+	Fatigue
+};
+
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent), Blueprintable, BlueprintType)
 class SPACH4_API USPMovementComponent : public UActorComponent
 {
@@ -23,6 +31,8 @@ public:
 	void SnapToTargetSpeed();
 
 	void SetWantsToRun(bool bNewWantsToRun);
+	bool CanActivateSpeedPotion() const;
+	bool TryActivateSpeedPotion(bool bSkipFatigue);
 
 	UFUNCTION(BlueprintPure, Category = "SP|Movement")
 	float GetTargetMoveSpeed() const;
@@ -41,7 +51,10 @@ private:
 	float GetBaseWalkSpeed() const;
 	float GetSprintSpeedForState(ESurvivorState State) const;
 	float GetCarryMoveSpeedMultiplier() const;
+	float GetSpeedPotionMultiplier() const;
 	void StartHitEscapeSprint(ESurvivorState PreviousState);
+	void FinishSpeedPotionBoost();
+	void FinishSpeedPotionFatigue();
 	
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
 	float MoveSpeedInterpSpeed{8.f};
@@ -49,7 +62,12 @@ private:
 	UPROPERTY(Replicated)
 	bool bWantsToRun{false};
 
+	UPROPERTY(Replicated)
+	ESpeedPotionPhase SpeedPotionPhase = ESpeedPotionPhase::None;
+
 	bool bHitEscapeSprintActive{false};
 	float HitEscapeSprintRemaining{0.f};
 	float HitEscapeSprintSpeed{0.f};
+	bool bSkipSpeedPotionFatigue{false};
+	FTimerHandle SpeedPotionTimer;
 };

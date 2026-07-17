@@ -80,6 +80,9 @@ struct FInventorySlotHUDData
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD")
 	TSoftObjectPtr<UTexture2D> Icon;
+
+	UPROPERTY(BlueprintReadOnly, Category = "HUD")
+	int32 Quantity = 0;
 };
 
 USTRUCT(BlueprintType)

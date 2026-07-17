@@ -1,11 +1,8 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
-#include "Interface/SPInteractable.h"
+#include "Gameplay/Items/SPPickupItem.h"
 #include "SPCollectibleItem.generated.h"
-
-class UTexture2D;
 
 UENUM(BlueprintType)
 enum class ECollectibleSize : uint8
@@ -16,36 +13,25 @@ enum class ECollectibleSize : uint8
 	Hazardous
 };
 
-UCLASS()
-class SPACH4_API ASPCollectibleItem : public AActor, public ISPInteractable
+UCLASS(Blueprintable)
+class SPACH4_API ASPCollectibleItem : public ASPPickupItem
 {
 	GENERATED_BODY()
 
 public:
 	ASPCollectibleItem();
-	
-	virtual void Interact_Implementation(AActor* Interactor) override;
-	virtual void SetHighlight_Implementation(bool bEnabled) override;
-	virtual FGameplayTag GetInteractableTag_Implementation() const override;
 
 	int32 GetValue() const { return Value; }
 	ECollectibleSize GetCollectibleSize() const { return CollectibleSize; }
-	TSoftObjectPtr<UTexture2D> GetIcon() const { return Icon; }
 	void SetPickupCollisionEnabled(bool bEnabled);
 
-	UFUNCTION(NetMulticast, Reliable)
-	void Multicast_SetStored(bool bStored, FVector DropLocation);
+	UFUNCTION(NetMulticast, Reliable, meta = (DeprecatedFunction, DeprecationMessage = "Use SetStored on the server."))
+	void Multicast_SetStored(bool bNewStored, FVector DropLocation);
 
 protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
-	TObjectPtr<UStaticMeshComponent> Mesh;
-	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	ECollectibleSize CollectibleSize = ECollectibleSize::Small;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
 	int32 Value = 10;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Collectible")
-	TSoftObjectPtr<UTexture2D> Icon;
 };
