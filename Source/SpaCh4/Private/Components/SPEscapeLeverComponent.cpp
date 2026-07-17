@@ -321,26 +321,6 @@ void USPEscapeLeverComponent::EnterLeverState()
 		Survivor->SetActorLocationAndRotation(SnapLocation, SnapRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
-	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-	{
-		if (MoveComp->MovementMode != MOVE_None)
-		{
-			CachedMovementMode = MoveComp->MovementMode;
-			CachedGravityScale = MoveComp->GravityScale;
-			bHasCachedMovementMode = true;
-		}
-		else if (!bHasCachedMovementMode)
-		{
-			CachedMovementMode = MOVE_Walking;
-			CachedGravityScale = MoveComp->GravityScale;
-			bHasCachedMovementMode = true;
-		}
-
-		MoveComp->StopMovementImmediately();
-		MoveComp->Velocity = FVector::ZeroVector;
-		MoveComp->SetMovementMode(MOVE_None);
-	}
-
 	if (USkeletalMeshComponent* MeshComp = Survivor->GetMesh())
 	{
 		if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
@@ -349,10 +329,6 @@ void USPEscapeLeverComponent::EnterLeverState()
 		}
 	}
 
-	if (AController* Controller = Survivor->GetController())
-	{
-		Controller->SetIgnoreMoveInput(true);
-	}
 }
 
 void USPEscapeLeverComponent::RestoreMovementAfterLever()
@@ -363,19 +339,7 @@ void USPEscapeLeverComponent::RestoreMovementAfterLever()
 		return;
 	}
 
-	if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-	{
-		if (bHasCachedMovementMode)
-		{
-			MoveComp->SetMovementMode(CachedMovementMode);
-			MoveComp->GravityScale = CachedGravityScale;
-			bHasCachedMovementMode = false;
-		}
-		else if (MoveComp->MovementMode == MOVE_None)
-		{
-			MoveComp->SetMovementMode(MOVE_Walking);
-		}
-	}
+	bHasCachedMovementMode = false;
 }
 
 void USPEscapeLeverComponent::ClearLeverTimers()
@@ -674,11 +638,6 @@ void USPEscapeLeverComponent::FinishLeverChannel()
 	if (ASurvivorCharacter* Survivor = GetSurvivor())
 	{
 		RestoreMovementAfterLever();
-
-		if (AController* Controller = Survivor->GetController())
-		{
-			Controller->ResetIgnoreMoveInput();
-		}
 
 		Survivor->NotifyLeverChannelEnded();
 	}

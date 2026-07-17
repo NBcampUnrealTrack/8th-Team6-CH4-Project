@@ -33,7 +33,6 @@ void USPScratchMarkComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	const ASurvivorCharacter* Survivor = GetSurvivor();
-	// Scratch marks are cosmetic, so derive them from replicated movement on the viewing killer.
 	if (!Survivor || !ShouldLocalViewerSeeMarks())
 	{
 		return;

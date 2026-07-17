@@ -1,6 +1,9 @@
 #include "Inventory/SPInventoryComponent.h"
 
+#include "Engine/World.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Items/SPConsumableItem.h"
+#include "Gameplay/Items/SPPickupItem.h"
 #include "Net/UnrealNetwork.h"
 
 USPInventoryComponent::USPInventoryComponent()
@@ -49,6 +52,24 @@ int32 USPInventoryComponent::FindFirstEmptySlotIndex() const
 	return INDEX_NONE;
 }
 
+int32 USPInventoryComponent::FindConsumableSlotIndex(const EConsumableItemType ItemType) const
+{
+	if (ItemType == EConsumableItemType::None)
+	{
+		return INDEX_NONE;
+	}
+
+	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
+	{
+		const FInventorySlotEntry& Slot = InventorySlots[Index];
+		if (Slot.ContentType == EInventorySlotContentType::Consumable && Slot.ConsumableType == ItemType)
+		{
+			return Index;
+		}
+	}
+	return INDEX_NONE;
+}
+
 int32 USPInventoryComponent::FindCollectibleSlotIndex() const
 {
 	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
@@ -78,22 +99,39 @@ bool USPInventoryComponent::HasFreeSlot() const
 	return FindFirstEmptySlotIndex() != INDEX_NONE;
 }
 
+bool USPInventoryComponent::CanStoreWorldItem(const ASPPickupItem* Item) const
+{
+	if (!IsValid(Item))
+	{
+		return false;
+	}
+
+	if (const ASPConsumableItem* Consumable = Cast<ASPConsumableItem>(Item))
+	{
+		return Consumable->GetConsumableType() != EConsumableItemType::None
+			&& (FindConsumableSlotIndex(Consumable->GetConsumableType()) != INDEX_NONE || HasFreeSlot());
+	}
+
+	return HasFreeSlot();
+}
+
 bool USPInventoryComponent::HasAnyCollectible() const
 {
 	return FindCollectibleSlotIndex() != INDEX_NONE;
 }
 
-bool USPInventoryComponent::IsSlotOccupied(int32 Index) const
+bool USPInventoryComponent::IsSlotOccupied(const int32 Index) const
 {
 	return InventorySlots.IsValidIndex(Index) && InventorySlots[Index].IsOccupied();
 }
 
-bool USPInventoryComponent::IsSlotCollectible(int32 Index) const
+bool USPInventoryComponent::IsSlotCollectible(const int32 Index) const
 {
-	return InventorySlots.IsValidIndex(Index) && InventorySlots[Index].ContentType == EInventorySlotContentType::Collectible;
+	return InventorySlots.IsValidIndex(Index)
+		&& InventorySlots[Index].ContentType == EInventorySlotContentType::Collectible;
 }
 
-bool USPInventoryComponent::DropSlot(int32 Index, ASPCollectibleItem*& OutSourceItem)
+bool USPInventoryComponent::DropSlot(const int32 Index, ASPPickupItem*& OutSourceItem)
 {
 	OutSourceItem = nullptr;
 
@@ -103,22 +141,33 @@ bool USPInventoryComponent::DropSlot(int32 Index, ASPCollectibleItem*& OutSource
 	}
 
 	FInventorySlotEntry& Slot = InventorySlots[Index];
-	if (!Slot.IsOccupied())
+	if (!Slot.IsOccupied() || !IsValid(Slot.SourceItem))
 	{
 		return false;
 	}
 
-	if (Slot.ContentType == EInventorySlotContentType::Collectible)
+	if (Slot.ContentType == EInventorySlotContentType::Consumable && Slot.Quantity > 1)
 	{
-		OutSourceItem = Slot.SourceItem;
+		OutSourceItem = SpawnStackedItem(Slot);
+		if (!OutSourceItem)
+		{
+			return false;
+		}
+
+		--Slot.Quantity;
+		OutSourceItem->SetOwner(nullptr);
+		BroadcastInventoryChanged();
+		return true;
 	}
 
+	OutSourceItem = Slot.SourceItem;
+	OutSourceItem->SetOwner(nullptr);
 	Slot.Clear();
 	BroadcastInventoryChanged();
 	return true;
 }
 
-bool USPInventoryComponent::DeliverSlot(int32 Index, int32& OutValue, ASPCollectibleItem*& OutSourceItem)
+bool USPInventoryComponent::DeliverSlot(const int32 Index, int32& OutValue, ASPCollectibleItem*& OutSourceItem)
 {
 	OutValue = 0;
 	OutSourceItem = nullptr;
@@ -135,24 +184,104 @@ bool USPInventoryComponent::DeliverSlot(int32 Index, int32& OutValue, ASPCollect
 	}
 
 	OutValue = Slot.CollectibleValue;
-	OutSourceItem = Slot.SourceItem;
+	OutSourceItem = Cast<ASPCollectibleItem>(Slot.SourceItem);
 	Slot.Clear();
 	BroadcastInventoryChanged();
 	return true;
 }
 
+ASPConsumableItem* USPInventoryComponent::SpawnConsumableItem(const EConsumableItemType ItemType) const
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !GetWorld())
+	{
+		return nullptr;
+	}
+
+	UClass* ItemClass = nullptr;
+	switch (ItemType)
+	{
+	case EConsumableItemType::Medkit:
+		ItemClass = MedkitItemClass.Get();
+		break;
+	case EConsumableItemType::SpeedPotion:
+		ItemClass = SpeedPotionItemClass.Get();
+		break;
+	default:
+		return nullptr;
+	}
+
+	if (!ItemClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Inventory item class is not configured for consumable type %d."), static_cast<int32>(ItemType));
+		return nullptr;
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Owner = GetOwner();
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	return GetWorld()->SpawnActor<ASPConsumableItem>(
+		ItemClass, GetOwner()->GetActorTransform(), SpawnParameters);
+}
+
+ASPPickupItem* USPInventoryComponent::SpawnStackedItem(const FInventorySlotEntry& Slot) const
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !GetWorld() || !IsValid(Slot.SourceItem))
+	{
+		return nullptr;
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	return GetWorld()->SpawnActor<ASPPickupItem>(
+		Slot.SourceItem->GetClass(), GetOwner()->GetActorTransform(), SpawnParameters);
+}
+
 bool USPInventoryComponent::TryAddConsumable(const EConsumableItemType ItemType)
 {
-	if (!GetOwner() || !GetOwner()->HasAuthority() || ItemType == EConsumableItemType::None)
+	if (!GetOwner() || !GetOwner()->HasAuthority() || ItemType == EConsumableItemType::None
+		|| (FindConsumableSlotIndex(ItemType) == INDEX_NONE && !HasFreeSlot()))
 	{
 		return false;
 	}
 
-	for (const FInventorySlotEntry& Slot : InventorySlots)
+	ASPConsumableItem* Item = SpawnConsumableItem(ItemType);
+	if (!Item)
 	{
-		if (Slot.ContentType == EInventorySlotContentType::Consumable && Slot.ConsumableType == ItemType)
+		return false;
+	}
+
+	if (!TryStoreWorldItem(Item))
+	{
+		Item->Destroy();
+		return false;
+	}
+
+	return true;
+}
+
+bool USPInventoryComponent::TryStoreWorldItem(ASPPickupItem* Item)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !IsValid(Item))
+	{
+		return false;
+	}
+
+	if (const ASPConsumableItem* Consumable = Cast<ASPConsumableItem>(Item))
+	{
+		const EConsumableItemType ItemType = Consumable->GetConsumableType();
+		const int32 ExistingIndex = FindConsumableSlotIndex(ItemType);
+		if (ExistingIndex != INDEX_NONE)
 		{
-			return false;
+			FInventorySlotEntry& ExistingSlot = InventorySlots[ExistingIndex];
+			if (ExistingSlot.SourceItem == Item)
+			{
+				return false;
+			}
+
+			++ExistingSlot.Quantity;
+			Item->Destroy();
+			BroadcastInventoryChanged();
+			return true;
 		}
 	}
 
@@ -164,26 +293,77 @@ bool USPInventoryComponent::TryAddConsumable(const EConsumableItemType ItemType)
 
 	FInventorySlotEntry& Slot = InventorySlots[EmptyIndex];
 	Slot.Clear();
-	Slot.ContentType = EInventorySlotContentType::Consumable;
-	Slot.ConsumableType = ItemType;
+	Slot.SourceItem = Item;
+	Slot.Icon = Item->GetIcon();
+	Slot.Quantity = 1;
+
+	if (const ASPConsumableItem* Consumable = Cast<ASPConsumableItem>(Item))
+	{
+		if (Consumable->GetConsumableType() == EConsumableItemType::None)
+		{
+			Slot.Clear();
+			return false;
+		}
+
+		Slot.ContentType = EInventorySlotContentType::Consumable;
+		Slot.ConsumableType = Consumable->GetConsumableType();
+	}
+	else if (const ASPCollectibleItem* Collectible = Cast<ASPCollectibleItem>(Item))
+	{
+		Slot.ContentType = EInventorySlotContentType::Collectible;
+		Slot.CollectibleSize = Collectible->GetCollectibleSize();
+		Slot.CollectibleValue = Collectible->GetValue();
+	}
+	else
+	{
+		Slot.Clear();
+		return false;
+	}
+
+	Item->SetOwner(GetOwner());
+	Item->SetStored(true, FVector::ZeroVector);
 	BroadcastInventoryChanged();
+	return true;
+}
+
+bool USPInventoryComponent::ConsumeConsumableAtSlot(const int32 Index, const EConsumableItemType ExpectedType)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || !IsSlotConsumable(Index, ExpectedType))
+	{
+		return false;
+	}
+
+	FInventorySlotEntry& Slot = InventorySlots[Index];
+	if (Slot.Quantity > 1)
+	{
+		--Slot.Quantity;
+		BroadcastInventoryChanged();
+		return true;
+	}
+
+	ASPPickupItem* SourceItem = Slot.SourceItem;
+	Slot.Clear();
+	BroadcastInventoryChanged();
+
+	if (IsValid(SourceItem))
+	{
+		SourceItem->Destroy();
+	}
 	return true;
 }
 
 bool USPInventoryComponent::RemoveConsumable(const EConsumableItemType ItemType)
 {
-	if (!GetOwner() || !GetOwner()->HasAuthority() || ItemType == EConsumableItemType::None)
+	if (ItemType == EConsumableItemType::None)
 	{
 		return false;
 	}
 
-	for (FInventorySlotEntry& Slot : InventorySlots)
+	for (int32 Index = 0; Index < InventorySlots.Num(); ++Index)
 	{
-		if (Slot.ContentType == EInventorySlotContentType::Consumable && Slot.ConsumableType == ItemType)
+		if (IsSlotConsumable(Index, ItemType))
 		{
-			Slot.Clear();
-			BroadcastInventoryChanged();
-			return true;
+			return ConsumeConsumableAtSlot(Index, ItemType);
 		}
 	}
 	return false;
@@ -197,27 +377,39 @@ bool USPInventoryComponent::IsSlotConsumable(const int32 Index, const EConsumabl
 		&& InventorySlots[Index].ConsumableType == ItemType;
 }
 
+EConsumableItemType USPInventoryComponent::GetConsumableTypeAtSlot(const int32 Index) const
+{
+	return InventorySlots.IsValidIndex(Index)
+		&& InventorySlots[Index].ContentType == EInventorySlotContentType::Consumable
+		? InventorySlots[Index].ConsumableType
+		: EConsumableItemType::None;
+}
+
+int32 USPInventoryComponent::CountConsumable(const EConsumableItemType ItemType) const
+{
+	int32 Count = 0;
+	for (const FInventorySlotEntry& Slot : InventorySlots)
+	{
+		if (Slot.ContentType == EInventorySlotContentType::Consumable && Slot.ConsumableType == ItemType)
+		{
+			Count += Slot.Quantity;
+		}
+	}
+	return Count;
+}
+
+bool USPInventoryComponent::HasPerk(const EPerkType PerkType) const
+{
+	return PerkType != EPerkType::None
+		&& PerkSlots.ContainsByPredicate([PerkType](const FPerkSlotEntry& Slot)
+		{
+			return Slot.PerkType == PerkType;
+		});
+}
+
 void USPInventoryComponent::SetCollectibleFromItem(ASPCollectibleItem* Item)
 {
-	if (!GetOwner() || !GetOwner()->HasAuthority() || !Item)
-	{
-		return;
-	}
-
-	const int32 EmptyIndex = FindFirstEmptySlotIndex();
-	if (EmptyIndex == INDEX_NONE)
-	{
-		return;
-	}
-
-	FInventorySlotEntry& Slot = InventorySlots[EmptyIndex];
-	Slot.Clear();
-	Slot.ContentType = EInventorySlotContentType::Collectible;
-	Slot.CollectibleSize = Item->GetCollectibleSize();
-	Slot.CollectibleValue = Item->GetValue();
-	Slot.CollectibleIcon = Item->GetIcon();
-	Slot.SourceItem = Item;
-	BroadcastInventoryChanged();
+	TryStoreWorldItem(Item);
 }
 
 void USPInventoryComponent::ClearCollectible()
@@ -239,17 +431,9 @@ void USPInventoryComponent::ClearCollectible()
 
 bool USPInventoryComponent::EquipPerk(const EPerkType PerkType)
 {
-	if (!GetOwner() || !GetOwner()->HasAuthority() || PerkType == EPerkType::None)
+	if (!GetOwner() || !GetOwner()->HasAuthority() || PerkType == EPerkType::None || HasPerk(PerkType))
 	{
 		return false;
-	}
-
-	for (const FPerkSlotEntry& Slot : PerkSlots)
-	{
-		if (Slot.PerkType == PerkType)
-		{
-			return false;
-		}
 	}
 
 	for (FPerkSlotEntry& Slot : PerkSlots)
@@ -264,37 +448,34 @@ bool USPInventoryComponent::EquipPerk(const EPerkType PerkType)
 	return false;
 }
 
-void USPInventoryComponent::InitializeDefaultLoadout()
+void USPInventoryComponent::InitializeLoadout(
+	const EConsumableItemType LoadoutItem,
+	const TArray<EPerkType>& LoadoutPerks)
 {
-	if (!GetOwner() || !GetOwner()->HasAuthority())
+	if (!GetOwner() || !GetOwner()->HasAuthority() || bLoadoutInitialized)
 	{
 		return;
 	}
 
-	if (DefaultLoadoutItem != EConsumableItemType::None)
+	bLoadoutInitialized = true;
+	const EConsumableItemType ItemToGrant = LoadoutItem != EConsumableItemType::None
+		? LoadoutItem
+		: DefaultLoadoutItem;
+	if (ItemToGrant != EConsumableItemType::None)
 	{
-		bool bHasLoadoutItem = false;
-		for (const FInventorySlotEntry& Slot : InventorySlots)
-		{
-			if (Slot.ContentType == EInventorySlotContentType::Consumable)
-			{
-				bHasLoadoutItem = true;
-				break;
-			}
-		}
-		if (!bHasLoadoutItem)
-		{
-			TryAddConsumable(DefaultLoadoutItem);
-		}
+		TryAddConsumable(ItemToGrant);
 	}
 
-	for (const EPerkType PerkType : DefaultPerks)
+	const TArray<EPerkType>& PerksToGrant = LoadoutPerks.IsEmpty() ? DefaultPerks : LoadoutPerks;
+	for (const EPerkType PerkType : PerksToGrant)
 	{
-		if (PerkType != EPerkType::None)
-		{
-			EquipPerk(PerkType);
-		}
+		EquipPerk(PerkType);
 	}
+}
+
+void USPInventoryComponent::InitializeDefaultLoadout()
+{
+	InitializeLoadout(DefaultLoadoutItem, DefaultPerks);
 }
 
 TArray<FInventorySlotHUDData> USPInventoryComponent::BuildInventoryHUDData() const
@@ -308,18 +489,21 @@ TArray<FInventorySlotHUDData> USPInventoryComponent::BuildInventoryHUDData() con
 		FInventorySlotHUDData& HUDSlot = Result[Index];
 		HUDSlot.bIsOccupied = Slot.IsOccupied();
 		HUDSlot.ContentType = Slot.ContentType;
+		HUDSlot.Icon = Slot.Icon;
 
 		switch (Slot.ContentType)
 		{
 		case EInventorySlotContentType::Consumable:
 			HUDSlot.ItemName = SPInventoryText::GetConsumableDisplayName(Slot.ConsumableType);
+			HUDSlot.Quantity = Slot.Quantity;
 			break;
 		case EInventorySlotContentType::Collectible:
 			HUDSlot.ItemName = SPInventoryText::GetCollectibleDisplayName(Slot.CollectibleSize);
-			HUDSlot.Icon = Slot.CollectibleIcon;
+			HUDSlot.Quantity = 1;
 			break;
 		default:
 			HUDSlot.ItemName = FText::GetEmpty();
+			HUDSlot.Quantity = 0;
 			break;
 		}
 	}

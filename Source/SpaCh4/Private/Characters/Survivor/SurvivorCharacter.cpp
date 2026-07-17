@@ -18,6 +18,7 @@
 #include "EngineUtils.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Items/SPPickupItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
@@ -71,26 +72,12 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
-	if (IsChannelingLever() || IsChannelingHealing())
-	{
-		if (InteractionComponent)
-		{
-			InteractionComponent->NotifyMoveInput();
-		}
-		return;
-	}
-
-	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	if (IsParkouring())
 	{
 		return;
 	}
 
 	if (InteractionComponent && InteractionComponent->IsInteracting())
-	{
-		return;
-	}
-
-	if (InteractionComponent)
 	{
 		InteractionComponent->NotifyMoveInput();
 	}
@@ -388,11 +375,6 @@ void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (HasAuthority() && InventoryComponent)
-	{
-		InventoryComponent->InitializeDefaultLoadout();
-	}
-
 	BindInventoryHudRefresh();
 	ApplyStateEffects();
 }
@@ -432,6 +414,17 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 		if (InputConfig)
 		{
+			if (UInputAction* InteractAction = InputConfig->InteractAction.Get())
+			{
+				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASurvivorCharacter::StopInteract);
+				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Canceled, this, &ASurvivorCharacter::StopInteract);
+			}
+
+			if (UInputAction* DropAction = InputConfig->DropAction.Get())
+			{
+				EnhancedInput->BindAction(DropAction, ETriggerEvent::Started, this, &ASurvivorCharacter::DropSelectedItem);
+			}
+
 			for (int32 SlotIndex = 0; SlotIndex < InputConfig->SelectSlotActions.Num(); ++SlotIndex)
 			{
 				if (UInputAction* SlotAction = InputConfig->SelectSlotActions[SlotIndex].Get())
@@ -440,6 +433,14 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 				}
 			}
 		}
+	}
+}
+
+void ASurvivorCharacter::StopInteract()
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->RequestCancelInteract();
 	}
 }
 
@@ -455,9 +456,31 @@ void ASurvivorCharacter::Server_SelectSlot_Implementation(int32 Index)
 	SelectedSlotIndex = Index;
 }
 
+void ASurvivorCharacter::DropSelectedItem()
+{
+	if (CanInteract() && InteractionComponent)
+	{
+		InteractionComponent->RequestDrop();
+	}
+}
+
 void ASurvivorCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
+
+	if (HasAuthority() && InventoryComponent)
+	{
+		if (const ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>())
+		{
+			const FSPPlayerLoadout& Loadout = LDPlayerState->GetPlayerLoadout();
+			InventoryComponent->InitializeLoadout(Loadout.SurvivorItem, Loadout.SurvivorPerks);
+		}
+		else
+		{
+			InventoryComponent->InitializeDefaultLoadout();
+		}
+	}
+
 	BindInventoryHudRefresh();
 	RefreshLocalInventoryHud();
 }
@@ -545,6 +568,10 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	if (InteractionComponent)
 	{
 		InteractionComponent->CancelInteract();
+		if (NewState == ESurvivorState::Downed)
+		{
+			InteractionComponent->DropAllItems();
+		}
 	}
 
 	ApplyStateEffects();
@@ -553,7 +580,7 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 bool ASurvivorCharacter::CanMove() const
 {
-	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	if (IsParkouring())
 	{
 		return false;
 	}
@@ -623,19 +650,6 @@ bool ASurvivorCharacter::IsChannelingHealing() const
 
 void ASurvivorCharacter::NotifyHealingAnimEnded()
 {
-	if (AController* Ctrl = GetController())
-	{
-		Ctrl->ResetIgnoreMoveInput();
-	}
-
-	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
-	{
-		if (MoveComp->MovementMode == MOVE_None)
-		{
-			MoveComp->SetDefaultMovementMode();
-		}
-	}
-
 	ApplyStateEffects();
 }
 
@@ -670,7 +684,7 @@ void ASurvivorCharacter::ApplyStateEffects()
 	}
 }
 
-void ASurvivorCharacter::BeginPickup(ASPCollectibleItem* Item)
+void ASurvivorCharacter::BeginPickup(ASPPickupItem* Item)
 {
 	if (InteractionComponent)
 	{

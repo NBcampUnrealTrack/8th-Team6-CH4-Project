@@ -127,6 +127,9 @@ protected:
 	TArray<TObjectPtr<UImage>> InventoryIcons;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
+	TArray<TObjectPtr<UTextBlock>> InventoryCounts;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional), Category = "HUD")
 	TArray<TObjectPtr<UImage>> PerkSlots;
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "HUD")

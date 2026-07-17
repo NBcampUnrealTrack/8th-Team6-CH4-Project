@@ -4,6 +4,7 @@
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "SPInventoryTypes.generated.h"
 
+class ASPPickupItem;
 class UTexture2D;
 
 UENUM(BlueprintType)
@@ -19,7 +20,7 @@ enum class EConsumableItemType : uint8
 {
 	None,
 	Medkit,
-	SpeedBoost
+	SpeedPotion
 };
 
 UENUM(BlueprintType)
@@ -52,10 +53,13 @@ struct FInventorySlotEntry
 	int32 CollectibleValue = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
-	TSoftObjectPtr<UTexture2D> CollectibleIcon;
+	TSoftObjectPtr<UTexture2D> Icon;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory")
+	int32 Quantity = 0;
 
 	UPROPERTY()
-	TObjectPtr<ASPCollectibleItem> SourceItem;
+	TObjectPtr<ASPPickupItem> SourceItem;
 
 	bool IsOccupied() const { return ContentType != EInventorySlotContentType::Empty; }
 
@@ -65,7 +69,8 @@ struct FInventorySlotEntry
 		ConsumableType = EConsumableItemType::None;
 		CollectibleSize = ECollectibleSize::Small;
 		CollectibleValue = 0;
-		CollectibleIcon = nullptr;
+		Icon = nullptr;
+		Quantity = 0;
 		SourceItem = nullptr;
 	}
 };

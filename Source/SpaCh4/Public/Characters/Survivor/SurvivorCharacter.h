@@ -16,7 +16,7 @@ class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
 class ACage;
-class ASPCollectibleItem;
+class ASPPickupItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
@@ -62,12 +62,13 @@ public:
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+	USPMovementComponent* GetSPMovementComponent() const { return MovementComponent; }
 	USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 	USPEscapeLeverComponent* GetEscapeLeverComponent() const { return EscapeLeverComponent; }
 	USPPickupAnimComponent* GetPickupAnimComponent() const { return PickupAnimComponent; }
 	USPHealingAnimComponent* GetHealingAnimComponent() const { return HealingAnimComponent; }
 
-	void BeginPickup(ASPCollectibleItem* Item);
+	void BeginPickup(ASPPickupItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
@@ -119,6 +120,8 @@ private:
 	void HandleInventoryChanged();
 
 	void SelectSlot(int32 Index);
+	void DropSelectedItem();
+	void StopInteract();
 
 	UFUNCTION(Server, Reliable)
 	void Server_SelectSlot(int32 Index);
