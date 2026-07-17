@@ -21,13 +21,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	UFUNCTION(NetMulticast, Unreliable)
-	void Multicast_SpawnScratchMark(FVector Location, FVector Normal, float BaseYaw);
-
 private:
 	ASurvivorCharacter* GetSurvivor() const;
 	bool IsLeavingMarks() const;
 	bool ShouldLocalViewerSeeMarks() const;
+	void SpawnScratchMark(FVector Location, FVector Normal, float BaseYaw) const;
 	float PickNextInterval() const;
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|ScratchMark")

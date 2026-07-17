@@ -1,5 +1,6 @@
 #include "Components/SPScratchMarkComponent.h"
 
+#include "Characters/Killer/KillerCharacter.h"
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/DecalComponent.h"
@@ -8,12 +9,11 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
-#include "Player/LDPlayerState.h"
+#include "Type/SPGameplayTag.h"
 
 USPScratchMarkComponent::USPScratchMarkComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
-	SetIsReplicatedByDefault(true);
 }
 
 void USPScratchMarkComponent::BeginPlay()
@@ -33,7 +33,8 @@ void USPScratchMarkComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	const ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor || !Survivor->HasAuthority())
+	// Scratch marks are cosmetic, so derive them from replicated movement on the viewing killer.
+	if (!Survivor || !ShouldLocalViewerSeeMarks())
 	{
 		return;
 	}
@@ -95,12 +96,12 @@ void USPScratchMarkComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	}
 
 	const float BaseYaw = Survivor->GetVelocity().Rotation().Yaw;
-	Multicast_SpawnScratchMark(MarkLocation, MarkNormal, BaseYaw);
+	SpawnScratchMark(MarkLocation, MarkNormal, BaseYaw);
 }
 
-void USPScratchMarkComponent::Multicast_SpawnScratchMark_Implementation(FVector Location, FVector Normal, float BaseYaw)
+void USPScratchMarkComponent::SpawnScratchMark(FVector Location, FVector Normal, float BaseYaw) const
 {
-	if (!ScratchDecalMaterial || !ShouldLocalViewerSeeMarks())
+	if (!ScratchDecalMaterial)
 	{
 		return;
 	}
@@ -169,8 +170,13 @@ bool USPScratchMarkComponent::ShouldLocalViewerSeeMarks() const
 
 	const UWorld* World = GetWorld();
 	const APlayerController* LocalController = World ? World->GetFirstPlayerController() : nullptr;
-	const ALDPlayerState* LocalPlayerState = LocalController ? LocalController->GetPlayerState<ALDPlayerState>() : nullptr;
-	return LocalPlayerState && LocalPlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer;
+	if (!LocalController || !LocalController->IsLocalController())
+	{
+		return false;
+	}
+
+	const AKillerCharacter* LocalKiller = Cast<AKillerCharacter>(LocalController->GetPawn());
+	return LocalKiller && LocalKiller->GetCharTags().HasTagExact(SPGameplayTags::Character::Killer);
 }
 
 float USPScratchMarkComponent::PickNextInterval() const
