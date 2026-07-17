@@ -5,6 +5,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Type/SPCollisionChannels.h"
 #include "Type/SPGameplayTag.h"
 
 namespace
@@ -27,7 +28,6 @@ namespace
 		return false;
 	}
 }
-
 ACage::ACage()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -53,7 +53,9 @@ ACage::ACage()
 
 	CageMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CageMesh"));
 	CageMesh->SetupAttachment(CageRoot);
+	CageMesh->SetIsReplicated(true);
 	CageMesh->SetCollisionProfileName(TEXT("BlockAll"));
+	CageMesh->SetCollisionObjectType(SPCollisionChannels::Cage);
 	CageMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
 	CageMesh->SetCustomDepthStencilValue(250);
 	CageMesh->SetRenderCustomDepth(false);
@@ -277,6 +279,13 @@ void ACage::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
+	if (CageMesh)
+	{
+		// Existing Blueprint instances may have serialized Component Replicates off.
+		CageMesh->SetIsReplicated(true);
+	}
+
+	ConfigureCollisionChannels();
 	EnsureDoorComponentHierarchy();
 	ApplyAssemblyRotation();
 	ApplySupportMeshScale();
@@ -344,6 +353,15 @@ void ACage::ApplyDoorRotation()
 	}
 
 	DoorPivot->SetRelativeRotation(DoorRotation);
+}
+
+void ACage::ConfigureCollisionChannels()
+{
+	if (CageMesh)
+	{
+		CageMesh->SetCollisionObjectType(SPCollisionChannels::Cage);
+		CageMesh->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+	}
 }
 
 void ACage::SetOccupied(ASurvivorCharacter* Survivor)

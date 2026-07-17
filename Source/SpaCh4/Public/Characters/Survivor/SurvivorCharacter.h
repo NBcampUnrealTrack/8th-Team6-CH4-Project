@@ -148,6 +148,7 @@ private:
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
+	void ApplyDeathRagdoll();
 	void ApplyStateEffects();
 	void NotifyMatchStateChange(ESurvivorState NewState);
 	void ToggleCrouch();
@@ -189,6 +190,14 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Cage")
 	float RescueDropOffset = 100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Death")
+	float DeathCamDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Death")
+	float CorpseLifetime = 6.0f;
+
+	bool bDeathRagdollApplied = false;
 
 	FTimerHandle CageTimerHandle;
 };
