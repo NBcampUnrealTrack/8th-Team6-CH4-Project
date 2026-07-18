@@ -33,8 +33,8 @@ public:
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	void BeginHatchEscape(ASPHatch* Hatch);
-	void CompleteHatchEscape();
+	void BeginHatchOpen(ASPHatch* Hatch);
+	void CompleteHatchOpen();
 	void BeginRescue(ACage* Cage);
 	void CancelInteract();
 	void DropAllItems();

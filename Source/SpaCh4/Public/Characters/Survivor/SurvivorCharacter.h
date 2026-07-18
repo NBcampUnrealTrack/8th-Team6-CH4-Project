@@ -22,6 +22,7 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class USPInventoryComponent;
+class ALDPlayerState;
 enum class ESurvivorEscapeMethod : uint8;
 
 UENUM(BlueprintType)
@@ -156,7 +157,7 @@ private:
 	void RefreshLocalInventoryHud() const;
 	void ApplyDeathRagdoll();
 	void ApplyStateEffects();
-	void NotifyMatchStateChange(ESurvivorState NewState);
+	void NotifyMatchStateChange(ESurvivorState NewState, ALDPlayerState* SurvivorPlayerState);
 	void ToggleCrouch();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
