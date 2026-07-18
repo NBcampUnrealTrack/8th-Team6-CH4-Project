@@ -7,6 +7,7 @@
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "Components/SPScratchMarkComponent.h"
+#include "Components/SPOilDripComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
@@ -47,6 +48,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	HealingAnimComponent = CreateDefaultSubobject<USPHealingAnimComponent>(TEXT("HealingAnimComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
+	OilDripComponent = CreateDefaultSubobject<USPOilDripComponent>(TEXT("OilDripComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 
@@ -532,6 +534,12 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 		return;
 	}
 
+	ALDPlayerState* SurvivorPlayerState = GetPlayerState<ALDPlayerState>();
+	if (!IsValid(SurvivorPlayerState))
+	{
+		SurvivorPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr;
+	}
+
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
 	ForceNetUpdate();
@@ -547,10 +555,6 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 
 		SetLifeSpan(CorpseLifetime);
 
-		if (CurrentCage)
-		{
-			CurrentCage->HandleSurvivorDeath(this);
-		}
 	}
 	else if (SurvivorState == ESurvivorState::Escaped)
 	{
@@ -575,7 +579,12 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	}
 
 	ApplyStateEffects();
-	NotifyMatchStateChange(NewState);
+	NotifyMatchStateChange(NewState, SurvivorPlayerState);
+
+	if (NewState == ESurvivorState::Dead && CurrentCage)
+	{
+		CurrentCage->HandleSurvivorDeath(this);
+	}
 }
 
 bool ASurvivorCharacter::CanMove() const
@@ -716,20 +725,39 @@ void ASurvivorCharacter::EndEscapeChanneling()
 	}
 }
 
-void ASurvivorCharacter::BeginHatchEscape(ASPHatch* Hatch)
+void ASurvivorCharacter::BeginHatchOpen(ASPHatch* Hatch)
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->BeginHatchEscape(Hatch);
+		InteractionComponent->BeginHatchOpen(Hatch);
 	}
 }
 
-void ASurvivorCharacter::CompleteHatchEscape()
+void ASurvivorCharacter::CompleteHatchOpen()
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->CompleteHatchEscape();
+		InteractionComponent->CompleteHatchOpen();
 	}
+}
+
+bool ASurvivorCharacter::TryEscape(const ESurvivorEscapeMethod EscapeMethod)
+{
+	if (!HasAuthority()
+		|| EscapeMethod == ESurvivorEscapeMethod::None
+		|| SurvivorState == ESurvivorState::Dead
+		|| SurvivorState == ESurvivorState::Escaped)
+	{
+		return false;
+	}
+
+	if (ALDPlayerState* SurvivorPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordEscaped(EscapeMethod);
+	}
+
+	SetSurvivorState(ESurvivorState::Escaped);
+	return SurvivorState == ESurvivorState::Escaped;
 }
 
 bool ASurvivorCharacter::IsCarrying() const
@@ -742,7 +770,9 @@ FGameplayTag ASurvivorCharacter::GetInteractableTag() const
 	return InteractionComponent ? InteractionComponent->GetInteractableTag() : FGameplayTag();
 }
 
-void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
+void ASurvivorCharacter::NotifyMatchStateChange(
+	const ESurvivorState NewState,
+	ALDPlayerState* SurvivorPlayerState)
 {
 	AMatchGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMatchGameMode>() : nullptr;
 	if (!GameMode)
@@ -751,15 +781,15 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	}
 	if (NewState == ESurvivorState::Escaped)
 	{
-		GameMode->RegisterSurvivorEscaped(GetController());
+		GameMode->RegisterSurvivorEscapedByPlayerState(SurvivorPlayerState);
 		return;
 	}
 	if (NewState == ESurvivorState::Dead)
 	{
-		GameMode->RegisterSurvivorKilled(GetController());
+		GameMode->RegisterSurvivorKilledByPlayerState(SurvivorPlayerState);
 		return;
 	}
 	// 타 플레이어hud연동을 위해 모든 StateChange를 등록
-	GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+	GameMode->RegisterSurvivorStateChangedByPlayerState(SurvivorPlayerState, NewState);
 
 }

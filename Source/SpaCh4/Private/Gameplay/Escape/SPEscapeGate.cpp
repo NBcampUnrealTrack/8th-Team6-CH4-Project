@@ -257,22 +257,16 @@ FTransform ASPEscapeGate::GetInteractAnchorTransform() const
 
 void ASPEscapeGate::OnExitTriggerBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (!HasAuthority()) return;
+	if (!HasAuthority() || !bIsActivated)
+	{
+		return;
+	}
 
 	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(OtherActor))
 	{
-		if (bIsActivated)
+		if (Survivor->TryEscape(ESurvivorEscapeMethod::Gate) && GEngine)
 		{
-			// 탈출 성공한 생존자 기록
-			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
-			{
-				PlayerState->RecordEscaped(ESurvivorEscapeMethod::Gate);
-			}
-			Survivor->SetSurvivorState(ESurvivorState::Escaped);
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, FString::Printf(TEXT("%s 탈출!"), *Survivor->GetName()));
-			}
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, FString::Printf(TEXT("%s 탈출!"), *Survivor->GetName()));
 		}
 	}
 }

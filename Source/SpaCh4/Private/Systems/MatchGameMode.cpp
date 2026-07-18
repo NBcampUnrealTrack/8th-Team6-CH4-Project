@@ -6,6 +6,7 @@
 #include "TimerManager.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerState.h"
+#include "Gameplay/Escape/SPHatchManagerSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Player/LDPlayerState.h"
 #include "Player/SPPlayerController.h"
@@ -246,32 +247,11 @@ bool AMatchGameMode::CanSpawnHatch() const
 
 void AMatchGameMode::RegisterSurvivorEscaped(AController* SurvivorController)
 {
-	if (!HasAuthority())
-	{
-		return;
-	}
-
-	AMatchGameState* MatchGameState = GetMatchGameState();
-	if (!IsValid(MatchGameState) || MatchGameState->GetMatchPhase() == EMatchPhase::Ended)
-	{
-		return;
-	}
-
-	if (!ApplySurvivorState(SurvivorController, ESurvivorState::Escaped))
-	{
-		return;
-	}
-
-	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
-	{
-		SurvivorPlayerState->RecordEscaped(ESurvivorEscapeMethod::None);
-	}
-
-	RefreshEscapeConditions();
-	TryFinishMatchFromSurvivorCounts();
+	RegisterSurvivorEscapedByPlayerState(
+		SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr);
 }
 
-void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
+void AMatchGameMode::RegisterSurvivorEscapedByPlayerState(ALDPlayerState* SurvivorPlayerState)
 {
 	if (!HasAuthority())
 	{
@@ -284,14 +264,47 @@ void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
 		return;
 	}
 
-	if (!ApplySurvivorState(SurvivorController, ESurvivorState::Dead))
+	if (!ApplySurvivorState(SurvivorPlayerState, ESurvivorState::Escaped))
+	{
+		return;
+	}
+
+	if (IsValid(SurvivorPlayerState))
+	{
+		SurvivorPlayerState->RecordEscaped(ESurvivorEscapeMethod::None);
+	}
+
+	RefreshEscapeConditions();
+	TryFinishMatchFromSurvivorCounts();
+}
+
+void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
+{
+	RegisterSurvivorKilledByPlayerState(
+		SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr);
+}
+
+void AMatchGameMode::RegisterSurvivorKilledByPlayerState(ALDPlayerState* SurvivorPlayerState)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	AMatchGameState* MatchGameState = GetMatchGameState();
+	if (!IsValid(MatchGameState) || MatchGameState->GetMatchPhase() == EMatchPhase::Ended)
+	{
+		return;
+	}
+
+	if (!ApplySurvivorState(SurvivorPlayerState, ESurvivorState::Dead))
 	{
 		return;
 	}
 	
 	// 생존자의 완전 사망 처리, 추후 Cage액터로 이동
 	// 케이지의 구출도 케이지 또는 생존자에서 PlayerState->RecordCageRescue()
-	if (ALDPlayerState* SurvivorPlayerState = SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr)
+	if (IsValid(SurvivorPlayerState))
 	{
 		SurvivorPlayerState->RecordKilled();
 	}
@@ -312,28 +325,35 @@ void AMatchGameMode::RegisterSurvivorKilled(AController* SurvivorController)
 
 void AMatchGameMode::RegisterSurvivorStateChanged(AController* SurvivorController, const ESurvivorState NewSurvivorState)
 {
-	ApplySurvivorState(SurvivorController, NewSurvivorState);
+	RegisterSurvivorStateChangedByPlayerState(
+		SurvivorController ? SurvivorController->GetPlayerState<ALDPlayerState>() : nullptr,
+		NewSurvivorState);
 }
 
-bool AMatchGameMode::ApplySurvivorState(AController* SurvivorController, const ESurvivorState NewSurvivorState)
+void AMatchGameMode::RegisterSurvivorStateChangedByPlayerState(
+	ALDPlayerState* SurvivorPlayerState,
+	const ESurvivorState NewSurvivorState)
 {
-	if (!HasAuthority() || !IsValid(SurvivorController))
+	ApplySurvivorState(SurvivorPlayerState, NewSurvivorState);
+}
+
+bool AMatchGameMode::ApplySurvivorState(ALDPlayerState* SurvivorPlayerState, const ESurvivorState NewSurvivorState)
+{
+	if (!HasAuthority() || !IsValid(SurvivorPlayerState))
 	{
 		return false;
 	}
 
-	const ALDPlayerState* LDPlayerState = SurvivorController->GetPlayerState<ALDPlayerState>();
 	AMatchGameState* MatchGameState = GetMatchGameState();
-	if (!IsValid(LDPlayerState)
-		|| LDPlayerState->GetPlayerRole() != ELobbyPlayerRole::Survivor
-		|| LDPlayerState->GetPlayerId() == INDEX_NONE
+	if (SurvivorPlayerState->GetPlayerRole() != ELobbyPlayerRole::Survivor
+		|| SurvivorPlayerState->GetPlayerId() == INDEX_NONE
 		|| !IsValid(MatchGameState))
 	{
 		return false;
 	}
 
 	FMatchPlayerState MatchPlayerState;
-	if (!MatchGameState->GetMatchPlayerState(LDPlayerState->GetPlayerId(), MatchPlayerState)
+	if (!MatchGameState->GetMatchPlayerState(SurvivorPlayerState->GetPlayerId(), MatchPlayerState)
 		|| MatchPlayerState.PlayerRole != ELobbyPlayerRole::Survivor)
 	{
 		return false;
@@ -343,7 +363,7 @@ bool AMatchGameMode::ApplySurvivorState(AController* SurvivorController, const E
 		return false;
 	}
 
-	MatchGameState->SetSurvivorState(LDPlayerState->GetPlayerId(), NewSurvivorState);
+	MatchGameState->SetSurvivorState(SurvivorPlayerState->GetPlayerId(), NewSurvivorState);
 	return true;
 }
 
@@ -411,6 +431,11 @@ void AMatchGameMode::InitializeMatchState()
 	MatchGameState->SetMatchResult(EMatchResult::None);
 	MatchGameState->SetCanActivateEscapeGates(false);
 	MatchGameState->SetCanSpawnHatch(false);
+
+	if (USPHatchManagerSubsystem* HatchManager = GetWorld()->GetSubsystem<USPHatchManagerSubsystem>())
+	{
+		HatchManager->ResetHatches();
+	}
 }
 
 void AMatchGameMode::RegisterMatchPlayer(AController* PlayerController)
@@ -509,7 +534,16 @@ void AMatchGameMode::RefreshEscapeConditions()
 	// 한명남음 + 점수50%이상 채움 -> 개구멍 오픈
 	const bool bOnlyOneSurvivorLeft = MatchGameState->GetAliveSurvivorCount() == 1;
 	const bool bEnoughDeliveryForHatch = MatchGameState->GetTotalDeliveredValue() >= ActiveBalanceData->GetHatchRequiredDeliveredValue();
-	MatchGameState->SetCanSpawnHatch(bOnlyOneSurvivorLeft && bEnoughDeliveryForHatch);
+	const bool bShouldActivateHatch = bOnlyOneSurvivorLeft && bEnoughDeliveryForHatch;
+	MatchGameState->SetCanSpawnHatch(bShouldActivateHatch);
+
+	if (bShouldActivateHatch)
+	{
+		if (USPHatchManagerSubsystem* HatchManager = GetWorld()->GetSubsystem<USPHatchManagerSubsystem>())
+		{
+			HatchManager->RequestRandomActivation();
+		}
+	}
 }
 
 void AMatchGameMode::TryFinishMatchFromSurvivorCounts()

@@ -6,6 +6,8 @@
 #include "MatchGameState.h"
 #include "MatchGameMode.generated.h"
 
+class ALDPlayerState;
+
 UCLASS()
 class SPACH4_API AMatchGameMode : public AGameModeBase
 {
@@ -70,6 +72,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Match|Survivor")
 	void RegisterSurvivorStateChanged(AController* SurvivorController, ESurvivorState NewSurvivorState);
 
+	void RegisterSurvivorEscapedByPlayerState(ALDPlayerState* SurvivorPlayerState);
+	void RegisterSurvivorKilledByPlayerState(ALDPlayerState* SurvivorPlayerState);
+	void RegisterSurvivorStateChangedByPlayerState(ALDPlayerState* SurvivorPlayerState, ESurvivorState NewSurvivorState);
+
 	// 결과 확인
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match|Result")
 	EMatchResult CalculateMatchResult() const;
@@ -81,7 +87,7 @@ protected:
 	void InitializeMatchState();
 	void RegisterMatchPlayer(AController* PlayerController);
 	void RegisterExistingMatchPlayersFromPlayerStates();
-	bool ApplySurvivorState(AController* SurvivorController, ESurvivorState NewSurvivorState);
+	bool ApplySurvivorState(ALDPlayerState* SurvivorPlayerState, ESurvivorState NewSurvivorState);
 	void HandleMatchTimerTick();
 	void HandleSessionShutdownTimer();
 	// 탈출구 조건 체크

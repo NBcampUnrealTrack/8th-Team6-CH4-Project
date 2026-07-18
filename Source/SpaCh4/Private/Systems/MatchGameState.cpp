@@ -1,5 +1,6 @@
 ﻿#include "Systems/MatchGameState.h"
 
+#include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 
 namespace MatchGameStateStationIds

@@ -12,6 +12,7 @@ class USPInteractionComponent;
 class USPMovementComponent;
 class USPParkourComponent;
 class USPScratchMarkComponent;
+class USPOilDripComponent;
 class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
@@ -21,6 +22,8 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class USPInventoryComponent;
+class ALDPlayerState;
+enum class ESurvivorEscapeMethod : uint8;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -72,8 +75,9 @@ public:
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	void BeginHatchEscape(ASPHatch* Hatch);
-	void CompleteHatchEscape();
+	void BeginHatchOpen(ASPHatch* Hatch);
+	void CompleteHatchOpen();
+	bool TryEscape(ESurvivorEscapeMethod EscapeMethod);
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
@@ -153,7 +157,7 @@ private:
 	void RefreshLocalInventoryHud() const;
 	void ApplyDeathRagdoll();
 	void ApplyStateEffects();
-	void NotifyMatchStateChange(ESurvivorState NewState);
+	void NotifyMatchStateChange(ESurvivorState NewState, ALDPlayerState* SurvivorPlayerState);
 	void ToggleCrouch();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
@@ -167,6 +171,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPScratchMarkComponent> ScratchMarkComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPOilDripComponent> OilDripComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;

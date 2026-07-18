@@ -188,8 +188,8 @@ float USPInteractionComponent::ComputeInteractProgress() const
 
 	if (const ASPHatch* Hatch = CurrentHatch.Get())
 	{
-		const float Duration = Hatch->GetEscapeDuration();
-		return Duration > 0.f ? FMath::Clamp(Hatch->GetEscapeProgress() / Duration, 0.f, 1.f) : 0.f;
+		const float Duration = Hatch->GetOpenDuration();
+		return Duration > 0.f ? FMath::Clamp(Hatch->GetOpenProgress() / Duration, 0.f, 1.f) : 0.f;
 	}
 
 	if (CurrentCage.IsValid())
@@ -587,7 +587,7 @@ void USPInteractionComponent::CancelInteract()
 
 	if (ASPHatch* Hatch = CurrentHatch.Get())
 	{
-		Hatch->ClearEscaper(Survivor);
+		Hatch->CancelOpening(Survivor);
 	}
 	CurrentHatch = nullptr;
 
@@ -908,7 +908,7 @@ void USPInteractionComponent::EndEscapeChanneling()
 	StopInteractMontage();
 }
 
-void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
+void USPInteractionComponent::BeginHatchOpen(ASPHatch* Hatch)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Survivor->CanInteract() || !Hatch)
@@ -919,26 +919,21 @@ void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
 	{
 		return;
 	}
+	if (!Hatch->TryBeginOpening(Survivor))
+	{
+		return;
+	}
 
 	CurrentHatch = Hatch;
 	bIsInteract = true;
 	PlayInteractMontage(HatchEscapeMontage.LoadSynchronous());
-	Hatch->SetEscaper(Survivor);
 }
 
-void USPInteractionComponent::CompleteHatchEscape()
+void USPInteractionComponent::CompleteHatchOpen()
 {
 	bIsInteract = false;
 	CurrentHatch = nullptr;
 	StopInteractMontage();
-	if (ASurvivorCharacter* Survivor = GetSurvivor())
-	{
-		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
-		{
-			PlayerState->RecordEscaped(ESurvivorEscapeMethod::Hatch);
-		}
-		Survivor->SetSurvivorState(ESurvivorState::Escaped);
-	}
 }
 
 void USPInteractionComponent::BeginRescue(ACage* Cage)
