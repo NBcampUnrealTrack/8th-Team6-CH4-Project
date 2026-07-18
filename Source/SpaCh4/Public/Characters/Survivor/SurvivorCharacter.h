@@ -12,6 +12,7 @@ class USPInteractionComponent;
 class USPMovementComponent;
 class USPParkourComponent;
 class USPScratchMarkComponent;
+class USPOilDripComponent;
 class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
@@ -21,6 +22,7 @@ class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class USPInventoryComponent;
+enum class ESurvivorEscapeMethod : uint8;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -72,8 +74,9 @@ public:
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	void BeginHatchEscape(ASPHatch* Hatch);
-	void CompleteHatchEscape();
+	void BeginHatchOpen(ASPHatch* Hatch);
+	void CompleteHatchOpen();
+	bool TryEscape(ESurvivorEscapeMethod EscapeMethod);
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
@@ -167,6 +170,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPScratchMarkComponent> ScratchMarkComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPOilDripComponent> OilDripComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;

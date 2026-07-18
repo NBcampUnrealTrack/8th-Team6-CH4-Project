@@ -7,6 +7,7 @@
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "Components/SPScratchMarkComponent.h"
+#include "Components/SPOilDripComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
@@ -47,6 +48,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	HealingAnimComponent = CreateDefaultSubobject<USPHealingAnimComponent>(TEXT("HealingAnimComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
+	OilDripComponent = CreateDefaultSubobject<USPOilDripComponent>(TEXT("OilDripComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 
@@ -716,20 +718,39 @@ void ASurvivorCharacter::EndEscapeChanneling()
 	}
 }
 
-void ASurvivorCharacter::BeginHatchEscape(ASPHatch* Hatch)
+void ASurvivorCharacter::BeginHatchOpen(ASPHatch* Hatch)
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->BeginHatchEscape(Hatch);
+		InteractionComponent->BeginHatchOpen(Hatch);
 	}
 }
 
-void ASurvivorCharacter::CompleteHatchEscape()
+void ASurvivorCharacter::CompleteHatchOpen()
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->CompleteHatchEscape();
+		InteractionComponent->CompleteHatchOpen();
 	}
+}
+
+bool ASurvivorCharacter::TryEscape(const ESurvivorEscapeMethod EscapeMethod)
+{
+	if (!HasAuthority()
+		|| EscapeMethod == ESurvivorEscapeMethod::None
+		|| SurvivorState == ESurvivorState::Dead
+		|| SurvivorState == ESurvivorState::Escaped)
+	{
+		return false;
+	}
+
+	if (ALDPlayerState* SurvivorPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordEscaped(EscapeMethod);
+	}
+
+	SetSurvivorState(ESurvivorState::Escaped);
+	return SurvivorState == ESurvivorState::Escaped;
 }
 
 bool ASurvivorCharacter::IsCarrying() const
