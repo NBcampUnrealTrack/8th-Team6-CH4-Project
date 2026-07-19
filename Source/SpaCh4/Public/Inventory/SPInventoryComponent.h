@@ -7,7 +7,10 @@
 #include "SPInventoryComponent.generated.h"
 
 class ASPCollectibleItem;
-class UGameHUDWidget;
+class ASPConsumableItem;
+class ASPMedkitItem;
+class ASPPickupItem;
+class ASPSpeedPotionItem;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryComponentChanged);
 
@@ -34,8 +37,16 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	bool RemoveConsumable(EConsumableItemType ItemType);
 
+	bool ConsumeConsumableAtSlot(int32 Index, EConsumableItemType ExpectedType);
+	bool TryStoreWorldItem(ASPPickupItem* Item);
+	bool CanStoreWorldItem(const ASPPickupItem* Item) const;
+
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	bool IsSlotConsumable(int32 Index, EConsumableItemType ItemType) const;
+
+	EConsumableItemType GetConsumableTypeAtSlot(int32 Index) const;
+	int32 CountConsumable(EConsumableItemType ItemType) const;
+	bool HasPerk(EPerkType PerkType) const;
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
 	void SetCollectibleFromItem(ASPCollectibleItem* Item);
@@ -47,7 +58,7 @@ public:
 	bool HasAnyCollectible() const;
 	bool IsSlotOccupied(int32 Index) const;
 	bool IsSlotCollectible(int32 Index) const;
-	bool DropSlot(int32 Index, ASPCollectibleItem*& OutSourceItem);
+	bool DropSlot(int32 Index, ASPPickupItem*& OutSourceItem);
 	bool DeliverSlot(int32 Index, int32& OutValue, ASPCollectibleItem*& OutSourceItem);
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Inventory")
@@ -58,6 +69,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	TArray<FPerkHUDData> BuildPerkHUDData() const;
+
+	void InitializeLoadout(EConsumableItemType LoadoutItem, const TArray<EPerkType>& LoadoutPerks);
 
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void InitializeDefaultLoadout();
@@ -77,8 +90,11 @@ protected:
 	void BroadcastInventoryChanged();
 
 	int32 FindFirstEmptySlotIndex() const;
+	int32 FindConsumableSlotIndex(EConsumableItemType ItemType) const;
 	int32 FindCollectibleSlotIndex() const;
 	int32 FindLastCollectibleSlotIndex() const;
+	ASPConsumableItem* SpawnConsumableItem(EConsumableItemType ItemType) const;
+	ASPPickupItem* SpawnStackedItem(const FInventorySlotEntry& Slot) const;
 
 	UPROPERTY(ReplicatedUsing = OnRep_InventorySlots, VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TArray<FInventorySlotEntry> InventorySlots;
@@ -91,4 +107,13 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Loadout")
 	TArray<EPerkType> DefaultPerks;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Item Classes")
+	TSubclassOf<ASPMedkitItem> MedkitItemClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Inventory|Item Classes")
+	TSubclassOf<ASPSpeedPotionItem> SpeedPotionItemClass;
+
+private:
+	bool bLoadoutInitialized = false;
 };

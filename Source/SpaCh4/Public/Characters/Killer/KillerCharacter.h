@@ -7,6 +7,9 @@
 
 class UKillerData;
 class USPKillerCarryAnimComponent;
+class USPParkourComponent;
+class UAnimMontage;
+class UAnimSequence;
 //class USPKillerFirstPersonMeshComponent;
 class ACage;
 
@@ -49,9 +52,13 @@ public:
     UFUNCTION(BlueprintPure, Category = "Killer")
     EKillerState GetKillerState() const { return CurrentState; }
 
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    USPKillerFirstPersonMeshComponent* GetFirstPersonMeshComponent() const { return FirstPersonMeshComp; }
-    */
+    UFUNCTION(BlueprintPure, Category = "Killer|Parkour")
+    bool IsParkouring() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Killer|Parkour")
+    void NotifyParkourEnded();
+
+    USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 
 protected:
     bool bCanPickup = true;
@@ -59,14 +66,24 @@ protected:
     UPROPERTY(ReplicatedUsing = OnRep_CurrentState)
     EKillerState CurrentState = EKillerState::Idle;
 
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayAttackMontage(UAnimMontage* MontageToPlay);
+
     UFUNCTION()
     void OnRep_CurrentState();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayGroggyMontage();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_StopGroggyMontage();
 
     UPROPERTY(Replicated)
     bool bIsBusy = false;
 
     // 입력 및 상호작용
     virtual void Interact() override;
+    virtual void JumpOver() override;
     void Attack();
 
     UFUNCTION(Server, Reliable)
@@ -77,6 +94,8 @@ protected:
 
     void PerformAttack();
     void SetKillerState(EKillerState NewState);
+    UAnimMontage* ResolveGroggyMontage();
+    void StopGroggyMontageLocal(float BlendOut = 0.15f);
     void UpdateMovementSpeed();
     void SetupKillerFirstPersonCamera();
     void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
@@ -98,11 +117,10 @@ protected:
     UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
     TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
 
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Parkour")
+    TObjectPtr<USPParkourComponent> ParkourComponent;
+
     TWeakObjectPtr<AActor> PendingPickupTarget;
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    /*UPROPERTY(VisibleAnywhere, Category = "Killer|FirstPerson")
-    TObjectPtr<USPKillerFirstPersonMeshComponent> FirstPersonMeshComp;
-    */
     
     void InitializeInputSubsystem();
 
@@ -143,6 +161,21 @@ protected:
     
     UPROPERTY(VisibleAnywhere, Category = "Killer|Camera")
     TObjectPtr<class USkeletalMeshComponent> FirstPersonArmsMesh;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> AttackMontage;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TObjectPtr<UAnimMontage> GroggyMontage;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Killer|Animation")
+    TSoftObjectPtr<UAnimSequence> FallbackGroggySequence;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> RuntimeGroggyMontage;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAnimMontage> ActiveGroggyMontage;
 
     UPROPERTY(ReplicatedUsing = OnRep_CarriedSurvivor)
     AActor* CarriedSurvivor;

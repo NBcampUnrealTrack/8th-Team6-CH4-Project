@@ -2,11 +2,14 @@
 
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/ArrowComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Engine/World.h"
+#include "Curves/CurveFloat.h"
+#include "GameFramework/GameStateBase.h"
+#include "Gameplay/Escape/SPHatchManagerSubsystem.h"
 #include "Net/UnrealNetwork.h"
-#include "Systems/MatchGameState.h"
-#include "TimerManager.h"
+#include "Player/LDPlayerState.h"
+#include "Systems/Data/SurvivorData.h"
 #include "Type/SPGameplayTag.h"
 
 ASPHatch::ASPHatch()
@@ -33,6 +36,11 @@ ASPHatch::ASPHatch()
 	DoorMesh->SetCollisionProfileName(TEXT("NoCollision"));
 	DoorMesh->SetCustomDepthStencilValue(250);
 	DoorMesh->SetRenderCustomDepth(false);
+
+	EscapeTrigger = CreateDefaultSubobject<UBoxComponent>(TEXT("EscapeTrigger"));
+	EscapeTrigger->SetupAttachment(TrayMesh);
+	EscapeTrigger->SetCollisionProfileName(TEXT("NoCollision"));
+	EscapeTrigger->SetGenerateOverlapEvents(false);
 }
 
 void ASPHatch::EnsureDoorComponentHierarchy()
@@ -53,22 +61,9 @@ void ASPHatch::EnsureDoorComponentHierarchy()
 	}
 }
 
-#if WITH_EDITOR
-void ASPHatch::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
-{
-	Super::PostEditChangeProperty(PropertyChangedEvent);
-
-	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(ASPHatch, DoorRotation))
-	{
-		ApplyDoorRotation();
-	}
-}
-#endif
-
 void ASPHatch::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
-
 	EnsureDoorComponentHierarchy();
 }
 
@@ -76,72 +71,65 @@ void ASPHatch::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (DoorPivot)
+	ClosedDoorRotation = DoorPivot ? DoorPivot->GetRelativeRotation() : FRotator::ZeroRotator;
+	if (EscapeTrigger)
 	{
-		if (DoorRotation.IsNearlyZero() && !DoorPivot->GetRelativeRotation().IsNearlyZero())
-		{
-			DoorRotation = DoorPivot->GetRelativeRotation();
-		}
-		else
-		{
-			ApplyDoorRotation();
-		}
+		EscapeTrigger->OnComponentBeginOverlap.AddDynamic(this, &ASPHatch::OnEscapeTriggerBeginOverlap);
 	}
 
-	ApplyHatchVisibility();
-	BindAvailabilityDelegate();
+	ApplyHatchState();
+
+	if (HasAuthority())
+	{
+		if (USPHatchManagerSubsystem* HatchManager = GetWorld()->GetSubsystem<USPHatchManagerSubsystem>())
+		{
+			HatchManager->RegisterHatch(this);
+		}
+	}
 }
 
-void ASPHatch::BindAvailabilityDelegate()
+void ASPHatch::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
-	if (!MatchGameState)
+	if (HasAuthority() && GetWorld())
 	{
-		GetWorldTimerManager().SetTimerForNextTick(this, &ASPHatch::BindAvailabilityDelegate);
-		return;
+		if (USPHatchManagerSubsystem* HatchManager = GetWorld()->GetSubsystem<USPHatchManagerSubsystem>())
+		{
+			HatchManager->UnregisterHatch(this);
+		}
 	}
 
-	MatchGameState->OnHatchAvailabilityChanged.AddDynamic(this, &ASPHatch::OnHatchAvailabilityChanged);
-
-	if (HasAuthority() && MatchGameState->CanSpawnHatch())
-	{
-		OnHatchAvailabilityChanged(true);
-	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASPHatch::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(ASPHatch, EscapeProgress);
-	DOREPLIFETIME(ASPHatch, bIsSpawned);
+	DOREPLIFETIME(ASPHatch, OpenProgress);
+	DOREPLIFETIME(ASPHatch, bIsActive);
+	DOREPLIFETIME(ASPHatch, bIsOpened);
+	DOREPLIFETIME(ASPHatch, DoorOpenStartServerTime);
 }
 
 void ASPHatch::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (!HasAuthority() || !bIsSpawned || !CurrentEscaper.IsValid())
+	if (bIsOpened)
+	{
+		UpdateDoorOpeningPresentation();
+	}
+
+	if (!HasAuthority() || !bIsActive || bIsOpened || !CurrentOpener.IsValid() || ActiveOpenDuration <= 0.0f)
 	{
 		return;
 	}
 
-	EscapeProgress = FMath::Min(EscapeProgress + DeltaSeconds, EscapeDuration);
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 0.f, FColor::Cyan, FString::Printf(TEXT("개구멍 탈출 진행률: %.2f / %.2f"), EscapeProgress, EscapeDuration));
-	}
+	OpenProgress = FMath::Min(OpenProgress + DeltaSeconds, ActiveOpenDuration);
 
-	if (EscapeProgress >= EscapeDuration)
+	if (OpenProgress >= ActiveOpenDuration)
 	{
-		ASurvivorCharacter* Escaper = CurrentEscaper.Get();
-		CurrentEscaper = nullptr;
-		EscapeProgress = 0.f;
-
-		if (Escaper)
-		{
-			Escaper->CompleteHatchEscape();
-		}
+		CompleteOpening();
 	}
 }
 
@@ -149,13 +137,13 @@ void ASPHatch::Interact_Implementation(AActor* Interactor)
 {
 	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Interactor))
 	{
-		Survivor->BeginHatchEscape(this);
+		Survivor->BeginHatchOpen(this);
 	}
 }
 
 void ASPHatch::SetHighlight_Implementation(bool bEnabled)
 {
-	SetHatchRenderCustomDepth(bEnabled);
+	SetHatchRenderCustomDepth(bEnabled && CanBeOpened());
 }
 
 FGameplayTag ASPHatch::GetInteractableTag_Implementation() const
@@ -165,68 +153,236 @@ FGameplayTag ASPHatch::GetInteractableTag_Implementation() const
 
 bool ASPHatch::IsInteractable_Implementation() const
 {
-	if (!bIsSpawned)
+	return CanBeOpened();
+}
+
+bool ASPHatch::CanBeSelected() const
+{
+	return HasAuthority() && !bIsActive && !bIsOpened && HasRequiredVisuals();
+}
+
+bool ASPHatch::HasRequiredVisuals() const
+{
+	return TrayMesh && TrayMesh->GetStaticMesh() && DoorMesh && DoorMesh->GetStaticMesh();
+}
+
+bool ASPHatch::CanBeOpened() const
+{
+	return bIsActive && !bIsOpened && !CurrentOpener.IsValid();
+}
+
+bool ASPHatch::TryBeginOpening(ASurvivorCharacter* Opener)
+{
+	if (!HasAuthority() || !IsValid(Opener) || !Opener->CanInteract() || !CanBeOpened())
 	{
 		return false;
 	}
 
-	const AMatchGameState* MatchGameState = GetWorld() ? GetWorld()->GetGameState<AMatchGameState>() : nullptr;
-	return MatchGameState && MatchGameState->CanSpawnHatch();
+	const USurvivorData* SurvivorData = Opener->GetSurvivorData();
+	if (!IsValid(SurvivorData) || SurvivorData->HatchEscapeDuration <= 0.0f)
+	{
+		return false;
+	}
+
+	CurrentOpener = Opener;
+	ActiveOpenDuration = SurvivorData->HatchEscapeDuration;
+	OpenProgress = 0.0f;
+	return true;
 }
 
-void ASPHatch::SetEscaper(ASurvivorCharacter* Escaper)
+void ASPHatch::CancelOpening(ASurvivorCharacter* Opener)
 {
-	if (!HasAuthority() || !bIsSpawned)
+	if (!HasAuthority() || CurrentOpener.Get() != Opener)
 	{
 		return;
 	}
 
-	CurrentEscaper = Escaper;
+	CurrentOpener.Reset();
+	ActiveOpenDuration = 0.0f;
+	OpenProgress = 0.0f;
+	ForceNetUpdate();
 }
 
-void ASPHatch::ClearEscaper(ASurvivorCharacter* Escaper)
+void ASPHatch::ActivateHatch()
 {
-	if (CurrentEscaper == Escaper)
-	{
-		CurrentEscaper = nullptr;
-		EscapeProgress = 0.f;
-	}
-}
-
-void ASPHatch::OnRep_IsSpawned()
-{
-	ApplyHatchVisibility();
-}
-
-void ASPHatch::OnHatchAvailabilityChanged(bool bCanSpawn)
-{
-	// TODO(임시 진단): 해치 수신 로그 — 원인 확정 후 제거
-	UE_LOG(LogTemp, Warning, TEXT("[Hatch] %s 수신: bCanSpawn=%s Auth=%s bIsSpawned=%s"),
-		*GetName(), bCanSpawn ? TEXT("Y") : TEXT("N"), HasAuthority() ? TEXT("Y") : TEXT("N"), bIsSpawned ? TEXT("Y") : TEXT("N"));
-
-	if (!HasAuthority() || !bCanSpawn || bIsSpawned)
+	if (!HasAuthority() || bIsActive)
 	{
 		return;
 	}
 
-	bIsSpawned = true;
-	ApplyHatchVisibility();
+	bIsActive = true;
+	bIsOpened = false;
+	DoorOpenStartServerTime = -1.0f;
+	OpenProgress = 0.0f;
+	ActiveOpenDuration = 0.0f;
+	CurrentOpener.Reset();
+
+	ApplyHatchState();
+	ForceNetUpdate();
+}
+
+void ASPHatch::DeactivateHatch()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bIsActive = false;
+	bIsOpened = false;
+	DoorOpenStartServerTime = -1.0f;
+	OpenProgress = 0.0f;
+	ActiveOpenDuration = 0.0f;
+	CurrentOpener.Reset();
+	ApplyHatchState();
+	ForceNetUpdate();
+}
+
+void ASPHatch::CompleteOpening()
+{
+	if (!HasAuthority() || bIsOpened)
+	{
+		return;
+	}
+
+	ASurvivorCharacter* Opener = CurrentOpener.Get();
+	CurrentOpener.Reset();
+	DoorOpenStartServerTime = GetSynchronizedWorldTimeSeconds();
+	bIsOpened = true;
+	OpenProgress = ActiveOpenDuration;
+
+	ApplyHatchState();
+	ForceNetUpdate();
+
+	if (Opener)
+	{
+		Opener->CompleteHatchOpen();
+	}
+	ActiveOpenDuration = 0.0f;
+}
+
+void ASPHatch::OnRep_IsActive()
+{
+	ApplyHatchState();
+}
+
+void ASPHatch::OnRep_IsOpened()
+{
+	ApplyHatchState();
+}
+
+void ASPHatch::OnRep_DoorOpenStartServerTime()
+{
+	ApplyHatchState();
+}
+
+void ASPHatch::OnEscapeTriggerBeginOverlap(
+	UPrimitiveComponent* OverlappedComponent,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComp,
+	int32 OtherBodyIndex,
+	bool bFromSweep,
+	const FHitResult& SweepResult)
+{
+	if (!HasAuthority() || !bIsActive || !bIsOpened)
+	{
+		return;
+	}
+
+	ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(OtherActor);
+	if (!Survivor || !Survivor->TryEscape(ESurvivorEscapeMethod::Hatch))
+	{
+		return;
+	}
 }
 
 void ASPHatch::SetDoorRotation(const FRotator& NewRotation)
 {
 	DoorRotation = NewRotation;
-	ApplyDoorRotation();
+	if (bIsOpened)
+	{
+		UpdateDoorOpeningPresentation();
+	}
+	else
+	{
+		ApplyDoorRotation(0.0f);
+	}
 }
 
-void ASPHatch::ApplyDoorRotation()
+void ASPHatch::UpdateDoorOpeningPresentation()
 {
-	if (!DoorPivot || DoorPivot->GetRelativeRotation().Equals(DoorRotation, KINDA_SMALL_NUMBER))
+	const float RotationAlpha = GetDoorRotationAlpha();
+	ApplyDoorRotation(RotationAlpha);
+}
+
+void ASPHatch::ApplyDoorRotation(float NormalizedTime)
+{
+	if (!DoorPivot)
 	{
 		return;
 	}
 
-	DoorPivot->SetRelativeRotation(DoorRotation);
+	float PresentationAlpha = FMath::Clamp(NormalizedTime, 0.0f, 1.0f);
+	if (DoorRotationCurve)
+	{
+		PresentationAlpha = FMath::Clamp(DoorRotationCurve->GetFloatValue(PresentationAlpha), 0.0f, 1.0f);
+	}
+
+	const FQuat InterpolatedRotation = FQuat::Slerp(
+		ClosedDoorRotation.Quaternion(),
+		DoorRotation.Quaternion(),
+		PresentationAlpha);
+	DoorPivot->SetRelativeRotation(InterpolatedRotation);
+}
+
+float ASPHatch::GetDoorRotationAlpha() const
+{
+	if (!bIsOpened)
+	{
+		return 0.0f;
+	}
+
+	if (DoorRotationDuration <= 0.0f)
+	{
+		return 1.0f;
+	}
+
+	if (DoorOpenStartServerTime < 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float ElapsedTime = GetSynchronizedWorldTimeSeconds() - DoorOpenStartServerTime;
+	return FMath::Clamp(ElapsedTime / DoorRotationDuration, 0.0f, 1.0f);
+}
+
+float ASPHatch::GetSynchronizedWorldTimeSeconds() const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0.0f;
+	}
+
+	if (const AGameStateBase* GameState = World->GetGameState())
+	{
+		return GameState->GetServerWorldTimeSeconds();
+	}
+
+	return World->GetTimeSeconds();
+}
+
+void ASPHatch::SetHatchVisibility(bool bVisible)
+{
+	if (TrayMesh)
+	{
+		TrayMesh->SetVisibility(bVisible);
+	}
+
+	if (DoorMesh)
+	{
+		DoorMesh->SetVisibility(bVisible);
+	}
 }
 
 void ASPHatch::SetHatchRenderCustomDepth(bool bEnabled)
@@ -242,7 +398,7 @@ void ASPHatch::SetHatchRenderCustomDepth(bool bEnabled)
 	}
 }
 
-void ASPHatch::SetHatchCollisionEnabled(bool bEnabled)
+void ASPHatch::SetInteractionCollisionEnabled(bool bEnabled)
 {
 	const FName CollisionProfile = bEnabled ? TEXT("Interactable") : TEXT("NoCollision");
 
@@ -257,8 +413,29 @@ void ASPHatch::SetHatchCollisionEnabled(bool bEnabled)
 	}
 }
 
-void ASPHatch::ApplyHatchVisibility()
+void ASPHatch::SetEscapeTriggerEnabled(bool bEnabled)
 {
-	SetActorHiddenInGame(!bIsSpawned);
-	SetHatchCollisionEnabled(bIsSpawned);
+	if (!EscapeTrigger)
+	{
+		return;
+	}
+
+	EscapeTrigger->SetGenerateOverlapEvents(bEnabled);
+	EscapeTrigger->SetCollisionProfileName(bEnabled ? TEXT("Trigger") : TEXT("NoCollision"));
+}
+
+void ASPHatch::ApplyHatchState()
+{
+	const float RotationAlpha = GetDoorRotationAlpha();
+
+	SetHatchVisibility(bIsActive);
+	SetActorHiddenInGame(false);
+	SetInteractionCollisionEnabled(bIsActive && !bIsOpened);
+	SetEscapeTriggerEnabled(bIsActive && bIsOpened);
+	ApplyDoorRotation(RotationAlpha);
+
+	if (!bIsActive || bIsOpened)
+	{
+		SetHatchRenderCustomDepth(false);
+	}
 }

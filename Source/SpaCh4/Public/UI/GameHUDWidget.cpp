@@ -1868,6 +1868,22 @@ void UGameHUDWidget::BindInventoryWidgets()
 		}
 	}
 
+	if (InventoryCounts.Num() != SpaCh4HUD::InventorySlotCount)
+	{
+		InventoryCounts.SetNum(SpaCh4HUD::InventorySlotCount);
+		for (int32 Index = 0; Index < SpaCh4HUD::InventorySlotCount; ++Index)
+		{
+			const FName WidgetName = *FString::Printf(TEXT("InventoryCounts_%d"), Index);
+			UTextBlock* CountText = Cast<UTextBlock>(GetWidgetFromName(WidgetName));
+			if (!CountText && WidgetTree)
+			{
+				CountText = Cast<UTextBlock>(WidgetTree->FindWidget(WidgetName));
+			}
+
+			InventoryCounts[Index] = CountText;
+		}
+	}
+
 	if (PerkSlots.Num() == 0)
 	{
 		for (int32 Index = 0; Index < SpaCh4HUD::PerkSlotCount; ++Index)
@@ -1916,12 +1932,18 @@ void UGameHUDWidget::RefreshInventoryPanel()
 			continue;
 		}
 
-		const bool bShowIcon = bOccupied && bValidData
-			&& InventoryData[Index].ContentType == EInventorySlotContentType::Collectible;
+		const bool bShowIcon = bOccupied && bValidData;
 
 		UTexture2D* Icon = bShowIcon ? InventoryData[Index].Icon.LoadSynchronous() : nullptr;
 		IconImage->SetBrushFromTexture(Icon, false);
 		IconImage->SetOpacity(Icon ? 1.0f : 0.0f);
+
+		if (UTextBlock* CountText = InventoryCounts.IsValidIndex(Index) ? InventoryCounts[Index] : nullptr)
+		{
+			const int32 Quantity = bValidData ? InventoryData[Index].Quantity : 0;
+			CountText->SetText(Quantity > 1 ? FText::AsNumber(Quantity) : FText::GetEmpty());
+			CountText->SetVisibility(Quantity > 1 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
 	}
 }
 

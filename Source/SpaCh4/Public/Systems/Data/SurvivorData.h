@@ -77,7 +77,7 @@ public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	float RescueDurationStage2 = 4.00;
-	
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction|Escape")
 	float EscapeGateOpenDuration = 8.0f;
 
@@ -102,6 +102,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Items")
 	float MedkitDuration = 3.00;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Items")
+	float SpeedPotionUseDuration = 1.50;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Items")
 	float MedkitMovePenalty = 0.60;

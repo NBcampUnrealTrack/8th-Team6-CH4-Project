@@ -6,6 +6,7 @@
 #include "Components/SPPickupAnimComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
 #include "Components/SPHealingAnimComponent.h"
+#include "Components/SPMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -13,6 +14,7 @@
 #include "GameFramework/Controller.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Items/SPPickupItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
@@ -60,7 +62,7 @@ ASurvivorCharacter* USPInteractionComponent::GetSurvivor() const
 
 const USurvivorData* USPInteractionComponent::GetSurvivorData() const
 {
-	const ASurvivorCharacter* Survivor = GetSurvivor();
+	ASurvivorCharacter* Survivor = GetSurvivor();
 	return Survivor ? Survivor->GetSurvivorData() : nullptr;
 }
 
@@ -74,6 +76,16 @@ bool USPInteractionComponent::IsCarrying() const
 void USPInteractionComponent::RequestInteract()
 {
 	Server_Interact();
+}
+
+void USPInteractionComponent::RequestDrop()
+{
+	Server_Drop();
+}
+
+void USPInteractionComponent::RequestCancelInteract()
+{
+	Server_CancelInteract();
 }
 
 void USPInteractionComponent::NotifyMoveInput()
@@ -176,8 +188,8 @@ float USPInteractionComponent::ComputeInteractProgress() const
 
 	if (const ASPHatch* Hatch = CurrentHatch.Get())
 	{
-		const float Duration = Hatch->GetEscapeDuration();
-		return Duration > 0.f ? FMath::Clamp(Hatch->GetEscapeProgress() / Duration, 0.f, 1.f) : 0.f;
+		const float Duration = Hatch->GetOpenDuration();
+		return Duration > 0.f ? FMath::Clamp(Hatch->GetOpenProgress() / Duration, 0.f, 1.f) : 0.f;
 	}
 
 	if (CurrentCage.IsValid())
@@ -196,6 +208,15 @@ float USPInteractionComponent::ComputeInteractProgress() const
 			if (Rate > 0.f)
 			{
 				return FMath::Clamp(TimerManager.GetTimerElapsed(HealTimer) / Rate, 0.f, 1.f);
+			}
+		}
+
+		if (TimerManager.IsTimerActive(SpeedPotionUseTimer))
+		{
+			const float Rate = TimerManager.GetTimerRate(SpeedPotionUseTimer);
+			if (Rate > 0.f)
+			{
+				return FMath::Clamp(TimerManager.GetTimerElapsed(SpeedPotionUseTimer) / Rate, 0.f, 1.f);
 			}
 		}
 
@@ -234,24 +255,66 @@ void USPInteractionComponent::Server_Interact_Implementation()
 		return;
 	}
 
-	TryBeginSelfHeal();
+	TryUseSelectedConsumable();
 }
 
-void USPInteractionComponent::TryBeginSelfHeal()
+bool USPInteractionComponent::Server_Drop_Validate()
+{
+	return true;
+}
+
+void USPInteractionComponent::Server_Drop_Implementation()
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor || !Survivor->HasAuthority() || bIsInteract)
+	if (!Survivor || !Survivor->CanInteract() || bIsInteract)
 	{
 		return;
+	}
+
+	BeginDrop();
+}
+
+bool USPInteractionComponent::TryUseSelectedConsumable()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	if (!Survivor || !Inventory)
+	{
+		return false;
+	}
+
+	const int32 SlotIndex = Survivor->GetSelectedSlotIndex();
+	switch (Inventory->GetConsumableTypeAtSlot(SlotIndex))
+	{
+	case EConsumableItemType::Medkit:
+		return TryBeginSelfHeal();
+
+	case EConsumableItemType::SpeedPotion:
+		return TryBeginSpeedPotionUse();
+
+	default:
+		return false;
+	}
+}
+
+bool USPInteractionComponent::TryBeginSelfHeal()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	UWorld* World = GetWorld();
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Data || !World || Data->MedkitDuration <= 0.f)
+	{
+		return false;
 	}
 
 	if (Survivor->GetSurvivorState() != ESurvivorState::Injured || !IsSelectedSlotMedkit())
 	{
-		return;
+		return false;
 	}
 
 	bIsSelfHealing = true;
 	bIsInteract = true;
+	ActiveConsumableSlotIndex = Survivor->GetSelectedSlotIndex();
 
 	if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
 	{
@@ -259,13 +322,34 @@ void USPInteractionComponent::TryBeginSelfHeal()
 		HealAnim->BeginHealingChannel();
 	}
 
+	World->GetTimerManager().SetTimer(
+		HealTimer, this, &USPInteractionComponent::CompleteHeal, Data->MedkitDuration, false);
+	return true;
+}
+
+bool USPInteractionComponent::TryBeginSpeedPotionUse()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	USPMovementComponent* Movement = Survivor ? Survivor->GetSPMovementComponent() : nullptr;
 	const USurvivorData* Data = GetSurvivorData();
-	const float Duration = Data ? Data->MedkitDuration : 3.f;
-	if (UWorld* World = GetWorld())
+	UWorld* World = GetWorld();
+	const int32 SlotIndex = Survivor ? Survivor->GetSelectedSlotIndex() : INDEX_NONE;
+	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Inventory || !Movement || !Data || !World
+		|| Data->SpeedPotionUseDuration <= 0.f || !Movement->CanActivateSpeedPotion()
+		|| !Inventory->IsSlotConsumable(SlotIndex, EConsumableItemType::SpeedPotion))
 	{
-		World->GetTimerManager().SetTimer(
-			HealTimer, this, &USPInteractionComponent::CompleteHeal, Duration, false);
+		return false;
 	}
+
+	bIsUsingSpeedPotion = true;
+	bIsInteract = true;
+	ActiveConsumableSlotIndex = SlotIndex;
+	PlayInteractMontage(SpeedPotionUseMontage.LoadSynchronous());
+	World->GetTimerManager().SetTimer(
+		SpeedPotionUseTimer, this, &USPInteractionComponent::CompleteSpeedPotionUse,
+		Data->SpeedPotionUseDuration, false);
+	return true;
 }
 
 bool USPInteractionComponent::IsSelectedSlotMedkit() const
@@ -299,10 +383,9 @@ void USPInteractionComponent::CompleteHeal()
 
 	if (Survivor)
 	{
-		if (USPInventoryComponent* Inventory = Survivor->GetInventoryComponent())
-		{
-			Inventory->RemoveConsumable(EConsumableItemType::Medkit);
-		}
+		USPInventoryComponent* Inventory = Survivor->GetInventoryComponent();
+		const bool bConsumed = Inventory
+			&& Inventory->ConsumeConsumableAtSlot(ActiveConsumableSlotIndex, EConsumableItemType::Medkit);
 
 		if (USPHealingAnimComponent* HealAnim = Survivor->GetHealingAnimComponent())
 		{
@@ -310,12 +393,16 @@ void USPInteractionComponent::CompleteHeal()
 			HealAnim->SetAutoCompleteLoop(true);
 		}
 
-		Survivor->RecoverOneStep();
-		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+		if (bConsumed)
 		{
-			PlayerState->RecordSuccessfulSelfHeal();
+			Survivor->RecoverOneStep();
+			if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+			{
+				PlayerState->RecordSuccessfulSelfHeal();
+			}
 		}
 	}
+	ActiveConsumableSlotIndex = INDEX_NONE;
 }
 
 void USPInteractionComponent::CancelHealChannel()
@@ -335,6 +422,46 @@ void USPInteractionComponent::CancelHealChannel()
 	}
 
 	bIsSelfHealing = false;
+	ActiveConsumableSlotIndex = INDEX_NONE;
+}
+
+void USPInteractionComponent::CompleteSpeedPotionUse()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SpeedPotionUseTimer);
+	}
+
+	bIsInteract = false;
+	bIsUsingSpeedPotion = false;
+	StopInteractMontage();
+
+	USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	USPMovementComponent* Movement = Survivor ? Survivor->GetSPMovementComponent() : nullptr;
+	if (Survivor && Survivor->HasAuthority() && Inventory && Movement
+		&& Inventory->IsSlotConsumable(ActiveConsumableSlotIndex, EConsumableItemType::SpeedPotion)
+		&& Movement->CanActivateSpeedPotion())
+	{
+		const bool bSkipFatigue = Inventory->HasPerk(EPerkType::LightWheels);
+		if (Inventory->ConsumeConsumableAtSlot(ActiveConsumableSlotIndex, EConsumableItemType::SpeedPotion))
+		{
+			Movement->TryActivateSpeedPotion(bSkipFatigue);
+		}
+	}
+
+	ActiveConsumableSlotIndex = INDEX_NONE;
+}
+
+void USPInteractionComponent::CancelSpeedPotionChannel()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SpeedPotionUseTimer);
+	}
+
+	bIsUsingSpeedPotion = false;
+	ActiveConsumableSlotIndex = INDEX_NONE;
 }
 
 void USPInteractionComponent::FaceInteractTarget(AActor* Target)
@@ -419,6 +546,10 @@ void USPInteractionComponent::CancelInteract()
 
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const bool bWasPickup = CurrentPickupItem.IsValid();
+	if (ASPPickupItem* PickupItem = CurrentPickupItem.Get())
+	{
+		PickupItem->ReleaseReservation(Survivor);
+	}
 
 	bIsInteract = false;
 	CurrentPickupItem = nullptr;
@@ -428,6 +559,11 @@ void USPInteractionComponent::CancelInteract()
 	if (bIsSelfHealing)
 	{
 		CancelHealChannel();
+	}
+
+	if (bIsUsingSpeedPotion)
+	{
+		CancelSpeedPotionChannel();
 	}
 
 	if (bWasPickup && Survivor && Survivor->GetPickupAnimComponent())
@@ -451,14 +587,14 @@ void USPInteractionComponent::CancelInteract()
 
 	if (ASPHatch* Hatch = CurrentHatch.Get())
 	{
-		Hatch->ClearEscaper(Survivor);
+		Hatch->CancelOpening(Survivor);
 	}
 	CurrentHatch = nullptr;
 
 	CurrentCage = nullptr;
 }
 
-void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
+void USPInteractionComponent::BeginPickup(ASPPickupItem* Item)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const USurvivorData* Data = GetSurvivorData();
@@ -468,7 +604,11 @@ void USPInteractionComponent::BeginPickup(ASPCollectibleItem* Item)
 	}
 
 	const USPInventoryComponent* Inventory = Survivor->GetInventoryComponent();
-	if (!Inventory || !Inventory->HasFreeSlot())
+	if (!Inventory || !Inventory->CanStoreWorldItem(Item))
+	{
+		return;
+	}
+	if (!Item->TryReserve(Survivor))
 	{
 		return;
 	}
@@ -516,18 +656,21 @@ void USPInteractionComponent::CompletePickup()
 		return;
 	}
 
-	ASPCollectibleItem* Item = CurrentPickupItem.Get();
+	ASPPickupItem* Item = CurrentPickupItem.Get();
 	CurrentPickupItem = nullptr;
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
+	ASurvivorCharacter* Survivor = GetSurvivor();
 	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
-	if (!Inv || !Inv->HasFreeSlot())
+	if (!Inv || !Inv->CanStoreWorldItem(Item))
 	{
+		Item->ReleaseReservation(Survivor);
 		return;
 	}
 
-	Inv->SetCollectibleFromItem(Item);
-	Item->Multicast_SetStored(true, FVector::ZeroVector);
+	if (!Inv->TryStoreWorldItem(Item))
+	{
+		Item->ReleaseReservation(Survivor);
+	}
 }
 
 void USPInteractionComponent::BeginDrop()
@@ -566,7 +709,7 @@ void USPInteractionComponent::CompleteDrop()
 		return;
 	}
 
-	ASPCollectibleItem* Item = nullptr;
+	ASPPickupItem* Item = nullptr;
 	if (!Inv->DropSlot(Survivor->GetSelectedSlotIndex(), Item))
 	{
 		return;
@@ -574,11 +717,49 @@ void USPInteractionComponent::CompleteDrop()
 
 	if (Item)
 	{
-		Item->Multicast_SetStored(false, ResolveGroundedDropLocation(Survivor, Item));
+		Item->SetStored(false, ResolveGroundedDropLocation(Survivor, Item));
 	}
 }
 
-FVector USPInteractionComponent::ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const
+void USPInteractionComponent::DropAllItems()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	USPInventoryComponent* Inventory = Survivor ? Survivor->GetInventoryComponent() : nullptr;
+	if (!Survivor || !Survivor->HasAuthority() || !Inventory)
+	{
+		return;
+	}
+
+	int32 DroppedItemCount = 0;
+	float LateralOffset = 0.f;
+	float PreviousHalfWidth = 0.f;
+	for (int32 SlotIndex = 0; SlotIndex < USPInventoryComponent::InventorySlotCount; ++SlotIndex)
+	{
+		while (Inventory->IsSlotOccupied(SlotIndex))
+		{
+			ASPPickupItem* Item = nullptr;
+			if (!Inventory->DropSlot(SlotIndex, Item) || !Item)
+			{
+				break;
+			}
+
+			FVector DropLocation = ResolveGroundedDropLocation(Survivor, Item);
+			FVector BoundsOrigin;
+			FVector BoxExtent;
+			Item->GetActorBounds(false, BoundsOrigin, BoxExtent);
+			if (DroppedItemCount > 0)
+			{
+				LateralOffset += PreviousHalfWidth + BoxExtent.Y;
+			}
+			DropLocation += Survivor->GetActorRightVector() * LateralOffset;
+			Item->SetStored(false, DropLocation);
+			PreviousHalfWidth = BoxExtent.Y;
+			++DroppedItemCount;
+		}
+	}
+}
+
+FVector USPInteractionComponent::ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPPickupItem* Item) const
 {
 	const FVector Origin = Survivor->GetActorLocation();
 	const FVector TraceStart = Origin + Survivor->GetActorForwardVector() * DropForwardOffset;
@@ -727,7 +908,7 @@ void USPInteractionComponent::EndEscapeChanneling()
 	StopInteractMontage();
 }
 
-void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
+void USPInteractionComponent::BeginHatchOpen(ASPHatch* Hatch)
 {
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Survivor->HasAuthority() || bIsInteract || !Survivor->CanInteract() || !Hatch)
@@ -738,26 +919,21 @@ void USPInteractionComponent::BeginHatchEscape(ASPHatch* Hatch)
 	{
 		return;
 	}
+	if (!Hatch->TryBeginOpening(Survivor))
+	{
+		return;
+	}
 
 	CurrentHatch = Hatch;
 	bIsInteract = true;
 	PlayInteractMontage(HatchEscapeMontage.LoadSynchronous());
-	Hatch->SetEscaper(Survivor);
 }
 
-void USPInteractionComponent::CompleteHatchEscape()
+void USPInteractionComponent::CompleteHatchOpen()
 {
 	bIsInteract = false;
 	CurrentHatch = nullptr;
 	StopInteractMontage();
-	if (ASurvivorCharacter* Survivor = GetSurvivor())
-	{
-		if (ALDPlayerState* PlayerState = Survivor->GetController() ? Survivor->GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
-		{
-			PlayerState->RecordEscaped(ESurvivorEscapeMethod::Hatch);
-		}
-		Survivor->SetSurvivorState(ESurvivorState::Escaped);
-	}
 }
 
 void USPInteractionComponent::BeginRescue(ACage* Cage)

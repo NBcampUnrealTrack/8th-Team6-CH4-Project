@@ -7,13 +7,12 @@
 
 class ASurvivorCharacter;
 class USurvivorData;
-class ASPCollectibleItem;
+class ASPPickupItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class UAnimMontage;
 class ACage;
-
 
 UCLASS(ClassGroup = (SP), meta = (BlueprintSpawnableComponent))
 class SPACH4_API USPInteractionComponent : public UActorComponent
@@ -25,17 +24,20 @@ public:
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-	
+
 	void RequestInteract();
+	void RequestDrop();
+	void RequestCancelInteract();
 	void NotifyMoveInput();
-	void BeginPickup(ASPCollectibleItem* Item);
+	void BeginPickup(ASPPickupItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	void BeginHatchEscape(ASPHatch* Hatch);
-	void CompleteHatchEscape();
+	void BeginHatchOpen(ASPHatch* Hatch);
+	void CompleteHatchOpen();
 	void BeginRescue(ACage* Cage);
 	void CancelInteract();
+	void DropAllItems();
 
 	bool IsCarrying() const;
 
@@ -60,6 +62,9 @@ protected:
 	void Server_Interact();
 
 	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_Drop();
+
+	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CancelInteract();
 
 	UFUNCTION(NetMulticast, Reliable)
@@ -82,13 +87,17 @@ private:
 	void CompletePickup();
 	void BeginDrop();
 	void CompleteDrop();
-	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPCollectibleItem* Item) const;
+	FVector ResolveGroundedDropLocation(const ASurvivorCharacter* Survivor, ASPPickupItem* Item) const;
 	void CompleteDelivery();
 	void CompleteRescue();
-	void TryBeginSelfHeal();
+	bool TryUseSelectedConsumable();
+	bool TryBeginSelfHeal();
+	bool TryBeginSpeedPotionUse();
 	bool IsSelectedSlotMedkit() const;
 	void CompleteHeal();
 	void CancelHealChannel();
+	void CompleteSpeedPotionUse();
+	void CancelSpeedPotionChannel();
 	void FaceInteractTarget(AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
 	void StopInteractMontage();
@@ -104,7 +113,7 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	bool bDrawDebug{false};
-	
+
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Carry")
 	bool bInstantPickup{false};
 
@@ -128,20 +137,25 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
 	TSoftObjectPtr<UAnimMontage> RescueMontage;
-	
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
+	TSoftObjectPtr<UAnimMontage> SpeedPotionUseMontage;
+
 	UPROPERTY(Replicated)
 	bool bIsInteract{false};
 
 	UPROPERTY(Replicated)
 	float InteractProgress{0.f};
 
-
 	bool bIsSelfHealing{false};
+	bool bIsUsingSpeedPotion{false};
+	int32 ActiveConsumableSlotIndex = INDEX_NONE;
 
 	FTimerHandle PickupDropTimer;
 	FTimerHandle HealTimer;
+	FTimerHandle SpeedPotionUseTimer;
 	FTimerHandle RescueTimer;
-	TWeakObjectPtr<ASPCollectibleItem> CurrentPickupItem;
+	TWeakObjectPtr<ASPPickupItem> CurrentPickupItem;
 	TWeakObjectPtr<ASPDeliveryStation> CurrentDeliveryStation;
 	TWeakObjectPtr<ASPEscapeGate> CurrentEscapeGate;
 	TWeakObjectPtr<ASPHatch> CurrentHatch;

@@ -12,15 +12,18 @@ class USPInteractionComponent;
 class USPMovementComponent;
 class USPParkourComponent;
 class USPScratchMarkComponent;
+class USPOilDripComponent;
 class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
 class ACage;
-class ASPCollectibleItem;
+class ASPPickupItem;
 class ASPDeliveryStation;
 class ASPEscapeGate;
 class ASPHatch;
 class USPInventoryComponent;
+class ALDPlayerState;
+enum class ESurvivorEscapeMethod : uint8;
 
 UENUM(BlueprintType)
 enum class ESurvivorState : uint8
@@ -62,17 +65,19 @@ public:
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }
 	USPInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+	USPMovementComponent* GetSPMovementComponent() const { return MovementComponent; }
 	USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
 	USPEscapeLeverComponent* GetEscapeLeverComponent() const { return EscapeLeverComponent; }
 	USPPickupAnimComponent* GetPickupAnimComponent() const { return PickupAnimComponent; }
 	USPHealingAnimComponent* GetHealingAnimComponent() const { return HealingAnimComponent; }
 
-	void BeginPickup(ASPCollectibleItem* Item);
+	void BeginPickup(ASPPickupItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
 	void BeginEscapeOpen(ASPEscapeGate* Gate);
 	void EndEscapeChanneling();
-	void BeginHatchEscape(ASPHatch* Hatch);
-	void CompleteHatchEscape();
+	void BeginHatchOpen(ASPHatch* Hatch);
+	void CompleteHatchOpen();
+	bool TryEscape(ESurvivorEscapeMethod EscapeMethod);
 
 	void EnterCaged(ACage* Cage);
 	void ApplyHit();
@@ -119,6 +124,8 @@ private:
 	void HandleInventoryChanged();
 
 	void SelectSlot(int32 Index);
+	void DropSelectedItem();
+	void StopInteract();
 
 	UFUNCTION(Server, Reliable)
 	void Server_SelectSlot(int32 Index);
@@ -148,8 +155,9 @@ private:
 
 	void BindInventoryHudRefresh();
 	void RefreshLocalInventoryHud() const;
+	void ApplyDeathRagdoll();
 	void ApplyStateEffects();
-	void NotifyMatchStateChange(ESurvivorState NewState);
+	void NotifyMatchStateChange(ESurvivorState NewState, ALDPlayerState* SurvivorPlayerState);
 	void ToggleCrouch();
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
@@ -163,6 +171,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPScratchMarkComponent> ScratchMarkComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
+	TObjectPtr<USPOilDripComponent> OilDripComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;
@@ -189,6 +200,14 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Cage")
 	float RescueDropOffset = 100.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Death")
+	float DeathCamDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "SP|Death")
+	float CorpseLifetime = 6.0f;
+
+	bool bDeathRagdollApplied = false;
 
 	FTimerHandle CageTimerHandle;
 };

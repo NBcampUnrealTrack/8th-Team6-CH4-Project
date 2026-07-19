@@ -1,8 +1,8 @@
 #include "Animation/AnimNotify_SPParkourLand.h"
 
-#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/SPParkourComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
 
 void UAnimNotify_SPParkourLand::Notify(
 	USkeletalMeshComponent* MeshComp,
@@ -16,9 +16,9 @@ void UAnimNotify_SPParkourLand::Notify(
 		return;
 	}
 
-	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(MeshComp->GetOwner()))
+	if (ACharacter* Character = Cast<ACharacter>(MeshComp->GetOwner()))
 	{
-		if (USPParkourComponent* ParkourComponent = Survivor->GetParkourComponent())
+		if (USPParkourComponent* ParkourComponent = Character->FindComponentByClass<USPParkourComponent>())
 		{
 			ParkourComponent->OnParkourLandNotify();
 		}

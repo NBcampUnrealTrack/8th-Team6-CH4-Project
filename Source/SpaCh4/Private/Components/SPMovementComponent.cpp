@@ -6,6 +6,7 @@
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/Data/SurvivorData.h"
+#include "TimerManager.h"
 
 USPMovementComponent::USPMovementComponent()
 {
@@ -18,6 +19,7 @@ void USPMovementComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(USPMovementComponent, bWantsToRun);
+	DOREPLIFETIME(USPMovementComponent, SpeedPotionPhase);
 }
 
 void USPMovementComponent::BeginPlay()
@@ -105,7 +107,7 @@ float USPMovementComponent::GetTargetMoveSpeed() const
 float USPMovementComponent::ComputeTargetMoveSpeed() const
 {
 	const float BaseSpeed = bHitEscapeSprintActive ? HitEscapeSprintSpeed : GetBaseWalkSpeed();
-	return BaseSpeed * GetCarryMoveSpeedMultiplier();
+	return BaseSpeed * GetCarryMoveSpeedMultiplier() * GetSpeedPotionMultiplier();
 }
 
 float USPMovementComponent::GetBaseWalkSpeed() const
@@ -177,6 +179,95 @@ float USPMovementComponent::GetCarryMoveSpeedMultiplier() const
 	}
 
 	return FMath::Max(Data->MinCarrySpeedMultiplier, 1.f - TotalPenalty);
+}
+
+float USPMovementComponent::GetSpeedPotionMultiplier() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	if (!Survivor || !Data)
+	{
+		return 1.f;
+	}
+
+	const ESurvivorState State = Survivor->GetSurvivorState();
+	if (State != ESurvivorState::Healthy && State != ESurvivorState::Injured)
+	{
+		return 1.f;
+	}
+
+	switch (SpeedPotionPhase)
+	{
+	case ESpeedPotionPhase::Boost:
+		return Data->SpeedBoostMultiplier;
+	case ESpeedPotionPhase::Fatigue:
+		return Data->SpeedFatigueMultiplier;
+	default:
+		return 1.f;
+	}
+}
+
+bool USPMovementComponent::CanActivateSpeedPotion() const
+{
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	if (!Survivor || !Data || SpeedPotionPhase != ESpeedPotionPhase::None)
+	{
+		return false;
+	}
+
+	const ESurvivorState State = Survivor->GetSurvivorState();
+	return State == ESurvivorState::Healthy || State == ESurvivorState::Injured;
+}
+
+bool USPMovementComponent::TryActivateSpeedPotion(const bool bSkipFatigue)
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	if (!Survivor || !Survivor->HasAuthority() || !Data || !CanActivateSpeedPotion())
+	{
+		return false;
+	}
+
+	bSkipSpeedPotionFatigue = bSkipFatigue;
+	SpeedPotionPhase = ESpeedPotionPhase::Boost;
+	Survivor->ForceNetUpdate();
+	GetWorld()->GetTimerManager().SetTimer(
+		SpeedPotionTimer, this, &USPMovementComponent::FinishSpeedPotionBoost, Data->SpeedBoostDuration, false);
+	return true;
+}
+
+void USPMovementComponent::FinishSpeedPotionBoost()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	if (!Survivor || !Survivor->HasAuthority() || !Data)
+	{
+		return;
+	}
+
+	if (bSkipSpeedPotionFatigue)
+	{
+		SpeedPotionPhase = ESpeedPotionPhase::None;
+		bSkipSpeedPotionFatigue = false;
+		Survivor->ForceNetUpdate();
+		return;
+	}
+
+	SpeedPotionPhase = ESpeedPotionPhase::Fatigue;
+	Survivor->ForceNetUpdate();
+	GetWorld()->GetTimerManager().SetTimer(
+		SpeedPotionTimer, this, &USPMovementComponent::FinishSpeedPotionFatigue, Data->SpeedFatigueDuration, false);
+}
+
+void USPMovementComponent::FinishSpeedPotionFatigue()
+{
+	if (ASurvivorCharacter* Survivor = GetSurvivor(); Survivor && Survivor->HasAuthority())
+	{
+		SpeedPotionPhase = ESpeedPotionPhase::None;
+		bSkipSpeedPotionFatigue = false;
+		Survivor->ForceNetUpdate();
+	}
 }
 
 float USPMovementComponent::GetSprintSpeedForState(ESurvivorState State) const

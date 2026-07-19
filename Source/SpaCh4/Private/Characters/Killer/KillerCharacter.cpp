@@ -3,6 +3,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
+#include "InputActionValue.h"
+#include "InputAction.h"
 #include "EnhancedInputComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputSubsystems.h"
@@ -11,6 +13,11 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SPKillerCarryAnimComponent.h"
+#include "Components/SPParkourComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
+#include "UObject/ConstructorHelpers.h"
 /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
 #include "Components/SPKillerFirstPersonMeshComponent.h"
 */
@@ -60,20 +67,38 @@ AKillerCharacter::AKillerCharacter()
     
     charTag.AddTag(SPGameplayTags::Character::Killer);
     CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    FirstPersonMeshComp = CreateDefaultSubobject<USPKillerFirstPersonMeshComponent>(TEXT("FirstPersonMesh"));
-    */
+    ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Attack/AM_Attack_Montage.AM_Attack_Montage"));
+    if (AttackMontageFinder.Succeeded())
+    {
+        AttackMontage = AttackMontageFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UAnimMontage> GroggyMontageFinder(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AM_Groggy_Montage.AM_Groggy_Montage"));
+    if (GroggyMontageFinder.Succeeded())
+    {
+        GroggyMontage = GroggyMontageFinder.Object;
+    }
+    else
+    {
+        static ConstructorHelpers::FObjectFinder<UAnimMontage> LegacyGroggyMontageFinder(
+            TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Montage.AS_Zombie_Idle_Montage"));
+        if (LegacyGroggyMontageFinder.Succeeded())
+        {
+            GroggyMontage = LegacyGroggyMontageFinder.Object;
+        }
+    }
+
+    FallbackGroggySequence = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Rogue.AS_Zombie_Idle_Rogue")));
 }
 
 void AKillerCharacter::NotifyControllerChanged()
 {
     Super::NotifyControllerChanged();
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-    }
-    */
 }
 
 void AKillerCharacter::PostInitializeComponents()
@@ -251,13 +276,6 @@ void AKillerCharacter::BeginPlay()
     
     SetupKillerFirstPersonCamera(); // 카메라 초기화 분리
     InitializeInputSubsystem();
-    
-    /*<--------- SPKillerFirstPersonMeshComponent 부재에 의한 주석 처리 ----------------------------->
-    if (FirstPersonMeshComp)
-    {
-        FirstPersonMeshComp->ScheduleSetup();
-        FirstPersonMeshComp->EnsureAnimationSetup();
-    }*/
  
     if (GetCharacterMovement()) GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     UpdateMovementSpeed();
@@ -295,6 +313,11 @@ void AKillerCharacter::PerformAttack()
     if (!KillerData) return;
 
     SetKillerState(EKillerState::Attacking);
+
+    if (HasAuthority() && AttackMontage)
+    {
+        Multicast_PlayAttackMontage(AttackMontage);
+    }
     
     // 공격 시작 시 이동 차단
     if (GetCharacterMovement())
@@ -306,15 +329,10 @@ void AKillerCharacter::PerformAttack()
     FTimerHandle WindupTimer;
     GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
         
-        // 2. Active 판정 (0.4s)
-        FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
-        FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
-        DrawDebugBox(GetWorld(), BoxCenter, BoxExtent, GetActorRotation().Quaternion(), FColor::Red, false, 2.0f, 0, 2.0f);
-
+        // Active 판정 및 Trace는 서버에서만 수행
         bool bHit = PerformAttackTrace();
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
 
-        // 3. 결과에 따른 상태 전이 및 복귀 로직
         auto RestoreMovement = [this]() {
             if (GetCharacterMovement())
             {
@@ -325,13 +343,11 @@ void AKillerCharacter::PerformAttack()
 
         if (bHit) 
         {
-            // 적중: 후딜 시간 뒤 이동 복구
             FTimerHandle RecoveryTimer;
             GetWorldTimerManager().SetTimer(RecoveryTimer, RestoreMovement, KillerData->TaserRecoveryHit, false);
         } 
         else 
         {
-            // 빗나감: 그로기 진입 후 이동 복구
             SetKillerState(EKillerState::Groggy);
             FTimerHandle GroggyTimer;
             GetWorldTimerManager().SetTimer(GroggyTimer, RestoreMovement, KillerData->TaserGroggyOnMiss, false);
@@ -339,18 +355,123 @@ void AKillerCharacter::PerformAttack()
     }, KillerData->TaserWindup, false);
 }
 
+void AKillerCharacter::Server_Attack_Implementation()
+{
+    if (CurrentState == EKillerState::Idle)
+    {
+        PerformAttack();
+    }
+}
+
+void AKillerCharacter::Multicast_PlayAttackMontage_Implementation(UAnimMontage* MontageToPlay)
+{
+    if (!MontageToPlay)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    AnimInstance->Montage_Play(MontageToPlay);
+}
+
+UAnimMontage* AKillerCharacter::ResolveGroggyMontage()
+{
+    if (UAnimSequence* Sequence = FallbackGroggySequence.LoadSynchronous())
+    {
+        RuntimeGroggyMontage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
+            Sequence,
+            TEXT("DefaultSlot"),
+            0.15f,
+            0.15f,
+            1.f,
+            1);
+        if (RuntimeGroggyMontage && RuntimeGroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
+        {
+            return RuntimeGroggyMontage;
+        }
+    }
+
+    if (GroggyMontage && GroggyMontage->GetPlayLength() > KINDA_SMALL_NUMBER)
+    {
+        return GroggyMontage;
+    }
+
+    return nullptr;
+}
+
+void AKillerCharacter::StopGroggyMontageLocal(float BlendOut)
+{
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (ActiveGroggyMontage && AnimInstance->Montage_IsPlaying(ActiveGroggyMontage))
+    {
+        AnimInstance->Montage_Stop(BlendOut, ActiveGroggyMontage);
+    }
+    else if (UAnimMontage* ResolvedMontage = ResolveGroggyMontage())
+    {
+        if (AnimInstance->Montage_IsPlaying(ResolvedMontage))
+        {
+            AnimInstance->Montage_Stop(BlendOut, ResolvedMontage);
+        }
+    }
+
+    ActiveGroggyMontage = nullptr;
+}
+
+void AKillerCharacter::Multicast_StopGroggyMontage_Implementation()
+{
+    StopGroggyMontageLocal();
+}
+
+void AKillerCharacter::Multicast_PlayGroggyMontage_Implementation()
+{
+    UAnimMontage* MontageToPlay = ResolveGroggyMontage();
+    if (!MontageToPlay)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Groggy montage missing - check AM_Groggy_Montage / AS_Zombie_Idle_Rogue"));
+        return;
+    }
+
+    USkeletalMeshComponent* SkelMesh = GetMesh();
+    UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    if (AttackMontage && AnimInstance->Montage_IsPlaying(AttackMontage))
+    {
+        AnimInstance->Montage_Stop(0.12f, AttackMontage);
+    }
+
+    ActiveGroggyMontage = MontageToPlay;
+    const float PlayRate = 1.f;
+    AnimInstance->Montage_Play(MontageToPlay, PlayRate);
+}
+
+
 void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
 {
-    if (!Target) return;
-    
     ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Target);
     if (!Survivor || Survivor->GetSurvivorState() != ESurvivorState::Downed) return;
     
     CarriedSurvivor = Target;
+    Survivor->SetSurvivorState(ESurvivorState::Carried);
 
     // 1. 살인마와 생존자 서로 간의 충돌 무시
     GetCapsuleComponent()->IgnoreActorWhenMoving(CarriedSurvivor, true);
-    
+
     // 2. 생존자의 무브먼트 및 물리 완전 정지
     if (UCharacterMovementComponent* MoveComp = CarriedSurvivor->FindComponentByClass<UCharacterMovementComponent>())
     {
@@ -417,7 +538,9 @@ void AKillerCharacter::ApplyCarryAttachmentTransform(AActor* Target)
                 CarryMesh,
                 FAttachmentTransformRules::SnapToTargetNotIncludingScale,
                 CarryBone);
-            Target->SetActorRelativeLocation(RelativeToBone.GetLocation());
+
+            Target->SetActorRelativeLocation(RelativeToBone.GetLocation() + FVector(10.f, 0.f, 10.f));
+            //Target->SetActorRelativeLocation(RelativeToBone.GetLocation());
             Target->SetActorRelativeRotation(RelativeToBone.Rotator());
             return;
         }
@@ -503,9 +626,9 @@ void AKillerCharacter::DropSurvivor()
     {
         Survivor->SetSurvivorState(ESurvivorState::Downed);
     }
-
+        
     if (ACharacter* DroppedCharacter = Cast<ACharacter>(CarriedSurvivor))
-    {
+        {
         if (UCharacterMovementComponent* DroppedMovement = DroppedCharacter->GetCharacterMovement())
         {
             DroppedMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
@@ -552,6 +675,7 @@ void AKillerCharacter::DropSurvivor()
     // 상태를 Idle로 변경
     SetKillerState(EKillerState::Idle);
     
+    // bIsBusy 해제 (중요)
     bIsBusy = false;
 }
 
@@ -563,7 +687,37 @@ void AKillerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
     {
         if (InputConfig->AttackAction) EIC->BindAction(InputConfig->AttackAction, ETriggerEvent::Started, this, &AKillerCharacter::Attack);
         if (InputConfig->InteractAction) EIC->BindAction(InputConfig->InteractAction, ETriggerEvent::Started, this, &AKillerCharacter::Interact);
+
+        UInputAction* JumpOverAction = InputConfig->JumpOverAction.Get();
+        if (!JumpOverAction)
+        {
+            JumpOverAction = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/InputAction/IA_JumpOver.IA_JumpOver"));
+        }
+        if (JumpOverAction)
+        {
+            EIC->BindAction(JumpOverAction, ETriggerEvent::Started, this, &AKillerCharacter::JumpOver);
+        }
     }
+}
+
+void AKillerCharacter::JumpOver()
+{
+    Super::JumpOver();
+
+    if (ParkourComponent)
+    {
+        ParkourComponent->RequestJumpOver();
+    }
+}
+
+bool AKillerCharacter::IsParkouring() const
+{
+    return ParkourComponent && ParkourComponent->IsParkouring();
+}
+
+void AKillerCharacter::NotifyParkourEnded()
+{
+    UpdateMovementSpeed();
 }
 
 void AKillerCharacter::UpdateMovementSpeed()
@@ -686,6 +840,23 @@ void AKillerCharacter::OnRep_CurrentState()
 {
     UpdateMovementSpeed();
 
+    if (CurrentState == EKillerState::Groggy)
+    {
+        if (UAnimMontage* MontageToPlay = ResolveGroggyMontage())
+        {
+            USkeletalMeshComponent* SkelMesh = GetMesh();
+            UAnimInstance* AnimInstance = SkelMesh ? SkelMesh->GetAnimInstance() : nullptr;
+            if (AnimInstance && !AnimInstance->Montage_IsPlaying(MontageToPlay))
+            {
+                Multicast_PlayGroggyMontage_Implementation();
+            }
+        }
+    }
+    else
+    {
+        StopGroggyMontageLocal();
+    }
+
     if (!CarryAnimComponent)
     {
         return;
@@ -713,17 +884,12 @@ void AKillerCharacter::OnRep_CurrentState()
 // 서버 공격 RPC
 void AKillerCharacter::Attack() { Server_Attack(); }
 
-void AKillerCharacter::Server_Attack_Implementation()
-{
-    if (CurrentState == EKillerState::Idle) PerformAttack();
-}
-
 // 서버 상호작용 RPC
 void AKillerCharacter::Interact() { Server_Interact(); }
 
 void AKillerCharacter::Server_Interact_Implementation()
 {
-    if (!KillerData || bIsBusy) return;
+    if (!KillerData || bIsBusy || IsParkouring()) return;
     
     // 1. Idle 상태일 때: 생존자 픽업 (bCanPickup 쿨타임 체크 추가)
     switch (CurrentState)
@@ -748,10 +914,20 @@ void AKillerCharacter::SetKillerState(EKillerState NewState)
     {
         if (CurrentState != NewState)
         {
-            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)CurrentState, (int32)NewState);
+            const EKillerState PreviousState = CurrentState;
+            UE_LOG(LogTemp, Log, TEXT("Killer State 변경: %d -> %d"), (int32)PreviousState, (int32)NewState);
             CurrentState = NewState;
             UpdateMovementSpeed();
             OnRep_CurrentState();
+
+            if (NewState == EKillerState::Groggy)
+            {
+                Multicast_PlayGroggyMontage();
+            }
+            else if (PreviousState == EKillerState::Groggy)
+            {
+                Multicast_StopGroggyMontage();
+            }
         }
     }
 }
@@ -789,7 +965,6 @@ void AKillerCharacter::HandleCarryingInteraction()
     }
 }
 
-
 void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
 {
     if (!TargetCage) return;
@@ -816,30 +991,7 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
                 LDPlayerState->RecordKillerCage();
             }
             Survivor->EnterCaged(TargetCage);
-            Survivor->SetActorEnableCollision(false); // 바닥 박힘/튕김 방지
-
-            // 1. 케이지의 현재 위치 가져오기
-            FVector TargetLocation = TargetCage->GetCageMeshTransform().GetLocation();
-            
-            // 2. 오프셋 미세 조정 (이 값을 조금씩 바꾸며 중앙에 맞추세요)
-            // 만약 사진처럼 생존자가 뒤로 밀려있다면 X값을, 옆이라면 Y값을 조정합니다.
-            TargetLocation.X += -20.0f;  // 예: 앞뒤로 이동 필요시 10.0f 또는 -10.0f
-            TargetLocation.Y += 30.0f;  // 예: 좌우로 이동 필요시 10.0f 또는 -10.0f
-            TargetLocation.Z += 100.0f; // 높이 보정 (발이 바닥에 닿지 않게)
-
-            // 3. 위치 이동
-            Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-            Survivor->SetActorLocation(TargetLocation);
-            
-            // 4. 케이지 방향과 일치시키기 (선택 사항)
-            Survivor->SetActorRotation(TargetCage->GetActorRotation());
-
-            if (UCharacterMovementComponent* SurvivorMovement = Survivor->GetCharacterMovement())
-            {
-                SurvivorMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
-            }
         }
-        
         TargetCage->SetCageStatus(ECageStatus::Occupied);
         CarriedSurvivor = nullptr;
         

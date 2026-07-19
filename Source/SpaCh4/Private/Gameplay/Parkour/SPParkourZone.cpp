@@ -1,11 +1,11 @@
 #include "Gameplay/Parkour/SPParkourZone.h"
 
-#include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/BoxComponent.h"
 #include "Components/BillboardComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
 
 ASPParkourZone::ASPParkourZone()
 {
@@ -68,9 +68,9 @@ void ASPParkourZone::OnZoneBeginOverlap(
 	(void)bFromSweep;
 	(void)SweepResult;
 
-	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(OtherActor))
+	if (ACharacter* Character = Cast<ACharacter>(OtherActor))
 	{
-		HandleSurvivorOverlap(Survivor, true);
+		HandleCharacterOverlap(Character, true);
 	}
 }
 
@@ -84,20 +84,20 @@ void ASPParkourZone::OnZoneEndOverlap(
 	(void)OtherComp;
 	(void)OtherBodyIndex;
 
-	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(OtherActor))
+	if (ACharacter* Character = Cast<ACharacter>(OtherActor))
 	{
-		HandleSurvivorOverlap(Survivor, false);
+		HandleCharacterOverlap(Character, false);
 	}
 }
 
-void ASPParkourZone::HandleSurvivorOverlap(ASurvivorCharacter* Survivor, bool bEntered)
+void ASPParkourZone::HandleCharacterOverlap(ACharacter* Character, bool bEntered)
 {
-	if (!Survivor)
+	if (!Character)
 	{
 		return;
 	}
 
-	if (USPParkourComponent* ParkourComponent = Survivor->GetParkourComponent())
+	if (USPParkourComponent* ParkourComponent = Character->FindComponentByClass<USPParkourComponent>())
 	{
 		ParkourComponent->RegisterParkourZoneOverlap(this, bEntered);
 	}

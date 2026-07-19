@@ -7,6 +7,9 @@
 #include "Components/SPMovementComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "Components/SPScratchMarkComponent.h"
+#include "Components/SPOilDripComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -16,14 +19,17 @@
 #include "EngineUtils.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
+#include "Gameplay/Items/SPPickupItem.h"
 #include "Gameplay/Delivery/SPDeliveryStation.h"
 #include "Gameplay/Escape/SPEscapeGate.h"
 #include "Gameplay/Escape/SPHatch.h"
 #include "InputAction.h"
 #include "Inventory/SPInventoryComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Player/SPPlayerController.h"
 #include "Player/LDPlayerState.h"
 #include "Systems/MatchGameMode.h"
+#include "Type/SPCollisionChannels.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
 
@@ -42,6 +48,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	HealingAnimComponent = CreateDefaultSubobject<USPHealingAnimComponent>(TEXT("HealingAnimComponent"));
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
+	OilDripComponent = CreateDefaultSubobject<USPOilDripComponent>(TEXT("OilDripComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 
@@ -67,26 +74,12 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
-	if (IsChannelingLever() || IsChannelingHealing())
-	{
-		if (InteractionComponent)
-		{
-			InteractionComponent->NotifyMoveInput();
-		}
-		return;
-	}
-
-	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	if (IsParkouring())
 	{
 		return;
 	}
 
 	if (InteractionComponent && InteractionComponent->IsInteracting())
-	{
-		return;
-	}
-
-	if (InteractionComponent)
 	{
 		InteractionComponent->NotifyMoveInput();
 	}
@@ -215,6 +208,62 @@ void ASurvivorCharacter::OnCageExpired()
 	}
 }
 
+void ASurvivorCharacter::ApplyDeathRagdoll()
+{
+	if (bDeathRagdollApplied)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		UE_LOG(LogTemp, Fatal, TEXT("%s cannot enter death ragdoll because it has no SkeletalMeshComponent."), *GetName());
+		return;
+	}
+
+	if (!MeshComp->GetPhysicsAsset())
+	{
+		UE_LOG(LogTemp, Fatal, TEXT("%s cannot enter death ragdoll because its SkeletalMesh has no PhysicsAsset."), *GetName());
+		return;
+	}
+
+	bDeathRagdollApplied = true;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	SetActorEnableCollision(true);
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
+	}
+
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+	MeshComp->SetCollisionObjectType(ECC_PhysicsBody);
+	MeshComp->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+	MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+	MeshComp->SetCollisionResponseToChannel(SPCollisionChannels::Cage, ECR_Block);
+	MeshComp->SetEnableGravity(true);
+	MeshComp->SetSimulatePhysics(true);
+	MeshComp->SetAllBodiesSimulatePhysics(true);
+	MeshComp->SetAllBodiesPhysicsBlendWeight(1.0f, false);
+	MeshComp->WakeAllRigidBodies();
+
+	if (GetNetMode() != NM_DedicatedServer && !MeshComp->IsAnySimulatingPhysics())
+	{
+		UE_LOG(
+			LogTemp,
+			Fatal,
+			TEXT("%s failed to enable death ragdoll physics on its SkeletalMesh bodies."),
+			*GetName());
+	}
+}
+
 void ASurvivorCharacter::Multicast_ApplyCagedPose_Implementation(FVector Location, FRotator Rotation)
 {
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -293,8 +342,8 @@ void ASurvivorCharacter::ApplyHit()
 	if (!HasAuthority()) return;
 	switch (SurvivorState)
 	{
-	case ESurvivorState::Healthy: 
-		SetSurvivorState(ESurvivorState::Injured); 
+	case ESurvivorState::Healthy:
+		SetSurvivorState(ESurvivorState::Injured);
 		break;
 	case ESurvivorState::Injured:
 		SetSurvivorState(ESurvivorState::Downed);
@@ -327,11 +376,6 @@ void ASurvivorCharacter::RecoverOneStep()
 void ASurvivorCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	if (HasAuthority() && InventoryComponent)
-	{
-		InventoryComponent->InitializeDefaultLoadout();
-	}
 
 	BindInventoryHudRefresh();
 	ApplyStateEffects();
@@ -372,6 +416,17 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 		if (InputConfig)
 		{
+			if (UInputAction* InteractAction = InputConfig->InteractAction.Get())
+			{
+				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASurvivorCharacter::StopInteract);
+				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Canceled, this, &ASurvivorCharacter::StopInteract);
+			}
+
+			if (UInputAction* DropAction = InputConfig->DropAction.Get())
+			{
+				EnhancedInput->BindAction(DropAction, ETriggerEvent::Started, this, &ASurvivorCharacter::DropSelectedItem);
+			}
+
 			for (int32 SlotIndex = 0; SlotIndex < InputConfig->SelectSlotActions.Num(); ++SlotIndex)
 			{
 				if (UInputAction* SlotAction = InputConfig->SelectSlotActions[SlotIndex].Get())
@@ -380,6 +435,14 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 				}
 			}
 		}
+	}
+}
+
+void ASurvivorCharacter::StopInteract()
+{
+	if (InteractionComponent)
+	{
+		InteractionComponent->RequestCancelInteract();
 	}
 }
 
@@ -395,9 +458,31 @@ void ASurvivorCharacter::Server_SelectSlot_Implementation(int32 Index)
 	SelectedSlotIndex = Index;
 }
 
+void ASurvivorCharacter::DropSelectedItem()
+{
+	if (CanInteract() && InteractionComponent)
+	{
+		InteractionComponent->RequestDrop();
+	}
+}
+
 void ASurvivorCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
+
+	if (HasAuthority() && InventoryComponent)
+	{
+		if (const ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>())
+		{
+			const FSPPlayerLoadout& Loadout = LDPlayerState->GetPlayerLoadout();
+			InventoryComponent->InitializeLoadout(Loadout.SurvivorItem, Loadout.SurvivorPerks);
+		}
+		else
+		{
+			InventoryComponent->InitializeDefaultLoadout();
+		}
+	}
+
 	BindInventoryHudRefresh();
 	RefreshLocalInventoryHud();
 }
@@ -449,12 +534,34 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 		return;
 	}
 
+	ALDPlayerState* SurvivorPlayerState = GetPlayerState<ALDPlayerState>();
+	if (!IsValid(SurvivorPlayerState))
+	{
+		SurvivorPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr;
+	}
+
 	const ESurvivorState OldState = SurvivorState;
 	SurvivorState = NewState;
-	
-	if (SurvivorState == ESurvivorState::Dead && CurrentCage)
+	ForceNetUpdate();
+
+	if (SurvivorState == ESurvivorState::Dead)
 	{
-		CurrentCage->HandleSurvivorDeath(this);
+		ApplyDeathRagdoll();
+
+		if (ASPPlayerController* SPPC = Cast<ASPPlayerController>(GetController()))
+		{
+			SPPC->EnterSpectatorMode(DeathCamDuration);
+		}
+
+		SetLifeSpan(CorpseLifetime);
+
+	}
+	else if (SurvivorState == ESurvivorState::Escaped)
+	{
+		if (ASPPlayerController* SPPC = Cast<ASPPlayerController>(GetController()))
+		{
+			SPPC->EnterSpectatorMode(0.f);
+		}
 	}
 
 	if (MovementComponent)
@@ -465,15 +572,24 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	if (InteractionComponent)
 	{
 		InteractionComponent->CancelInteract();
+		if (NewState == ESurvivorState::Downed)
+		{
+			InteractionComponent->DropAllItems();
+		}
 	}
 
 	ApplyStateEffects();
-	NotifyMatchStateChange(NewState);
+	NotifyMatchStateChange(NewState, SurvivorPlayerState);
+
+	if (NewState == ESurvivorState::Dead && CurrentCage)
+	{
+		CurrentCage->HandleSurvivorDeath(this);
+	}
 }
 
 bool ASurvivorCharacter::CanMove() const
 {
-	if (IsParkouring() || IsPullingLever() || IsPlayingPickupAnim() || IsHealing())
+	if (IsParkouring())
 	{
 		return false;
 	}
@@ -543,24 +659,16 @@ bool ASurvivorCharacter::IsChannelingHealing() const
 
 void ASurvivorCharacter::NotifyHealingAnimEnded()
 {
-	if (AController* Ctrl = GetController())
-	{
-		Ctrl->ResetIgnoreMoveInput();
-	}
-
-	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
-	{
-		if (MoveComp->MovementMode == MOVE_None)
-		{
-			MoveComp->SetDefaultMovementMode();
-		}
-	}
-
 	ApplyStateEffects();
 }
 
 void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 {
+	if (SurvivorState == ESurvivorState::Dead)
+	{
+		ApplyDeathRagdoll();
+	}
+
 	if (MovementComponent)
 	{
 		MovementComponent->HandleStateTransition(OldState, SurvivorState);
@@ -570,6 +678,11 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 
 void ASurvivorCharacter::ApplyStateEffects()
 {
+	if (SurvivorState == ESurvivorState::Carried)
+	{
+		return; 
+	}
+	
 	if (AController* Ctrl = GetController())
 	{
 		Ctrl->ResetIgnoreMoveInput();
@@ -580,7 +693,7 @@ void ASurvivorCharacter::ApplyStateEffects()
 	}
 }
 
-void ASurvivorCharacter::BeginPickup(ASPCollectibleItem* Item)
+void ASurvivorCharacter::BeginPickup(ASPPickupItem* Item)
 {
 	if (InteractionComponent)
 	{
@@ -612,20 +725,39 @@ void ASurvivorCharacter::EndEscapeChanneling()
 	}
 }
 
-void ASurvivorCharacter::BeginHatchEscape(ASPHatch* Hatch)
+void ASurvivorCharacter::BeginHatchOpen(ASPHatch* Hatch)
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->BeginHatchEscape(Hatch);
+		InteractionComponent->BeginHatchOpen(Hatch);
 	}
 }
 
-void ASurvivorCharacter::CompleteHatchEscape()
+void ASurvivorCharacter::CompleteHatchOpen()
 {
 	if (InteractionComponent)
 	{
-		InteractionComponent->CompleteHatchEscape();
+		InteractionComponent->CompleteHatchOpen();
 	}
+}
+
+bool ASurvivorCharacter::TryEscape(const ESurvivorEscapeMethod EscapeMethod)
+{
+	if (!HasAuthority()
+		|| EscapeMethod == ESurvivorEscapeMethod::None
+		|| SurvivorState == ESurvivorState::Dead
+		|| SurvivorState == ESurvivorState::Escaped)
+	{
+		return false;
+	}
+
+	if (ALDPlayerState* SurvivorPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
+	{
+		SurvivorPlayerState->RecordEscaped(EscapeMethod);
+	}
+
+	SetSurvivorState(ESurvivorState::Escaped);
+	return SurvivorState == ESurvivorState::Escaped;
 }
 
 bool ASurvivorCharacter::IsCarrying() const
@@ -638,7 +770,9 @@ FGameplayTag ASurvivorCharacter::GetInteractableTag() const
 	return InteractionComponent ? InteractionComponent->GetInteractableTag() : FGameplayTag();
 }
 
-void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
+void ASurvivorCharacter::NotifyMatchStateChange(
+	const ESurvivorState NewState,
+	ALDPlayerState* SurvivorPlayerState)
 {
 	AMatchGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AMatchGameMode>() : nullptr;
 	if (!GameMode)
@@ -647,15 +781,15 @@ void ASurvivorCharacter::NotifyMatchStateChange(ESurvivorState NewState)
 	}
 	if (NewState == ESurvivorState::Escaped)
 	{
-		GameMode->RegisterSurvivorEscaped(GetController());
+		GameMode->RegisterSurvivorEscapedByPlayerState(SurvivorPlayerState);
 		return;
 	}
 	if (NewState == ESurvivorState::Dead)
 	{
-		GameMode->RegisterSurvivorKilled(GetController());
+		GameMode->RegisterSurvivorKilledByPlayerState(SurvivorPlayerState);
 		return;
 	}
 	// 타 플레이어hud연동을 위해 모든 StateChange를 등록
-	GameMode->RegisterSurvivorStateChanged(GetController(), NewState);
+	GameMode->RegisterSurvivorStateChangedByPlayerState(SurvivorPlayerState, NewState);
 
 }

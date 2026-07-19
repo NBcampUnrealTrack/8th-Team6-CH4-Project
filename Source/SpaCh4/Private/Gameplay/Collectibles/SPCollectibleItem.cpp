@@ -1,55 +1,18 @@
-﻿#include "Gameplay/Collectibles/SPCollectibleItem.h"
-
-#include "Characters/Survivor/SurvivorCharacter.h"
-#include "Components/StaticMeshComponent.h"
-#include "Type/SPGameplayTag.h"
+#include "Gameplay/Collectibles/SPCollectibleItem.h"
 
 ASPCollectibleItem::ASPCollectibleItem()
 {
-	PrimaryActorTick.bCanEverTick = false;
-	bReplicates = true;
-
-	Mesh = CreateDefaultSubobject<UStaticMeshComponent>("Mesh");
-	SetRootComponent(Mesh);
-	Mesh->SetCollisionProfileName(TEXT("Interactable"));
-	Mesh->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
-	Mesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECollisionResponse::ECR_Block);
-
-	Mesh->SetCustomDepthStencilValue(250);
-	Mesh->SetRenderCustomDepth(false);
 }
 
-void ASPCollectibleItem::Interact_Implementation(AActor* Interactor)
-{
-	ISPInteractable::Interact_Implementation(Interactor);
-
-	if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Interactor))
-	{
-		Survivor->BeginPickup(this);
-	}
-}
-
-void ASPCollectibleItem::SetPickupCollisionEnabled(bool bEnabled)
+void ASPCollectibleItem::SetPickupCollisionEnabled(const bool bEnabled)
 {
 	SetActorEnableCollision(bEnabled);
 }
 
-void ASPCollectibleItem::Multicast_SetStored_Implementation(bool bStored, FVector DropLocation)
+void ASPCollectibleItem::Multicast_SetStored_Implementation(const bool bNewStored, const FVector DropLocation)
 {
-	if (!bStored)
+	if (HasAuthority())
 	{
-		SetActorLocation(DropLocation);
+		SetStored(bNewStored, DropLocation);
 	}
-	SetActorHiddenInGame(bStored);
-	SetActorEnableCollision(!bStored);
-}
-
-void ASPCollectibleItem::SetHighlight_Implementation(bool bEnabled)
-{
-	Mesh->SetRenderCustomDepth(bEnabled);
-}
-
-FGameplayTag ASPCollectibleItem::GetInteractableTag_Implementation() const
-{
-	return SPGameplayTags::Interactable::Collectible;
 }

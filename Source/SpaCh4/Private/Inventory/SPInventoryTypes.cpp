@@ -8,8 +8,8 @@ namespace SPInventoryText
 		{
 		case EConsumableItemType::Medkit:
 			return NSLOCTEXT("SpaCh4", "Inventory_Medkit", "Medkit");
-		case EConsumableItemType::SpeedBoost:
-			return NSLOCTEXT("SpaCh4", "Inventory_SpeedBoost", "Speed Boost");
+		case EConsumableItemType::SpeedPotion:
+			return NSLOCTEXT("SpaCh4", "Inventory_SpeedPotion", "Speed Potion");
 		default:
 			return FText::GetEmpty();
 		}

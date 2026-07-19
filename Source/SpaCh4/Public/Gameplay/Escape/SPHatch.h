@@ -6,6 +6,9 @@
 #include "SPHatch.generated.h"
 
 class UArrowComponent;
+class UBoxComponent;
+class UCurveFloat;
+class UPrimitiveComponent;
 class UStaticMeshComponent;
 class ASurvivorCharacter;
 
@@ -19,19 +22,25 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	
+
 	virtual void Interact_Implementation(AActor* Interactor) override;
 	virtual void SetHighlight_Implementation(bool bEnabled) override;
 	virtual FGameplayTag GetInteractableTag_Implementation() const override;
 	virtual bool IsInteractable_Implementation() const override;
 
-	bool IsSpawned() const { return bIsSpawned; }
+	bool IsActive() const { return bIsActive; }
+	bool IsOpened() const { return bIsOpened; }
+	bool CanBeSelected() const;
+	bool CanBeOpened() const;
 
-	float GetEscapeProgress() const { return EscapeProgress; }
-	float GetEscapeDuration() const { return EscapeDuration; }
+	float GetOpenProgress() const { return OpenProgress; }
+	float GetOpenDuration() const { return ActiveOpenDuration; }
 
-	void SetEscaper(ASurvivorCharacter* Escaper);
-	void ClearEscaper(ASurvivorCharacter* Escaper);
+	bool TryBeginOpening(ASurvivorCharacter* Opener);
+	void CancelOpening(ASurvivorCharacter* Opener);
+
+	void ActivateHatch();
+	void DeactivateHatch();
 
 	UFUNCTION(BlueprintCallable, Category = "SP|Hatch|Door")
 	void SetDoorRotation(const FRotator& NewRotation);
@@ -42,23 +51,38 @@ public:
 protected:
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
-
-#if WITH_EDITOR
-	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-#endif
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION()
-	void OnRep_IsSpawned();
-	
+	void OnRep_IsActive();
+
 	UFUNCTION()
-	void OnHatchAvailabilityChanged(bool bCanSpawn);
-	void BindAvailabilityDelegate();
-	
-	void ApplyHatchVisibility();
+	void OnRep_IsOpened();
+
+	UFUNCTION()
+	void OnRep_DoorOpenStartServerTime();
+
+	UFUNCTION()
+	void OnEscapeTriggerBeginOverlap(
+		UPrimitiveComponent* OverlappedComponent,
+		AActor* OtherActor,
+		UPrimitiveComponent* OtherComp,
+		int32 OtherBodyIndex,
+		bool bFromSweep,
+		const FHitResult& SweepResult);
+
+	void CompleteOpening();
+	void ApplyHatchState();
+	void UpdateDoorOpeningPresentation();
+	void ApplyDoorRotation(float NormalizedTime);
+	float GetDoorRotationAlpha() const;
+	float GetSynchronizedWorldTimeSeconds() const;
+	void SetHatchVisibility(bool bVisible);
 	void SetHatchRenderCustomDepth(bool bEnabled);
-	void SetHatchCollisionEnabled(bool bEnabled);
+	void SetInteractionCollisionEnabled(bool bEnabled);
+	void SetEscapeTriggerEnabled(bool bEnabled);
 	void EnsureDoorComponentHierarchy();
-	void ApplyDoorRotation();
+	bool HasRequiredVisuals() const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
 	TObjectPtr<UStaticMeshComponent> TrayMesh;
@@ -69,18 +93,32 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Door")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Escape")
+	TObjectPtr<UBoxComponent> EscapeTrigger;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SP|Hatch|Door")
 	FRotator DoorRotation = FRotator::ZeroRotator;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
-	float EscapeDuration = 3.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SP|Hatch|Door", meta = (ClampMin = "0.0", UIMin = "0.0", Units = "s"))
+	float DoorRotationDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SP|Hatch|Door")
+	TObjectPtr<UCurveFloat> DoorRotationCurve;
 
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
-	float EscapeProgress = 0.0f;
-	
-	UPROPERTY(ReplicatedUsing = OnRep_IsSpawned, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
-	bool bIsSpawned = false;
+	float OpenProgress = 0.0f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsActive, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
+	bool bIsActive = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsOpened, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
+	bool bIsOpened = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_DoorOpenStartServerTime, VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Door")
+	float DoorOpenStartServerTime = -1.0f;
 
 private:
-	TWeakObjectPtr<ASurvivorCharacter> CurrentEscaper;
+	TWeakObjectPtr<ASurvivorCharacter> CurrentOpener;
+	float ActiveOpenDuration = 0.0f;
+	FRotator ClosedDoorRotation = FRotator::ZeroRotator;
 };
