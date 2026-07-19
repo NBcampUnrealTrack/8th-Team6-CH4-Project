@@ -302,8 +302,6 @@ void AMatchGameMode::RegisterSurvivorKilledByPlayerState(ALDPlayerState* Survivo
 		return;
 	}
 	
-	// 생존자의 완전 사망 처리, 추후 Cage액터로 이동
-	// 케이지의 구출도 케이지 또는 생존자에서 PlayerState->RecordCageRescue()
 	if (IsValid(SurvivorPlayerState))
 	{
 		SurvivorPlayerState->RecordKilled();

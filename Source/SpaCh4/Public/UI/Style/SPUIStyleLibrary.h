@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class USPGameHUDStyleData;
+class USPGameResultStyleData;
 class USPMainMenuStyleData;
 class USPUIFontStyleData;
 
@@ -10,6 +11,7 @@ class USPUIFontStyleData;
 namespace SPUIStyleLibrary
 {
 	SPACH4_API const USPGameHUDStyleData& ResolveGameHUDStyle(const USPGameHUDStyleData* Override = nullptr);
+	SPACH4_API const USPGameResultStyleData& ResolveGameResultStyle(const USPGameResultStyleData* Override = nullptr);
 	SPACH4_API const USPMainMenuStyleData& ResolveMainMenuStyle(const USPMainMenuStyleData* Override = nullptr);
 	SPACH4_API const USPUIFontStyleData& ResolveFontStyle(const USPUIFontStyleData* Override = nullptr);
 }

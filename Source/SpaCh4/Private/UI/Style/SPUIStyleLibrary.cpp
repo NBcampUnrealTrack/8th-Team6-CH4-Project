@@ -49,6 +49,8 @@ namespace SPUIStyleLibrary
 			TEXT("/Game/UI/Data/DA_GameHUDStyle.DA_GameHUDStyle"));
 		static const FSoftObjectPath MainMenuStyleAsset(
 			TEXT("/Game/UI/Data/DA_MainMenuStyle.DA_MainMenuStyle"));
+		static const FSoftObjectPath GameResultStyleAsset(
+			TEXT("/Game/UI/Data/DA_GameResultStyle.DA_GameResultStyle"));
 		static const FSoftObjectPath FontStyleAsset(
 			TEXT("/Game/UI/Data/DA_UIFontStyle.DA_UIFontStyle"));
 
@@ -108,7 +110,42 @@ namespace SPUIStyleLibrary
 			TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT.T_MainMenu_Btn_QUIT"));
 		static const FSoftObjectPath QuitButtonHovered(
 			TEXT("/Game/UI/MainMenu/Textures/T_MainMenu_Btn_QUIT_Hover.T_MainMenu_Btn_QUIT_Hover"));
-
+#pragma region GameResult
+		static const FSoftObjectPath ResultBackground(
+			TEXT("/Game/UI/Result/Textures/T_Result_Background.T_Result_Background"));
+		static const FSoftObjectPath ResultSurvivorCharacter(
+			TEXT("/Game/UI/Result/Textures/T_Result_Survivor_Character.T_Result_Survivor_Character"));
+		static const FSoftObjectPath ResultKillerCharacter(
+			TEXT("/Game/UI/Result/Textures/T_Result_Killer_Character.T_Result_Killer_Character"));
+		static const FSoftObjectPath ResultSurvivorPerfectWinGrade(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Grade_SurvivorPerfectWin.T_Result_Grade_SurvivorPerfectWin"));
+		static const FSoftObjectPath ResultSurvivorWinGrade(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Grade_SurvivorWin.T_Result_Grade_SurvivorWin"));
+		static const FSoftObjectPath ResultSurvivorMinorWinGrade(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Grade_SurvivorMinorWin.T_Result_Grade_SurvivorMinorWin"));
+		static const FSoftObjectPath ResultKillerWinGrade(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Grade_KillerWin.T_Result_Grade_KillerWin"));
+		static const FSoftObjectPath ResultKillerPerfectWinGrade(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Grade_KillerPerfectWin.T_Result_Grade_KillerPerfectWin"));
+		static const FSoftObjectPath ResultDeliveredValueIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_DeliveredValue.T_Result_Icon_DeliveredValue"));
+		static const FSoftObjectPath ResultDeliveryCountIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_DeliveryCount.T_Result_Icon_DeliveryCount"));
+		static const FSoftObjectPath ResultRescueIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_Rescue.T_Result_Icon_Rescue"));
+		static const FSoftObjectPath ResultSelfHealIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_SelfHeal.T_Result_Icon_SelfHeal"));
+		static const FSoftObjectPath ResultCagedIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_Caged.T_Result_Icon_Caged"));
+		static const FSoftObjectPath ResultKilledSurvivorsIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_KilledSurvivors.T_Result_Icon_KilledSurvivors"));
+		static const FSoftObjectPath ResultValidHitIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_ValidHit.T_Result_Icon_ValidHit"));
+		static const FSoftObjectPath ResultDownIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_Down.T_Result_Icon_Down"));
+		static const FSoftObjectPath ResultCageCountIcon(
+			TEXT("/Game/UI/Result/Textures/Icons/T_Result_Icon_CageCount.T_Result_Icon_CageCount"));
+#pragma endregion 
 		static const FSoftObjectPath FontSemiBold(
 			TEXT("/Game/UI/HUD/Fonts/Rajdhani-SemiBold.Rajdhani-SemiBold"));
 		static const FSoftObjectPath FontMedium(
@@ -318,6 +355,83 @@ namespace SPUIStyleLibrary
 		}
 	}
 
+	static void EnsureBuiltInGameResultStyle(USPGameResultStyleData* Style)
+	{
+		if (!Style)
+		{
+			return;
+		}
+
+		if (!Style->Background)
+		{
+			Style->Background = LoadAsset<UTexture2D>(Paths::ResultBackground);
+		}
+		if (!Style->SurvivorCharacter)
+		{
+			Style->SurvivorCharacter = LoadAsset<UTexture2D>(Paths::ResultSurvivorCharacter);
+		}
+		if (!Style->KillerCharacter)
+		{
+			Style->KillerCharacter = LoadAsset<UTexture2D>(Paths::ResultKillerCharacter);
+		}
+		if (!Style->SurvivorPerfectWinGrade)
+		{
+			Style->SurvivorPerfectWinGrade = LoadAsset<UTexture2D>(Paths::ResultSurvivorPerfectWinGrade);
+		}
+		if (!Style->SurvivorWinGrade)
+		{
+			Style->SurvivorWinGrade = LoadAsset<UTexture2D>(Paths::ResultSurvivorWinGrade);
+		}
+		if (!Style->SurvivorMinorWinGrade)
+		{
+			Style->SurvivorMinorWinGrade = LoadAsset<UTexture2D>(Paths::ResultSurvivorMinorWinGrade);
+		}
+		if (!Style->KillerWinGrade)
+		{
+			Style->KillerWinGrade = LoadAsset<UTexture2D>(Paths::ResultKillerWinGrade);
+		}
+		if (!Style->KillerPerfectWinGrade)
+		{
+			Style->KillerPerfectWinGrade = LoadAsset<UTexture2D>(Paths::ResultKillerPerfectWinGrade);
+		}
+		if (!Style->DeliveredValueIcon)
+		{
+			Style->DeliveredValueIcon = LoadAsset<UTexture2D>(Paths::ResultDeliveredValueIcon);
+		}
+		if (!Style->DeliveryCountIcon)
+		{
+			Style->DeliveryCountIcon = LoadAsset<UTexture2D>(Paths::ResultDeliveryCountIcon);
+		}
+		if (!Style->RescueIcon)
+		{
+			Style->RescueIcon = LoadAsset<UTexture2D>(Paths::ResultRescueIcon);
+		}
+		if (!Style->SelfHealIcon)
+		{
+			Style->SelfHealIcon = LoadAsset<UTexture2D>(Paths::ResultSelfHealIcon);
+		}
+		if (!Style->CagedIcon)
+		{
+			Style->CagedIcon = LoadAsset<UTexture2D>(Paths::ResultCagedIcon);
+		}
+		if (!Style->KilledSurvivorsIcon)
+		{
+			Style->KilledSurvivorsIcon = LoadAsset<UTexture2D>(Paths::ResultKilledSurvivorsIcon);
+		}
+		if (!Style->ValidHitIcon)
+		{
+			Style->ValidHitIcon = LoadAsset<UTexture2D>(Paths::ResultValidHitIcon);
+		}
+		if (!Style->DownIcon)
+		{
+			Style->DownIcon = LoadAsset<UTexture2D>(Paths::ResultDownIcon);
+		}
+		if (!Style->CageCountIcon)
+		{
+			Style->CageCountIcon = LoadAsset<UTexture2D>(Paths::ResultCageCountIcon);
+		}
+	}
+
 	static void EnsureBuiltInFontStyle(USPUIFontStyleData* Style)
 	{
 		if (!Style)
@@ -352,6 +466,16 @@ const USPGameHUDStyleData& ResolveGameHUDStyle(const USPGameHUDStyleData* Overri
 	EnsureBuiltInGameHUDStyle(Resolved);
 	return *Resolved;
 }
+
+	const USPGameResultStyleData& ResolveGameResultStyle(const USPGameResultStyleData* Override)
+	{
+		static USPGameResultStyleData* BuiltInFallback = nullptr;
+		USPGameResultStyleData* Resolved = (IsUsableObjectPointer(Override) && IsValid(Override))
+			? const_cast<USPGameResultStyleData*>(Override)
+			: LoadStyleAsset<USPGameResultStyleData>(Paths::GameResultStyleAsset, BuiltInFallback);
+		EnsureBuiltInGameResultStyle(Resolved);
+		return *Resolved;
+	}
 
 	const USPMainMenuStyleData& ResolveMainMenuStyle(const USPMainMenuStyleData* Override)
 	{

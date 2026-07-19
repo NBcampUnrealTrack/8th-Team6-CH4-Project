@@ -973,9 +973,17 @@ void USPInteractionComponent::CompleteRescue()
 		return;
 	}
 
-	if (ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor())
+	ASurvivorCharacter* Rescuer = GetSurvivor();
+	ASurvivorCharacter* Victim = Cage->GetTrappedSurvivor();
+	if (IsValid(Rescuer) && IsValid(Victim) && Victim->GetSurvivorState() == ESurvivorState::Caged)
 	{
-		Victim->RescueFromCage(GetSurvivor());
+		Victim->RescueFromCage(Rescuer);
+		if (ALDPlayerState* PlayerState = Rescuer->GetController()
+			? Rescuer->GetController()->GetPlayerState<ALDPlayerState>()
+			: nullptr)
+		{
+			PlayerState->RecordCageRescue();
+		}
 	}
 	Cage->SetCageStatus(ECageStatus::Empty);
 }
