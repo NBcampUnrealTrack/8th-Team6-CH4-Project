@@ -111,6 +111,64 @@ public:
 };
 
 UCLASS(BlueprintType)
+class SPACH4_API USPGameResultStyleData : public UDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Background")
+	TObjectPtr<UTexture2D> Background;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Role")
+	TObjectPtr<UTexture2D> SurvivorCharacter;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Role")
+	TObjectPtr<UTexture2D> KillerCharacter;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Grade")
+	TObjectPtr<UTexture2D> SurvivorPerfectWinGrade;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Grade")
+	TObjectPtr<UTexture2D> SurvivorWinGrade;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Grade")
+	TObjectPtr<UTexture2D> SurvivorMinorWinGrade;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Grade")
+	TObjectPtr<UTexture2D> KillerWinGrade;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Grade")
+	TObjectPtr<UTexture2D> KillerPerfectWinGrade;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Survivor")
+	TObjectPtr<UTexture2D> DeliveredValueIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Survivor")
+	TObjectPtr<UTexture2D> DeliveryCountIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Survivor")
+	TObjectPtr<UTexture2D> RescueIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Survivor")
+	TObjectPtr<UTexture2D> SelfHealIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Survivor")
+	TObjectPtr<UTexture2D> CagedIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Killer")
+	TObjectPtr<UTexture2D> KilledSurvivorsIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Killer")
+	TObjectPtr<UTexture2D> ValidHitIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Killer")
+	TObjectPtr<UTexture2D> DownIcon;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GameResult|Stats|Killer")
+	TObjectPtr<UTexture2D> CageCountIcon;
+};
+
+UCLASS(BlueprintType)
 class SPACH4_API USPUIFontStyleData : public UDataAsset
 {
 	GENERATED_BODY()
