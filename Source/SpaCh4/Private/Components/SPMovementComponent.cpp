@@ -20,6 +20,7 @@ void USPMovementComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 
 	DOREPLIFETIME(USPMovementComponent, bWantsToRun);
 	DOREPLIFETIME(USPMovementComponent, SpeedPotionPhase);
+	DOREPLIFETIME(USPMovementComponent, bDeliveryMovePenaltyActive);
 }
 
 void USPMovementComponent::BeginPlay()
@@ -88,6 +89,24 @@ void USPMovementComponent::SetWantsToRun(bool bNewWantsToRun)
 	bWantsToRun = bNewWantsToRun;
 }
 
+void USPMovementComponent::SetDeliveryMovePenaltyActive(const bool bNewActive)
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority() || bDeliveryMovePenaltyActive == bNewActive)
+	{
+		return;
+	}
+
+	bDeliveryMovePenaltyActive = bNewActive;
+	SnapToTargetSpeed();
+	Survivor->ForceNetUpdate();
+}
+
+void USPMovementComponent::OnRep_DeliveryMovePenaltyActive()
+{
+	SnapToTargetSpeed();
+}
+
 ASurvivorCharacter* USPMovementComponent::GetSurvivor() const
 {
 	return Cast<ASurvivorCharacter>(GetOwner());
@@ -107,7 +126,7 @@ float USPMovementComponent::GetTargetMoveSpeed() const
 float USPMovementComponent::ComputeTargetMoveSpeed() const
 {
 	const float BaseSpeed = bHitEscapeSprintActive ? HitEscapeSprintSpeed : GetBaseWalkSpeed();
-	return BaseSpeed * GetCarryMoveSpeedMultiplier() * GetSpeedPotionMultiplier();
+	return BaseSpeed * GetCarryMoveSpeedMultiplier() * GetDeliveryMoveSpeedMultiplier() * GetSpeedPotionMultiplier();
 }
 
 float USPMovementComponent::GetBaseWalkSpeed() const
@@ -179,6 +198,17 @@ float USPMovementComponent::GetCarryMoveSpeedMultiplier() const
 	}
 
 	return FMath::Max(Data->MinCarrySpeedMultiplier, 1.f - TotalPenalty);
+}
+
+float USPMovementComponent::GetDeliveryMoveSpeedMultiplier() const
+{
+	if (!bDeliveryMovePenaltyActive)
+	{
+		return 1.f;
+	}
+
+	const USurvivorData* Data = GetSurvivorData();
+	return Data ? FMath::Clamp(Data->DeliveryMovePenalty, 0.f, 1.f) : 1.f;
 }
 
 float USPMovementComponent::GetSpeedPotionMultiplier() const

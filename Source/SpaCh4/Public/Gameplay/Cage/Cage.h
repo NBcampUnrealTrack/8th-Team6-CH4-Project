@@ -151,7 +151,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cage|Support", meta = (ClampMin = "0.01"))
 	FVector SupportMeshScale = FVector(1.f);
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Cage")
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Cage")
 	ECageStatus CurrentStatus = ECageStatus::Empty;
 
 	UPROPERTY(Replicated)

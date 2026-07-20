@@ -1,6 +1,7 @@
 #include "Gameplay/Escape/SPEscapeGate.h"
 
 #include "Characters/Survivor/SurvivorCharacter.h"
+#include "Components/SPInteractionComponent.h"
 #include "Components/SPEscapeLeverComponent.h"
 #include "Components/SPEscapeLeverSoundComponent.h"
 #include "Components/ArrowComponent.h"
@@ -21,6 +22,16 @@ ASPEscapeGate::ASPEscapeGate()
 	
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>("DoorMesh");
 	SetRootComponent(DoorMesh);
+
+	LeftDoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LeftDoorMesh"));
+	LeftDoorMesh->SetupAttachment(DoorMesh);
+	LeftDoorMesh->SetMobility(EComponentMobility::Movable);
+	LeftDoorMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+
+	RightDoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RightDoorMesh"));
+	RightDoorMesh->SetupAttachment(DoorMesh);
+	RightDoorMesh->SetMobility(EComponentMobility::Movable);
+	RightDoorMesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
 
 	LeverPanelMesh = CreateDefaultSubobject<UStaticMeshComponent>("LeverPanelMesh");
 	LeverPanelMesh->SetupAttachment(DoorMesh);
@@ -59,6 +70,11 @@ void ASPEscapeGate::BeginPlay()
 	}
 	CurrentLeverOffset = LeverInitialRotation;
 
+	CacheDoorClosedLocations();
+	DoorOpenAlpha = bIsActivated ? 1.0f : 0.0f;
+	ApplyDoorMovement(DoorOpenAlpha);
+
+	RefreshInteractionCollision();
 	BindAvailabilityDelegate();
 }
 
@@ -71,7 +87,8 @@ void ASPEscapeGate::BindAvailabilityDelegate()
 		return;
 	}
 
-	MatchGameState->OnEscapeGateAvailabilityChanged.AddDynamic(this, &ASPEscapeGate::OnEscapeAvailabilityChanged);
+	MatchGameState->OnEscapeGateAvailabilityChanged.AddUniqueDynamic(this, &ASPEscapeGate::OnEscapeAvailabilityChanged);
+	OnEscapeAvailabilityChanged(MatchGameState->CanActivateEscapeGates());
 }
 
 void ASPEscapeGate::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -87,9 +104,16 @@ void ASPEscapeGate::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateLeverRotation(DeltaSeconds);
+	UpdateDoorMovement(DeltaSeconds);
 
 	if (!HasAuthority() || bIsActivated || !CurrentOpener.IsValid())
 	{
+		return;
+	}
+
+	if (!CanBeOpened())
+	{
+		CancelCurrentOpening();
 		return;
 	}
 
@@ -235,6 +259,8 @@ float ASPEscapeGate::SnapProgressToCheckpoint(float CurrentProgress) const
 
 void ASPEscapeGate::OnRep_IsActivated()
 {
+	RefreshInteractionCollision();
+
 	if (bIsActivated)
 	{
 		NotifyLeverChannelStopped(true);
@@ -245,7 +271,55 @@ void ASPEscapeGate::OnRep_IsActivated()
 
 void ASPEscapeGate::OnEscapeAvailabilityChanged(bool bCanActivate)
 {
-	SwitchMesh->SetCollisionProfileName(TEXT("Interactable"));
+	RefreshInteractionCollision();
+
+	if (!bCanActivate && !CanBeOpened())
+	{
+		CancelCurrentOpening();
+	}
+}
+
+void ASPEscapeGate::RefreshInteractionCollision()
+{
+	const FName CollisionProfile = CanBeOpened() ? FName(TEXT("Interactable")) : FName(TEXT("NoCollision"));
+
+	if (SwitchMesh)
+	{
+		SwitchMesh->SetCollisionProfileName(CollisionProfile);
+	}
+	if (LeverPanelMesh)
+	{
+		LeverPanelMesh->SetCollisionProfileName(CollisionProfile);
+	}
+}
+
+void ASPEscapeGate::CancelCurrentOpening()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	ASurvivorCharacter* Opener = CurrentOpener.Get();
+	if (!Opener)
+	{
+		CurrentOpener = nullptr;
+		return;
+	}
+
+	if (USPInteractionComponent* InteractionComponent = Opener->GetInteractionComponent())
+	{
+		InteractionComponent->CancelInteract();
+	}
+
+	if (CurrentOpener == Opener)
+	{
+		if (USPEscapeLeverComponent* LeverComponent = Opener->GetEscapeLeverComponent())
+		{
+			LeverComponent->CancelLeverChannel();
+		}
+		ClearOpener(Opener);
+	}
 }
 
 void ASPEscapeGate::NotifyLeverPullStart()
@@ -277,6 +351,63 @@ void ASPEscapeGate::UpdateLeverRotation(float DeltaSeconds)
 
 	CurrentLeverOffset = FMath::RInterpTo(CurrentLeverOffset, TargetOffset, DeltaSeconds, LeverRotateInterpSpeed);
 	LeverPivot->SetRelativeRotation(InitialLeverPivotRotation.Quaternion() * CurrentLeverOffset.Quaternion());
+}
+
+void ASPEscapeGate::CacheDoorClosedLocations()
+{
+	if (bDoorClosedLocationsCached)
+	{
+		return;
+	}
+
+	if (LeftDoorMesh)
+	{
+		LeftDoorClosedLocation = LeftDoorMesh->GetRelativeLocation();
+	}
+	if (RightDoorMesh)
+	{
+		RightDoorClosedLocation = RightDoorMesh->GetRelativeLocation();
+	}
+
+	bDoorClosedLocationsCached = true;
+}
+
+void ASPEscapeGate::UpdateDoorMovement(float DeltaSeconds)
+{
+	CacheDoorClosedLocations();
+
+	const float TargetOpenAlpha = bIsActivated ? 1.0f : 0.0f;
+	if (DoorMoveDuration <= KINDA_SMALL_NUMBER)
+	{
+		DoorOpenAlpha = TargetOpenAlpha;
+	}
+	else
+	{
+		DoorOpenAlpha = FMath::FInterpConstantTo(
+			DoorOpenAlpha,
+			TargetOpenAlpha,
+			DeltaSeconds,
+			1.0f / DoorMoveDuration);
+	}
+
+	ApplyDoorMovement(DoorOpenAlpha);
+}
+
+void ASPEscapeGate::ApplyDoorMovement(float NormalizedOpenAlpha)
+{
+	const float ClampedAlpha = FMath::Clamp(NormalizedOpenAlpha, 0.0f, 1.0f);
+	const float SmoothedAlpha = ClampedAlpha * ClampedAlpha * (3.0f - 2.0f * ClampedAlpha);
+
+	if (LeftDoorMesh)
+	{
+		LeftDoorMesh->SetRelativeLocation(
+			FMath::Lerp(LeftDoorClosedLocation, LeftDoorClosedLocation + LeftDoorOpenOffset, SmoothedAlpha));
+	}
+	if (RightDoorMesh)
+	{
+		RightDoorMesh->SetRelativeLocation(
+			FMath::Lerp(RightDoorClosedLocation, RightDoorClosedLocation + RightDoorOpenOffset, SmoothedAlpha));
+	}
 }
 
 FTransform ASPEscapeGate::GetInteractAnchorTransform() const

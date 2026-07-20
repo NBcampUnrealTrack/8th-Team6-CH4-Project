@@ -29,6 +29,7 @@ public:
 
 	void HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState);
 	void SnapToTargetSpeed();
+	void SetDeliveryMovePenaltyActive(bool bNewActive);
 
 	void SetWantsToRun(bool bNewWantsToRun);
 	bool CanActivateSpeedPotion() const;
@@ -51,7 +52,12 @@ private:
 	float GetBaseWalkSpeed() const;
 	float GetSprintSpeedForState(ESurvivorState State) const;
 	float GetCarryMoveSpeedMultiplier() const;
+	float GetDeliveryMoveSpeedMultiplier() const;
 	float GetSpeedPotionMultiplier() const;
+
+	UFUNCTION()
+	void OnRep_DeliveryMovePenaltyActive();
+
 	void StartHitEscapeSprint(ESurvivorState PreviousState);
 	void FinishSpeedPotionBoost();
 	void FinishSpeedPotionFatigue();
@@ -64,6 +70,9 @@ private:
 
 	UPROPERTY(Replicated)
 	ESpeedPotionPhase SpeedPotionPhase = ESpeedPotionPhase::None;
+
+	UPROPERTY(ReplicatedUsing = OnRep_DeliveryMovePenaltyActive)
+	bool bDeliveryMovePenaltyActive{false};
 
 	bool bHitEscapeSprintActive{false};
 	float HitEscapeSprintRemaining{0.f};
