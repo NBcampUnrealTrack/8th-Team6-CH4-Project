@@ -155,6 +155,32 @@ bool USPMovementComponent::IsRunning() const
 	return bWantsToRun || bHitEscapeSprintActive;
 }
 
+void USPMovementComponent::ClampPlanarVelocityToSpeed(const float MaxPlanarSpeed) const
+{
+	if (MaxPlanarSpeed <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	UCharacterMovementComponent* MoveComp = Survivor ? Survivor->GetCharacterMovement() : nullptr;
+	if (!MoveComp)
+	{
+		return;
+	}
+
+	FVector Velocity = MoveComp->Velocity;
+	const FVector PlanarVelocity(Velocity.X, Velocity.Y, 0.f);
+	const float PlanarSpeed = PlanarVelocity.Size();
+	if (PlanarSpeed <= MaxPlanarSpeed + KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const FVector ClampedPlanarVelocity = PlanarVelocity * (MaxPlanarSpeed / PlanarSpeed);
+	MoveComp->Velocity = FVector(ClampedPlanarVelocity.X, ClampedPlanarVelocity.Y, Velocity.Z);
+}
+
 void USPMovementComponent::SnapToTargetSpeed()
 {
 	const ASurvivorCharacter* Survivor = GetSurvivor();
@@ -169,6 +195,9 @@ void USPMovementComponent::SnapToTargetSpeed()
 		{
 			MoveComp->MaxWalkSpeed = Target;
 		}
+
+		// Motion matching chooser uses current planar speed; clamp when max speed drops (e.g. Shift release).
+		ClampPlanarVelocityToSpeed(Target);
 	}
 }
 
