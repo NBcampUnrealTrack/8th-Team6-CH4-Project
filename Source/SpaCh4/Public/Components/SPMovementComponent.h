@@ -2,11 +2,30 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "SPMovementComponent.generated.h"
 
 class ASurvivorCharacter;
 class USurvivorData;
 enum class ESurvivorState : uint8;
+
+UCLASS()
+class SPACH4_API USPSurvivorCharacterMovementComponent : public UCharacterMovementComponent
+{
+	GENERATED_BODY()
+
+public:
+	void SetWantsToRun(bool bNewWantsToRun);
+	bool WantsToRun() const { return bWantsToRun; }
+
+	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
+	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
+
+private:
+	void ApplyWantsToRun();
+
+	uint8 bWantsToRun : 1 = false;
+};
 
 UENUM(BlueprintType)
 enum class ESpeedPotionPhase : uint8
@@ -25,7 +44,6 @@ public:
 	USPMovementComponent();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void HandleStateTransition(ESurvivorState OldState, ESurvivorState NewState);
 	void SnapToTargetSpeed();
@@ -58,25 +76,36 @@ private:
 	UFUNCTION()
 	void OnRep_DeliveryMovePenaltyActive();
 
+	UFUNCTION()
+	void OnRep_WantsToRun();
+
+	UFUNCTION()
+	void OnRep_SpeedPotionPhase();
+
+	UFUNCTION()
+	void OnRep_HitEscapeSprintState();
+
 	void StartHitEscapeSprint(ESurvivorState PreviousState);
+	void FinishHitEscapeSprint();
 	void FinishSpeedPotionBoost();
 	void FinishSpeedPotionFatigue();
-	
-	UPROPERTY(EditDefaultsOnly, Category = "SP|Movement")
-	float MoveSpeedInterpSpeed{8.f};
-	
-	UPROPERTY(Replicated)
+
+	UPROPERTY(ReplicatedUsing = OnRep_WantsToRun)
 	bool bWantsToRun{false};
 
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_SpeedPotionPhase)
 	ESpeedPotionPhase SpeedPotionPhase = ESpeedPotionPhase::None;
 
 	UPROPERTY(ReplicatedUsing = OnRep_DeliveryMovePenaltyActive)
 	bool bDeliveryMovePenaltyActive{false};
 
+	UPROPERTY(ReplicatedUsing = OnRep_HitEscapeSprintState)
 	bool bHitEscapeSprintActive{false};
-	float HitEscapeSprintRemaining{0.f};
+
+	UPROPERTY(ReplicatedUsing = OnRep_HitEscapeSprintState)
 	float HitEscapeSprintSpeed{0.f};
+
 	bool bSkipSpeedPotionFatigue{false};
+	FTimerHandle HitEscapeSprintTimer;
 	FTimerHandle SpeedPotionTimer;
 };

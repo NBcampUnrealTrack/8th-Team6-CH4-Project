@@ -42,7 +42,10 @@ public:
 	bool IsCarrying() const;
 
 	UFUNCTION(BlueprintPure, Category = "SP|Interact")
-	bool IsInteracting() const { return bIsInteract; }
+	bool IsInteracting() const
+	{
+		return !bInteractionCancelPending && (bIsInteract || bInteractionRequestPending);
+	}
 
 	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	bool CanSelfHeal() const;
@@ -66,6 +69,9 @@ protected:
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_CancelInteract();
+
+	UFUNCTION(Client, Reliable)
+	void Client_ResolveInteractionRequest(bool bServerInteracting);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_FaceInteractTarget(float TargetYaw);
@@ -101,6 +107,9 @@ private:
 	void FaceInteractTarget(AActor* Target);
 	void PlayInteractMontage(UAnimMontage* Montage);
 	void StopInteractMontage();
+
+	UFUNCTION()
+	void OnRep_IsInteracting();
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact")
 	float InteractReach{200.f};
@@ -141,7 +150,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Interact|Montage")
 	TSoftObjectPtr<UAnimMontage> SpeedPotionUseMontage;
 
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_IsInteracting)
 	bool bIsInteract{false};
 
 	UPROPERTY(Replicated)
@@ -149,6 +158,8 @@ private:
 
 	bool bIsSelfHealing{false};
 	bool bIsUsingSpeedPotion{false};
+	bool bInteractionRequestPending{false};
+	bool bInteractionCancelPending{false};
 	int32 ActiveConsumableSlotIndex = INDEX_NONE;
 
 	FTimerHandle PickupDropTimer;
