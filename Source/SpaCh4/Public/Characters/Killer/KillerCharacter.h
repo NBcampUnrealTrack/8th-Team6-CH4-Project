@@ -7,6 +7,9 @@
 
 class UKillerData;
 class USPKillerCarryAnimComponent;
+class USPKillerCarrySoundComponent;
+class USPKillerChaseMusicComponent;
+class USPKillerGroggySoundComponent;
 class USPParkourComponent;
 class UAnimMontage;
 class UAnimSequence;
@@ -59,6 +62,8 @@ public:
     void NotifyParkourEnded();
 
     USPParkourComponent* GetParkourComponent() const { return ParkourComponent; }
+
+    USPKillerCarryAnimComponent* GetCarryAnimComponent() const { return CarryAnimComponent; }
 
 protected:
     bool bCanPickup = true;
@@ -116,6 +121,15 @@ protected:
 
     UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
     TObjectPtr<USPKillerCarryAnimComponent> CarryAnimComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Carry")
+    TObjectPtr<USPKillerCarrySoundComponent> CarrySoundComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Groggy")
+    TObjectPtr<USPKillerGroggySoundComponent> GroggySoundComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|Chase")
+    TObjectPtr<USPKillerChaseMusicComponent> ChaseMusicComponent;
 
     UPROPERTY(VisibleAnywhere, Category = "Killer|Parkour")
     TObjectPtr<USPParkourComponent> ParkourComponent;

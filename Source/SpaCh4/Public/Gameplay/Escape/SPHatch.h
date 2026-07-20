@@ -10,6 +10,7 @@ class UBoxComponent;
 class UCurveFloat;
 class UPrimitiveComponent;
 class UStaticMeshComponent;
+class USPHatchSoundComponent;
 class ASurvivorCharacter;
 
 UCLASS()
@@ -48,6 +49,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SP|Hatch|Door")
 	FRotator GetDoorRotation() const { return DoorRotation; }
 
+	UStaticMeshComponent* GetTrayMesh() const { return TrayMesh; }
+	UStaticMeshComponent* GetDoorMesh() const { return DoorMesh; }
+	USPHatchSoundComponent* GetHatchSoundComponent() const { return HatchSoundComponent; }
+
 protected:
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
@@ -83,6 +88,9 @@ protected:
 	void SetEscapeTriggerEnabled(bool bEnabled);
 	void EnsureDoorComponentHierarchy();
 	bool HasRequiredVisuals() const;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch|Sound")
+	TObjectPtr<USPHatchSoundComponent> HatchSoundComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Hatch")
 	TObjectPtr<UStaticMeshComponent> TrayMesh;

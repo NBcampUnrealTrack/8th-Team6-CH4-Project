@@ -2,6 +2,7 @@
 
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/SPEscapeLeverComponent.h"
+#include "Components/SPEscapeLeverSoundComponent.h"
 #include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
@@ -42,6 +43,8 @@ ASPEscapeGate::ASPEscapeGate()
 
 	InteractAnchor = CreateDefaultSubobject<UArrowComponent>("InteractAnchor");
 	InteractAnchor->SetupAttachment(DoorMesh);
+
+	LeverSoundComponent = CreateDefaultSubobject<USPEscapeLeverSoundComponent>(TEXT("LeverSoundComponent"));
 }
 
 void ASPEscapeGate::BeginPlay()
@@ -99,6 +102,7 @@ void ASPEscapeGate::Tick(float DeltaSeconds)
 	if (OpenProgress >= OpenDuration)
 	{
 		bIsActivated = true;
+		NotifyLeverChannelStopped(true);
 		OnRep_IsActivated();
 
 		if (ASurvivorCharacter* Opener = CurrentOpener.Get())
@@ -168,6 +172,7 @@ void ASPEscapeGate::SetOpener(ASurvivorCharacter* Opener)
 	}
 
 	CurrentOpener = Opener;
+	Multicast_NotifyLeverChannelStarted();
 }
 
 void ASPEscapeGate::ClearOpener(ASurvivorCharacter* Opener)
@@ -183,6 +188,29 @@ void ASPEscapeGate::ClearOpener(ASurvivorCharacter* Opener)
 	{
 		OpenProgress = SnapProgressToCheckpoint(OpenProgress);
 	}
+
+	Multicast_NotifyLeverChannelStopped(false);
+}
+
+void ASPEscapeGate::NotifyLeverChannelStopped(const bool bCompleted)
+{
+	if (LeverSoundComponent)
+	{
+		LeverSoundComponent->NotifyChannelStopped(bCompleted);
+	}
+}
+
+void ASPEscapeGate::Multicast_NotifyLeverChannelStarted_Implementation()
+{
+	if (LeverSoundComponent)
+	{
+		LeverSoundComponent->NotifyChannelStarted();
+	}
+}
+
+void ASPEscapeGate::Multicast_NotifyLeverChannelStopped_Implementation(const bool bCompleted)
+{
+	NotifyLeverChannelStopped(bCompleted);
 }
 
 float ASPEscapeGate::SnapProgressToCheckpoint(float CurrentProgress) const
@@ -209,6 +237,7 @@ void ASPEscapeGate::OnRep_IsActivated()
 {
 	if (bIsActivated)
 	{
+		NotifyLeverChannelStopped(true);
 		SwitchMesh->SetRenderCustomDepth(false);
 		LeverPanelMesh->SetRenderCustomDepth(false);
 	}

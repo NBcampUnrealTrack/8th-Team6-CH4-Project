@@ -3,6 +3,7 @@
 #include "Characters/Survivor/SurvivorCharacter.h"
 #include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/SPHatchSoundComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Curves/CurveFloat.h"
 #include "GameFramework/GameStateBase.h"
@@ -41,6 +42,8 @@ ASPHatch::ASPHatch()
 	EscapeTrigger->SetupAttachment(TrayMesh);
 	EscapeTrigger->SetCollisionProfileName(TEXT("NoCollision"));
 	EscapeTrigger->SetGenerateOverlapEvents(false);
+
+	HatchSoundComponent = CreateDefaultSubobject<USPHatchSoundComponent>(TEXT("HatchSoundComponent"));
 }
 
 void ASPHatch::EnsureDoorComponentHierarchy()
@@ -437,5 +440,10 @@ void ASPHatch::ApplyHatchState()
 	if (!bIsActive || bIsOpened)
 	{
 		SetHatchRenderCustomDepth(false);
+	}
+
+	if (HatchSoundComponent)
+	{
+		HatchSoundComponent->NotifyHatchStateChanged(bIsActive, bIsOpened);
 	}
 }

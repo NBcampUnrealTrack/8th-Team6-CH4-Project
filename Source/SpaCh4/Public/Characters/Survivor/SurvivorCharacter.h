@@ -13,6 +13,8 @@ class USPMovementComponent;
 class USPParkourComponent;
 class USPScratchMarkComponent;
 class USPOilDripComponent;
+class USPInjuredSoundComponent;
+class USPDownedCrawlSoundComponent;
 class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
@@ -70,6 +72,8 @@ public:
 	USPEscapeLeverComponent* GetEscapeLeverComponent() const { return EscapeLeverComponent; }
 	USPPickupAnimComponent* GetPickupAnimComponent() const { return PickupAnimComponent; }
 	USPHealingAnimComponent* GetHealingAnimComponent() const { return HealingAnimComponent; }
+	USPInjuredSoundComponent* GetInjuredSoundComponent() const { return InjuredSoundComponent; }
+	USPDownedCrawlSoundComponent* GetDownedCrawlSoundComponent() const { return DownedCrawlSoundComponent; }
 
 	void BeginPickup(ASPPickupItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
@@ -174,6 +178,12 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPOilDripComponent> OilDripComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component", meta = (AllowPrivateAccess = true))
+	TObjectPtr<USPInjuredSoundComponent> InjuredSoundComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component", meta = (AllowPrivateAccess = true))
+	TObjectPtr<USPDownedCrawlSoundComponent> DownedCrawlSoundComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;

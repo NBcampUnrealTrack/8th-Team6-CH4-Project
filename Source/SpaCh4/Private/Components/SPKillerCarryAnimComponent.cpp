@@ -223,6 +223,25 @@ float USPKillerCarryAnimComponent::ResolveAttachNormalizedTime() const
 	return 0.55f;
 }
 
+float USPKillerCarryAnimComponent::GetPickupMontagePlayLength() const
+{
+	if (UAnimMontage* Montage = ResolvePickupMontage())
+	{
+		const float PlayLength = Montage->GetPlayLength();
+		if (PlayLength > KINDA_SMALL_NUMBER)
+		{
+			return PlayLength;
+		}
+	}
+
+	if (const UKillerData* Data = ResolveKillerData())
+	{
+		return Data->PickupDuration;
+	}
+
+	return 1.25f;
+}
+
 UBlendProfile* USPKillerCarryAnimComponent::GetOrCreateCarryBlendProfile()
 {
 	if (RuntimeCarryBlendProfile)
@@ -335,6 +354,7 @@ void USPKillerCarryAnimComponent::Multicast_BeginPickupAnim_Implementation()
 	bIsPlayingPickupAnim = true;
 	bAttachRequested = false;
 	PlayPickupMontage();
+	OnPickupBegan.Broadcast();
 }
 
 void USPKillerCarryAnimComponent::Multicast_BeginCarryingAnim_Implementation()
@@ -355,6 +375,7 @@ void USPKillerCarryAnimComponent::Multicast_EndCarryAnims_Implementation()
 	StopActiveMontages(CarryingBlendOut);
 	ClearPickupState();
 	ClearCarryingState();
+	OnCarryEnded.Broadcast();
 }
 
 void USPKillerCarryAnimComponent::ClearPickupState()

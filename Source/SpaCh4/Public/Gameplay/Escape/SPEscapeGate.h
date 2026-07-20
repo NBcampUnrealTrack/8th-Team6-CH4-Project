@@ -11,6 +11,7 @@ class UBoxComponent;
 class UPrimitiveComponent;
 class UArrowComponent;
 class ASurvivorCharacter;
+class USPEscapeLeverSoundComponent;
 
 UCLASS()
 class SPACH4_API ASPEscapeGate : public AActor, public ISPInteractable
@@ -43,6 +44,10 @@ public:
 	void SetOpener(ASurvivorCharacter* Opener);
 	void ClearOpener(ASurvivorCharacter* Opener);
 
+	USceneComponent* GetLeverPivot() const { return LeverPivot; }
+	UStaticMeshComponent* GetSwitchMesh() const { return SwitchMesh; }
+	USPEscapeLeverSoundComponent* GetLeverSoundComponent() const { return LeverSoundComponent; }
+
 protected:
 	virtual void BeginPlay() override;
 	
@@ -57,7 +62,17 @@ protected:
 	
 	void BindAvailabilityDelegate();
 	void UpdateLeverRotation(float DeltaSeconds);
-	
+	void NotifyLeverChannelStopped(bool bCompleted);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_NotifyLeverChannelStarted();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_NotifyLeverChannelStopped(bool bCompleted);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape|Sound")
+	TObjectPtr<USPEscapeLeverSoundComponent> LeverSoundComponent;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UStaticMeshComponent> SwitchMesh;
 
