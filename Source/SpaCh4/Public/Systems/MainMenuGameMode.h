@@ -56,7 +56,7 @@ protected:
 	int32 CountdownDuration = 5;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Matchmaking|Travel")
-	FString MatchLevelUrl = TEXT("/Game/Maps/L_MatchLevel");
+	FString MatchLevelUrl = TEXT("/Game/Maps/Level_D");
 
 	FTimerHandle CountdownTimerHandle;
 };
