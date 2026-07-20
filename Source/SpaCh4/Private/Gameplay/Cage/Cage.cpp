@@ -48,6 +48,9 @@ ACage::ACage()
 	SupportMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SupportMesh"));
 	SupportMesh->SetupAttachment(SupportMeshScaleRoot);
 	SupportMesh->SetRelativeScale3D(FVector::OneVector);
+	SupportMesh->SetUsingAbsoluteLocation(false);
+	SupportMesh->SetUsingAbsoluteRotation(false);
+	SupportMesh->SetUsingAbsoluteScale(false);
 	SupportMesh->SetCollisionProfileName(TEXT("BlockAll"));
 	SupportMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
 
@@ -150,6 +153,7 @@ void ACage::ApplySupportMeshScale()
 		return;
 	}
 
+	// SupportMesh keeps unit scale; SupportMeshScale is the single source of truth on the root.
 	if (!SupportMesh->GetRelativeScale3D().Equals(FVector::OneVector, KINDA_SMALL_NUMBER))
 	{
 		SupportMesh->SetRelativeScale3D(FVector::OneVector);
@@ -169,15 +173,23 @@ void ACage::ApplySupportMeshScale()
 void ACage::SyncSupportMeshScaleFromEditorComponent()
 {
 #if WITH_EDITOR
-	if (bApplyingSupportMeshScaleFromProperty || !SupportMeshScaleRoot)
+	if (bApplyingSupportMeshScaleFromProperty || !SupportMeshScaleRoot || !SupportMesh)
 	{
 		return;
 	}
 
-	const FVector RootScale = SupportMeshScaleRoot->GetRelativeScale3D();
-	if (!RootScale.Equals(SupportMeshScale, KINDA_SMALL_NUMBER))
+	// If the artist scaled SupportMesh directly, fold that into SupportMeshScale.
+	// Do NOT copy SupportMeshScaleRoot → SupportMeshScale here: OnConstruction often
+	// runs with a stale root (1,1,1) and would wipe a freshly edited SupportMeshScale.
+	const FVector MeshScale = SupportMesh->GetRelativeScale3D();
+	if (!MeshScale.Equals(FVector::OneVector, KINDA_SMALL_NUMBER))
 	{
-		SupportMeshScale = RootScale;
+		const FVector Combined = SupportMeshScaleRoot->GetRelativeScale3D() * MeshScale;
+		SupportMeshScale = FVector(
+			FMath::Max(0.01f, Combined.X),
+			FMath::Max(0.01f, Combined.Y),
+			FMath::Max(0.01f, Combined.Z));
+		SupportMesh->SetRelativeScale3D(FVector::OneVector);
 	}
 #endif
 }
@@ -260,6 +272,51 @@ void ACage::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 		ApplySupportMeshScale();
 		bApplyingSupportMeshScaleFromProperty = false;
 	}
+	else if (
+		PropertyChangedEvent.GetMemberPropertyName() == USceneComponent::GetRelativeScale3DPropertyName()
+		|| PropertyName == USceneComponent::GetRelativeScale3DPropertyName())
+	{
+		// Viewport / details scale on SupportMeshScaleRoot or SupportMesh.
+		const UObject* EditedObject = PropertyChangedEvent.GetNumObjectsBeingEdited() > 0
+			? PropertyChangedEvent.GetObjectBeingEdited(0)
+			: nullptr;
+		if (EditedObject == SupportMeshScaleRoot && SupportMeshScaleRoot)
+		{
+			SupportMeshScale = SupportMeshScaleRoot->GetRelativeScale3D();
+			bApplyingSupportMeshScaleFromProperty = true;
+			ApplySupportMeshScale();
+			bApplyingSupportMeshScaleFromProperty = false;
+		}
+		else if (EditedObject == SupportMesh)
+		{
+			SyncSupportMeshScaleFromEditorComponent();
+			bApplyingSupportMeshScaleFromProperty = true;
+			ApplySupportMeshScale();
+			bApplyingSupportMeshScaleFromProperty = false;
+		}
+	}
+}
+
+void ACage::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeChainProperty(PropertyChangedEvent);
+
+	const FEditPropertyChain::TDoubleLinkedListNode* Node = PropertyChangedEvent.PropertyChain.GetHead();
+	while (Node)
+	{
+		if (const FProperty* Property = Node->GetValue())
+		{
+			if (Property->GetFName() == GET_MEMBER_NAME_CHECKED(ACage, SupportMeshScale))
+			{
+				bApplyingSupportMeshScaleFromProperty = true;
+				EnsureDoorComponentHierarchy();
+				ApplySupportMeshScale();
+				bApplyingSupportMeshScaleFromProperty = false;
+				break;
+			}
+		}
+		Node = Node->GetNextNode();
+	}
 }
 #endif
 
@@ -270,6 +327,7 @@ void ACage::OnConstruction(const FTransform& Transform)
 	EnsureDoorComponentHierarchy();
 	SyncAssemblyRotationFromEditorComponent();
 	ApplyAssemblyRotation();
+	// Absorb direct SupportMesh scale edits, then always push SupportMeshScale → root.
 	SyncSupportMeshScaleFromEditorComponent();
 	ApplySupportMeshScale();
 	ApplyDoorMeshAttachment();

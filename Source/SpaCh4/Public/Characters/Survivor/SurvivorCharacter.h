@@ -15,6 +15,7 @@ class USPScratchMarkComponent;
 class USPOilDripComponent;
 class USPInjuredSoundComponent;
 class USPDownedCrawlSoundComponent;
+class USPHealingSoundComponent;
 class USPEscapeLeverComponent;
 class USPPickupAnimComponent;
 class USPHealingAnimComponent;
@@ -74,6 +75,7 @@ public:
 	USPHealingAnimComponent* GetHealingAnimComponent() const { return HealingAnimComponent; }
 	USPInjuredSoundComponent* GetInjuredSoundComponent() const { return InjuredSoundComponent; }
 	USPDownedCrawlSoundComponent* GetDownedCrawlSoundComponent() const { return DownedCrawlSoundComponent; }
+	USPHealingSoundComponent* GetHealingSoundComponent() const { return HealingSoundComponent; }
 
 	void BeginPickup(ASPPickupItem* Item);
 	void BeginDelivery(ASPDeliveryStation* Station);
@@ -184,6 +186,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component", meta = (AllowPrivateAccess = true))
 	TObjectPtr<USPDownedCrawlSoundComponent> DownedCrawlSoundComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Component", meta = (AllowPrivateAccess = true))
+	TObjectPtr<USPHealingSoundComponent> HealingSoundComponent;
 
 	UPROPERTY(VisibleAnywhere, Category = "SP|Component")
 	TObjectPtr<USPEscapeLeverComponent> EscapeLeverComponent;

@@ -326,6 +326,8 @@ void USPHealingAnimComponent::ExitHealingState(const bool bPlayReturnAnim)
 		return;
 	}
 
+	OnHealingChannelEnded.Broadcast(bPlayReturnAnim);
+
 	bIsEndingHealing = true;
 	bLoopTransitionTriggered = true;
 	bIsHealing = false;
@@ -385,6 +387,8 @@ void USPHealingAnimComponent::TransitionKneeToLoop()
 	SetHealingTickEnabled(true);
 	UpdateLoopEndTime();
 	PlayLoopMontage(HealingKneeToLoopBlendIn, true);
+
+	OnHealingLoopBegan.Broadcast();
 }
 
 void USPHealingAnimComponent::PlayLoopMontage(const float BlendInTime, const bool bCrossfadeFromPrevious)

@@ -91,6 +91,7 @@ protected:
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif
 
 	void EnsureDoorComponentHierarchy();
@@ -146,7 +147,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cage|Door")
 	bool bDoorMeshFollowsPivot = true;
 
-	/** Scale applied to SupportMeshScaleRoot. CageMesh is unaffected. Also synced when scaling SupportMeshScaleRoot in the editor. */
+	/** Scale applied to SupportMeshScaleRoot (SupportMesh stays at 1,1,1). CageMesh is unaffected. Prefer this property over scaling SupportMesh directly. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cage|Support", meta = (ClampMin = "0.01"))
 	FVector SupportMeshScale = FVector(1.f);
 

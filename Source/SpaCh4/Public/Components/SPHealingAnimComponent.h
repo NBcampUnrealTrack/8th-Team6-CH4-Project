@@ -9,6 +9,9 @@ class UAnimMontage;
 class UAnimInstance;
 class ASurvivorCharacter;
 
+DECLARE_MULTICAST_DELEGATE(FOnHealingLoopBegan);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnHealingChannelEnded, bool /*bCompleted*/);
+
 UENUM()
 enum class EHealingAnimPhase : uint8
 {
@@ -40,6 +43,9 @@ public:
 
 	void BeginHealingChannelDebug();
 	void CancelHealingChannelDebug();
+
+	FOnHealingLoopBegan OnHealingLoopBegan;
+	FOnHealingChannelEnded OnHealingChannelEnded;
 
 protected:
 	void EnsureMontagesLoaded();

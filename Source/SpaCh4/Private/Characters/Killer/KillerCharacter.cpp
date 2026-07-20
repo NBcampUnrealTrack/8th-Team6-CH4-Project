@@ -17,6 +17,7 @@
 #include "Components/SPKillerChaseMusicComponent.h"
 #include "Components/SPKillerGroggySoundComponent.h"
 #include "Components/SPParkourComponent.h"
+#include "Components/SPTaserVFXComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
@@ -74,6 +75,7 @@ AKillerCharacter::AKillerCharacter()
     GroggySoundComponent = CreateDefaultSubobject<USPKillerGroggySoundComponent>(TEXT("GroggySoundComponent"));
     ChaseMusicComponent = CreateDefaultSubobject<USPKillerChaseMusicComponent>(TEXT("ChaseMusicComponent"));
     ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
+    TaserVFXComponent = CreateDefaultSubobject<USPTaserVFXComponent>(TEXT("TaserVFXComponent"));
 
     static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
         TEXT("/Game/Assets/Killer_Locomotion/Attack/AM_Attack_Montage.AM_Attack_Montage"));
@@ -327,8 +329,14 @@ void AKillerCharacter::PerformAttack()
     GetWorldTimerManager().SetTimer(WindupTimer, [this]() {
         
         // Active 판정 및 Trace는 서버에서만 수행
-        bool bHit = PerformAttackTrace();
+        FVector HitLocation = GetActorLocation() + GetActorForwardVector() * (KillerData ? KillerData->TaserRange : 250.f);
+        bool bHit = PerformAttackTrace(HitLocation);
         UE_LOG(LogTemp, Warning, TEXT("공격 결과: %s"), bHit ? TEXT("적중!") : TEXT("허공"));
+
+        if (HasAuthority())
+        {
+            Multicast_PlayTaserVFX(ETaserVFXPhase::Discharge, HitLocation, bHit);
+        }
 
         auto RestoreMovement = [this]() {
             if (GetCharacterMovement())
@@ -350,6 +358,30 @@ void AKillerCharacter::PerformAttack()
             GetWorldTimerManager().SetTimer(GroggyTimer, RestoreMovement, KillerData->TaserGroggyOnMiss, false);
         }
     }, KillerData->TaserWindup, false);
+}
+
+void AKillerCharacter::Multicast_PlayTaserVFX_Implementation(ETaserVFXPhase Phase, FVector EndLocation, bool bHit)
+{
+    USPTaserVFXComponent* VFXComponent = TaserVFXComponent;
+    if (!VFXComponent)
+    {
+        VFXComponent = FindComponentByClass<USPTaserVFXComponent>();
+    }
+
+    if (!VFXComponent)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Killer TaserVFX: component missing on %s"), *GetName());
+        return;
+    }
+
+    switch (Phase)
+    {
+    case ETaserVFXPhase::Discharge:
+        VFXComponent->PlayDischarge(EndLocation, bHit);
+        break;
+    default:
+        break;
+    }
 }
 
 void AKillerCharacter::Server_Attack_Implementation()
@@ -760,8 +792,10 @@ AActor* AKillerCharacter::FindInteractableActor(float Radius)
     return nullptr;
 }
 
-bool AKillerCharacter::PerformAttackTrace()
+bool AKillerCharacter::PerformAttackTrace(FVector& OutHitLocation)
 {
+    OutHitLocation = GetActorLocation() + (GetActorForwardVector() * KillerData->TaserRange);
+
     FVector BoxCenter = GetActorLocation() + (GetActorForwardVector() * (KillerData->TaserRange / 2.f));
     FVector BoxExtent = FVector(KillerData->TaserRange / 2.f, KillerData->TaserHitboxRadius, 90.f);
     
@@ -792,6 +826,7 @@ bool AKillerCharacter::PerformAttackTrace()
             if (SState == ESurvivorState::Healthy || SState == ESurvivorState::Injured)
             {
                 HitSurvivor->ApplyHit();
+                OutHitLocation = HitSurvivor->GetActorLocation();
                 // 공격 성공 및 다운 시킨 횟수 기록
                 if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
                 {

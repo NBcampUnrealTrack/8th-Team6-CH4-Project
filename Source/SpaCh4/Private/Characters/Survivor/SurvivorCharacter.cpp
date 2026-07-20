@@ -10,6 +10,7 @@
 #include "Components/SPOilDripComponent.h"
 #include "Components/SPInjuredSoundComponent.h"
 #include "Components/SPDownedCrawlSoundComponent.h"
+#include "Components/SPHealingSoundComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
@@ -53,6 +54,7 @@ ASurvivorCharacter::ASurvivorCharacter()
 	OilDripComponent = CreateDefaultSubobject<USPOilDripComponent>(TEXT("OilDripComponent"));
 	InjuredSoundComponent = CreateDefaultSubobject<USPInjuredSoundComponent>(TEXT("InjuredSoundComponent"));
 	DownedCrawlSoundComponent = CreateDefaultSubobject<USPDownedCrawlSoundComponent>(TEXT("DownedCrawlSoundComponent"));
+	HealingSoundComponent = CreateDefaultSubobject<USPHealingSoundComponent>(TEXT("HealingSoundComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 

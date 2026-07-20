@@ -18,7 +18,8 @@ public class SpaCh4 : ModuleRules
 			"MediaAssets",
 			"OnlineBase",
 			"OnlineSubsystem",
-			"OnlineSubsystemUtils"
+			"OnlineSubsystemUtils",
+			"Niagara"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

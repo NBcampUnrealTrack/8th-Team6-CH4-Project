@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Characters/Base/CharacterBase.h"
+#include "Components/SPTaserVFXComponent.h"
 #include "KillerCharacter.generated.h"
 
 class UKillerData;
@@ -11,6 +12,7 @@ class USPKillerCarrySoundComponent;
 class USPKillerChaseMusicComponent;
 class USPKillerGroggySoundComponent;
 class USPParkourComponent;
+class USPTaserVFXComponent;
 class UAnimMontage;
 class UAnimSequence;
 //class USPKillerFirstPersonMeshComponent;
@@ -74,6 +76,9 @@ protected:
     UFUNCTION(NetMulticast, Reliable)
     void Multicast_PlayAttackMontage(UAnimMontage* MontageToPlay);
 
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayTaserVFX(ETaserVFXPhase Phase, FVector EndLocation, bool bHit);
+
     UFUNCTION()
     void OnRep_CurrentState();
 
@@ -106,7 +111,7 @@ protected:
     void ApplyFirstPersonArmVisibility(USkeletalMeshComponent* TargetMesh, const TArray<FName>& VisibleRootBones) const;
     
     // 로직
-    bool PerformAttackTrace();
+    bool PerformAttackTrace(FVector& OutHitLocation);
     void AttachCarriedSurvivor(AActor* Target);
     void ApplyCarryAttachmentTransform(AActor* Target);
     void PickupSurvivor(AActor* Target);
@@ -133,6 +138,9 @@ protected:
 
     UPROPERTY(VisibleAnywhere, Category = "Killer|Parkour")
     TObjectPtr<USPParkourComponent> ParkourComponent;
+
+    UPROPERTY(VisibleAnywhere, Category = "Killer|TaserVFX")
+    TObjectPtr<USPTaserVFXComponent> TaserVFXComponent;
 
     TWeakObjectPtr<AActor> PendingPickupTarget;
     
