@@ -64,6 +64,9 @@ private:
 	void NotifyBackgroundMusicChaseState(bool bChaseActive);
 
 	AKillerCharacter* GetKiller() const;
+	UObject* GetAudioContextObject() const;
+	void ResolveChaseMusicAsset();
+	void RefreshExistingOverlaps();
 	void PlayEnterSound() const;
 	void PlayExitSound() const;
 

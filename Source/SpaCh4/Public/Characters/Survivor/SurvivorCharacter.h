@@ -46,7 +46,7 @@ class SPACH4_API ASurvivorCharacter : public ACharacterBase, public IGameplayTag
 	GENERATED_BODY()
 
 public:
-	ASurvivorCharacter();
+	ASurvivorCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "SP|Survivor")
@@ -113,6 +113,8 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void Interact() override;
@@ -139,9 +141,6 @@ private:
 	void StartRun();
 	void StopRun();
 
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SetWantsToRun(bool bNewWantsToRun);
-
 	UFUNCTION()
 	void OnCageExpired();
 
@@ -163,6 +162,8 @@ private:
 	void RefreshLocalInventoryHud() const;
 	void ApplyDeathRagdoll();
 	void ApplyStateEffects();
+	void RestoreAfterConfinement(ESurvivorState OldState, ESurvivorState NewState);
+	bool TryPlaceAfterRescue(const ASurvivorCharacter* Rescuer);
 	void NotifyMatchStateChange(ESurvivorState NewState, ALDPlayerState* SurvivorPlayerState);
 	void ToggleCrouch();
 

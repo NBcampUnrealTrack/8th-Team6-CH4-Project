@@ -12,6 +12,7 @@
 #include "Components/SPDownedCrawlSoundComponent.h"
 #include "Components/SPHealingSoundComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
 #include "EnhancedInputComponent.h"
@@ -36,7 +37,9 @@
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
 
-ASurvivorCharacter::ASurvivorCharacter()
+ASurvivorCharacter::ASurvivorCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<USPSurvivorCharacterMovementComponent>(
+		ACharacter::CharacterMovementComponentName))
 {
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
@@ -80,7 +83,7 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
 {
-	if (IsParkouring())
+	if (!CanMove())
 	{
 		return;
 	}
@@ -138,32 +141,24 @@ void ASurvivorCharacter::ToggleCrouch()
 
 void ASurvivorCharacter::StartRun()
 {
-	if (MovementComponent)
+	if (!CanMove())
 	{
-		MovementComponent->SetWantsToRun(true);
+		return;
 	}
-	Server_SetWantsToRun(true);
+
+	if (USPSurvivorCharacterMovementComponent* MoveComp =
+		Cast<USPSurvivorCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		MoveComp->SetWantsToRun(true);
+	}
 }
 
 void ASurvivorCharacter::StopRun()
 {
-	if (MovementComponent)
+	if (USPSurvivorCharacterMovementComponent* MoveComp =
+		Cast<USPSurvivorCharacterMovementComponent>(GetCharacterMovement()))
 	{
-		MovementComponent->SetWantsToRun(false);
-	}
-	Server_SetWantsToRun(false);
-}
-
-bool ASurvivorCharacter::Server_SetWantsToRun_Validate(bool bNewWantsToRun)
-{
-	return true;
-}
-
-void ASurvivorCharacter::Server_SetWantsToRun_Implementation(bool bNewWantsToRun)
-{
-	if (MovementComponent)
-	{
-		MovementComponent->SetWantsToRun(bNewWantsToRun);
+		MoveComp->SetWantsToRun(false);
 	}
 }
 
@@ -276,6 +271,8 @@ void ASurvivorCharacter::Multicast_ApplyCagedPose_Implementation(FVector Locatio
 	{
 		MoveComp->bOrientRotationToMovement = false;
 		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
 	}
 	SetActorLocationAndRotation(Location, Rotation);
 }
@@ -294,14 +291,71 @@ void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 	GetWorldTimerManager().ClearTimer(CageTimerHandle);
 
 	Multicast_RestoreOrientRotation();
+	SetSurvivorState(ESurvivorState::Injured);
+	TryPlaceAfterRescue(Rescuer);
 
-	if (Rescuer)
+	if (CurrentCage)
 	{
-		const FVector DropLocation = Rescuer->GetActorLocation() + Rescuer->GetActorRightVector() * RescueDropOffset;
-		SetActorLocation(DropLocation);
+		CurrentCage->SetCageStatus(ECageStatus::Empty);
+		CurrentCage = nullptr;
+	}
+	ForceNetUpdate();
+}
+
+bool ASurvivorCharacter::TryPlaceAfterRescue(const ASurvivorCharacter* Rescuer)
+{
+	if (!Rescuer || !GetWorld())
+	{
+		return false;
 	}
 
-	SetSurvivorState(ESurvivorState::Injured);
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	const UCapsuleComponent* VictimCapsule = GetCapsuleComponent();
+	const UCapsuleComponent* RescuerCapsule = Rescuer->GetCapsuleComponent();
+	const float VictimRadius = VictimCapsule ? VictimCapsule->GetScaledCapsuleRadius() : 42.f;
+	const float RescuerRadius = RescuerCapsule ? RescuerCapsule->GetScaledCapsuleRadius() : 42.f;
+	const float VictimHalfHeight = VictimCapsule ? VictimCapsule->GetScaledCapsuleHalfHeight() : 96.f;
+	const float SafeOffset = FMath::Max(RescueDropOffset, VictimRadius + RescuerRadius + 20.f);
+
+	const FVector Right = Rescuer->GetActorRightVector().GetSafeNormal2D();
+	const FVector Forward = Rescuer->GetActorForwardVector().GetSafeNormal2D();
+	const TArray<FVector> CandidateDirections =
+	{
+		Right,
+		-Right,
+		Forward,
+		-Forward,
+		(Right + Forward).GetSafeNormal(),
+		(Right - Forward).GetSafeNormal(),
+		(-Right + Forward).GetSafeNormal(),
+		(-Right - Forward).GetSafeNormal()
+	};
+
+	FCollisionQueryParams GroundQuery(SCENE_QUERY_STAT(RescuePlacement), false);
+	GroundQuery.AddIgnoredActor(this);
+	GroundQuery.AddIgnoredActor(Rescuer);
+
+	for (const FVector& Direction : CandidateDirections)
+	{
+		FVector Candidate = Rescuer->GetActorLocation() + Direction * SafeOffset;
+		const FVector TraceStart = Candidate + FVector(0.f, 0.f, VictimHalfHeight + 100.f);
+		const FVector TraceEnd = Candidate - FVector(0.f, 0.f, VictimHalfHeight + 300.f);
+
+		FHitResult GroundHit;
+		if (GetWorld()->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, GroundQuery))
+		{
+			Candidate.Z = GroundHit.ImpactPoint.Z + VictimHalfHeight + 2.f;
+		}
+
+		if (TeleportTo(Candidate, GetActorRotation(), false, false))
+		{
+			return true;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage] Failed to find a collision-free rescue location for %s."), *GetName());
+	return false;
 }
 
 void ASurvivorCharacter::BeginRescue(ACage* Cage)
@@ -385,6 +439,24 @@ void ASurvivorCharacter::BeginPlay()
 
 	BindInventoryHudRefresh();
 	ApplyStateEffects();
+}
+
+void ASurvivorCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (MovementComponent)
+	{
+		MovementComponent->SnapToTargetSpeed();
+	}
+}
+
+void ASurvivorCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (MovementComponent)
+	{
+		MovementComponent->SnapToTargetSpeed();
+	}
 }
 
 void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -495,7 +567,7 @@ void ASurvivorCharacter::PossessedBy(AController* NewController)
 
 void ASurvivorCharacter::BindInventoryHudRefresh()
 {
-	if (!IsLocallyControlled() || !InventoryComponent)
+	if (!InventoryComponent)
 	{
 		return;
 	}
@@ -506,6 +578,10 @@ void ASurvivorCharacter::BindInventoryHudRefresh()
 
 void ASurvivorCharacter::HandleInventoryChanged()
 {
+	if (MovementComponent)
+	{
+		MovementComponent->SnapToTargetSpeed();
+	}
 	RefreshLocalInventoryHud();
 }
 
@@ -574,6 +650,7 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	{
 		MovementComponent->HandleStateTransition(OldState, NewState);
 	}
+	RestoreAfterConfinement(OldState, NewState);
 
 	if (InteractionComponent)
 	{
@@ -684,6 +761,7 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 	{
 		MovementComponent->HandleStateTransition(OldState, SurvivorState);
 	}
+	RestoreAfterConfinement(OldState, SurvivorState);
 	ApplyStateEffects();
 
 	if (InjuredSoundComponent)
@@ -694,17 +772,78 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 
 void ASurvivorCharacter::ApplyStateEffects()
 {
-	if (SurvivorState == ESurvivorState::Carried)
+	const bool bCanMoveNow = CanMove();
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
-		return; 
+		if (bCanMoveNow)
+		{
+			if (MoveComp->MovementMode == MOVE_None)
+			{
+				MoveComp->SetMovementMode(MOVE_Walking);
+			}
+		}
+		else
+		{
+			MoveComp->StopMovementImmediately();
+			MoveComp->DisableMovement();
+		}
 	}
-	
+
 	if (AController* Ctrl = GetController())
 	{
 		Ctrl->ResetIgnoreMoveInput();
-		if (!CanMove())
+		if (!bCanMoveNow)
 		{
 			Ctrl->SetIgnoreMoveInput(true);
+		}
+	}
+
+	if (MovementComponent)
+	{
+		MovementComponent->SnapToTargetSpeed();
+	}
+}
+
+void ASurvivorCharacter::RestoreAfterConfinement(ESurvivorState OldState, ESurvivorState NewState)
+{
+	const bool bWasConfined = OldState == ESurvivorState::Carried || OldState == ESurvivorState::Caged;
+	const bool bNowMovable = NewState == ESurvivorState::Healthy
+		|| NewState == ESurvivorState::Injured
+		|| NewState == ESurvivorState::Downed;
+	if (!bWasConfined || !bNowMovable)
+	{
+		return;
+	}
+
+	SetActorEnableCollision(true);
+
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+	for (UPrimitiveComponent* Primitive : PrimitiveComponents)
+	{
+		if (!Primitive)
+		{
+			continue;
+		}
+
+		const UPrimitiveComponent* AuthoredTemplate = Cast<UPrimitiveComponent>(Primitive->GetArchetype());
+		if (!AuthoredTemplate)
+		{
+			continue;
+		}
+
+		Primitive->SetCollisionObjectType(AuthoredTemplate->GetCollisionObjectType());
+		Primitive->SetCollisionResponseToChannels(AuthoredTemplate->GetCollisionResponseToChannels());
+		Primitive->SetGenerateOverlapEvents(AuthoredTemplate->GetGenerateOverlapEvents());
+		Primitive->SetCollisionEnabled(AuthoredTemplate->GetCollisionEnabled());
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		if (const UCharacterMovementComponent* AuthoredTemplate =
+			Cast<UCharacterMovementComponent>(MoveComp->GetArchetype()))
+		{
+			MoveComp->NetworkSmoothingMode = AuthoredTemplate->NetworkSmoothingMode;
 		}
 	}
 }

@@ -74,24 +74,45 @@ bool USPInteractionComponent::IsCarrying() const
 
 void USPInteractionComponent::RequestInteract()
 {
+	if (bIsInteract || bInteractionRequestPending || bInteractionCancelPending)
+	{
+		return;
+	}
+
+	bInteractionRequestPending = true;
+	bInteractionCancelPending = false;
 	Server_Interact();
 }
 
 void USPInteractionComponent::RequestDrop()
 {
+	if (bIsInteract || bInteractionRequestPending || bInteractionCancelPending)
+	{
+		return;
+	}
+
+	bInteractionRequestPending = true;
+	bInteractionCancelPending = false;
 	Server_Drop();
 }
 
 void USPInteractionComponent::RequestCancelInteract()
 {
+	if (!bIsInteract && !bInteractionRequestPending)
+	{
+		return;
+	}
+
+	bInteractionRequestPending = false;
+	bInteractionCancelPending = true;
 	Server_CancelInteract();
 }
 
 void USPInteractionComponent::NotifyMoveInput()
 {
-	if (bIsInteract && bCancelInteractOnMove)
+	if (IsInteracting() && bCancelInteractOnMove)
 	{
-		Server_CancelInteract();
+		RequestCancelInteract();
 	}
 }
 
@@ -103,6 +124,25 @@ bool USPInteractionComponent::Server_CancelInteract_Validate()
 void USPInteractionComponent::Server_CancelInteract_Implementation()
 {
 	CancelInteract();
+	Client_ResolveInteractionRequest(false);
+}
+
+void USPInteractionComponent::Client_ResolveInteractionRequest_Implementation(bool bServerInteracting)
+{
+	bInteractionRequestPending = false;
+	if (!bServerInteracting)
+	{
+		bInteractionCancelPending = false;
+	}
+}
+
+void USPInteractionComponent::OnRep_IsInteracting()
+{
+	bInteractionRequestPending = false;
+	if (!bIsInteract)
+	{
+		bInteractionCancelPending = false;
+	}
 }
 
 void USPInteractionComponent::UpdateInteract()
@@ -127,7 +167,7 @@ void USPInteractionComponent::UpdateInteract()
 		}
 	}
 
-	if (ThisActor != LastActor && !bIsInteract)
+	if (ThisActor != LastActor && !IsInteracting())
 	{
 		if (LastActor.IsValid())
 		{
@@ -242,6 +282,7 @@ void USPInteractionComponent::Server_Interact_Implementation()
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Survivor->CanInteract() || bIsInteract)
 	{
+		Client_ResolveInteractionRequest(false);
 		return;
 	}
 
@@ -251,10 +292,12 @@ void USPInteractionComponent::Server_Interact_Implementation()
 	{
 		FaceInteractTarget(Hit.GetActor());
 		ISPInteractable::Execute_Interact(Hit.GetActor(), Survivor);
+		Client_ResolveInteractionRequest(bIsInteract);
 		return;
 	}
 
 	TryUseSelectedConsumable();
+	Client_ResolveInteractionRequest(bIsInteract);
 }
 
 bool USPInteractionComponent::Server_Drop_Validate()
@@ -267,10 +310,12 @@ void USPInteractionComponent::Server_Drop_Implementation()
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Survivor->CanInteract() || bIsInteract)
 	{
+		Client_ResolveInteractionRequest(false);
 		return;
 	}
 
 	BeginDrop();
+	Client_ResolveInteractionRequest(bIsInteract);
 }
 
 bool USPInteractionComponent::TryUseSelectedConsumable()
@@ -361,7 +406,7 @@ bool USPInteractionComponent::IsSelectedSlotMedkit() const
 bool USPInteractionComponent::CanSelfHeal() const
 {
 	const ASurvivorCharacter* Survivor = GetSurvivor();
-	if (!Survivor || bIsInteract || LastActor.IsValid())
+	if (!Survivor || IsInteracting() || LastActor.IsValid())
 	{
 		return false;
 	}
