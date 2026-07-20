@@ -1,5 +1,6 @@
-﻿#include "Systems/MatchGameState.h"
+#include "Systems/MatchGameState.h"
 
+#include "Components/SPBackgroundMusicComponent.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 
@@ -12,6 +13,7 @@ namespace MatchGameStateStationIds
 AMatchGameState::AMatchGameState()
 {
 	bReplicates = true;
+	BackgroundMusicComponent = CreateDefaultSubobject<USPBackgroundMusicComponent>(TEXT("BackgroundMusicComponent"));
 }
 
 void AMatchGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

@@ -8,6 +8,8 @@
 #include "Components/SPParkourComponent.h"
 #include "Components/SPScratchMarkComponent.h"
 #include "Components/SPOilDripComponent.h"
+#include "Components/SPInjuredSoundComponent.h"
+#include "Components/SPDownedCrawlSoundComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/SPInputConfigData.h"
@@ -49,6 +51,8 @@ ASurvivorCharacter::ASurvivorCharacter()
 	InventoryComponent = CreateDefaultSubobject<USPInventoryComponent>(TEXT("InventoryComponent"));
 	ScratchMarkComponent = CreateDefaultSubobject<USPScratchMarkComponent>(TEXT("ScratchMarkComponent"));
 	OilDripComponent = CreateDefaultSubobject<USPOilDripComponent>(TEXT("OilDripComponent"));
+	InjuredSoundComponent = CreateDefaultSubobject<USPInjuredSoundComponent>(TEXT("InjuredSoundComponent"));
+	DownedCrawlSoundComponent = CreateDefaultSubobject<USPDownedCrawlSoundComponent>(TEXT("DownedCrawlSoundComponent"));
 
 	OwningTag.AddTag(SPGameplayTags::Character::Survivor);
 
@@ -581,6 +585,11 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 	ApplyStateEffects();
 	NotifyMatchStateChange(NewState, SurvivorPlayerState);
 
+	if (InjuredSoundComponent)
+	{
+		InjuredSoundComponent->HandleStateTransition(OldState, NewState);
+	}
+
 	if (NewState == ESurvivorState::Dead && CurrentCage)
 	{
 		CurrentCage->HandleSurvivorDeath(this);
@@ -674,6 +683,11 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 		MovementComponent->HandleStateTransition(OldState, SurvivorState);
 	}
 	ApplyStateEffects();
+
+	if (InjuredSoundComponent)
+	{
+		InjuredSoundComponent->HandleStateTransition(OldState, SurvivorState);
+	}
 }
 
 void ASurvivorCharacter::ApplyStateEffects()

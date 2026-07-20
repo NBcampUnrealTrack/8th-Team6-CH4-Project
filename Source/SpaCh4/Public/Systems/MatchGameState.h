@@ -94,6 +94,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnSurvivorStateChangedSignature,
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnMatchPlayersChangedSignature);
 
+class USPBackgroundMusicComponent;
+
 UCLASS()
 class SPACH4_API AMatchGameState : public AGameStateBase
 {
@@ -101,6 +103,8 @@ class SPACH4_API AMatchGameState : public AGameStateBase
 
 public:
 	AMatchGameState();
+
+	USPBackgroundMusicComponent* GetBackgroundMusicComponent() const { return BackgroundMusicComponent; }
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -294,4 +298,7 @@ protected:
 	// 생존자 리스트, 상태 관리
 	UPROPERTY(ReplicatedUsing = OnRep_MatchPlayers, VisibleAnywhere, BlueprintReadOnly, Category = "Match|Player")
 	TArray<FMatchPlayerState> MatchPlayers;
+
+	UPROPERTY(VisibleAnywhere, Category = "Match|Audio")
+	TObjectPtr<USPBackgroundMusicComponent> BackgroundMusicComponent;
 };

@@ -275,6 +275,8 @@ void USPEscapeLeverComponent::StartLeverChannelInternal(ASPEscapeGate* Gate)
 	{
 		PlayWatchMontage();
 	}
+
+	OnLeverChannelBegan.Broadcast();
 }
 
 void USPEscapeLeverComponent::Multicast_EndLeverChannel_Implementation(bool bCompleted)
@@ -395,6 +397,27 @@ bool USPEscapeLeverComponent::ShouldEndWatchChannel() const
 	}
 
 	return false;
+}
+
+float USPEscapeLeverComponent::GetChannelDuration() const
+{
+	if (const ASPEscapeGate* Gate = CurrentGate.Get())
+	{
+		return Gate->GetOpenDuration();
+	}
+
+	return LeverDebugChannelDuration;
+}
+
+float USPEscapeLeverComponent::GetChannelRemainingTime() const
+{
+	const UWorld* World = GetWorld();
+	if (!World || ChannelEndWorldTime <= 0.f)
+	{
+		return 0.f;
+	}
+
+	return FMath::Max(0.f, ChannelEndWorldTime - World->GetTimeSeconds());
 }
 
 void USPEscapeLeverComponent::BlendOutWatchForReturn(UAnimInstance* AnimInstance, float BlendOutTime)
@@ -546,6 +569,8 @@ void USPEscapeLeverComponent::ExitLeverState(bool bPlayReturnAnim)
 	{
 		return;
 	}
+
+	OnLeverChannelEnded.Broadcast(bPlayReturnAnim);
 
 	bIsEndingChannel = true;
 	SetLeverTickEnabled(false);

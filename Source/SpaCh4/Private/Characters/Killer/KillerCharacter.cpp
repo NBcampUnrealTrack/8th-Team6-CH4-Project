@@ -13,6 +13,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SPKillerCarryAnimComponent.h"
+#include "Components/SPKillerCarrySoundComponent.h"
+#include "Components/SPKillerChaseMusicComponent.h"
+#include "Components/SPKillerGroggySoundComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -67,6 +70,9 @@ AKillerCharacter::AKillerCharacter()
     
     charTag.AddTag(SPGameplayTags::Character::Killer);
     CarryAnimComponent = CreateDefaultSubobject<USPKillerCarryAnimComponent>(TEXT("CarryAnimComponent"));
+    CarrySoundComponent = CreateDefaultSubobject<USPKillerCarrySoundComponent>(TEXT("CarrySoundComponent"));
+    GroggySoundComponent = CreateDefaultSubobject<USPKillerGroggySoundComponent>(TEXT("GroggySoundComponent"));
+    ChaseMusicComponent = CreateDefaultSubobject<USPKillerChaseMusicComponent>(TEXT("ChaseMusicComponent"));
     ParkourComponent = CreateDefaultSubobject<USPParkourComponent>(TEXT("ParkourComponent"));
 
     static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
@@ -77,23 +83,14 @@ AKillerCharacter::AKillerCharacter()
     }
 
     static ConstructorHelpers::FObjectFinder<UAnimMontage> GroggyMontageFinder(
-        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AM_Groggy_Montage.AM_Groggy_Montage"));
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Montage.AS_Zombie_Idle_Montage"));
     if (GroggyMontageFinder.Succeeded())
     {
         GroggyMontage = GroggyMontageFinder.Object;
     }
-    else
-    {
-        static ConstructorHelpers::FObjectFinder<UAnimMontage> LegacyGroggyMontageFinder(
-            TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Montage.AS_Zombie_Idle_Montage"));
-        if (LegacyGroggyMontageFinder.Succeeded())
-        {
-            GroggyMontage = LegacyGroggyMontageFinder.Object;
-        }
-    }
 
     FallbackGroggySequence = TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
-        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle_Rogue.AS_Zombie_Idle_Rogue")));
+        TEXT("/Game/Assets/Killer_Locomotion/Groggy/AS_Zombie_Idle1.AS_Zombie_Idle1")));
 }
 
 void AKillerCharacter::NotifyControllerChanged()
@@ -439,7 +436,7 @@ void AKillerCharacter::Multicast_PlayGroggyMontage_Implementation()
     UAnimMontage* MontageToPlay = ResolveGroggyMontage();
     if (!MontageToPlay)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Groggy montage missing - check AM_Groggy_Montage / AS_Zombie_Idle_Rogue"));
+        UE_LOG(LogTemp, Warning, TEXT("Groggy montage missing - check AS_Zombie_Idle_Montage / AS_Zombie_Idle1"));
         return;
     }
 
@@ -855,6 +852,11 @@ void AKillerCharacter::OnRep_CurrentState()
     else
     {
         StopGroggyMontageLocal();
+    }
+
+    if (GroggySoundComponent)
+    {
+        GroggySoundComponent->SyncToKillerState(CurrentState);
     }
 
     if (!CarryAnimComponent)

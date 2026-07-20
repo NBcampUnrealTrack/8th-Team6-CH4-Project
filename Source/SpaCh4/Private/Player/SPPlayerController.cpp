@@ -9,10 +9,18 @@
 #include "Systems/SPEOSSessionSubsystem.h"
 #include "TimerManager.h"
 #include "UI/GameResultWidget.h"
+#include "UObject/ConstructorHelpers.h"
 
 ASPPlayerController::ASPPlayerController()
 {
 	SpectatorComponent = CreateDefaultSubobject<USPSpectatorComponent>(TEXT("SpectatorComponent"));
+
+	static ConstructorHelpers::FObjectFinder<USPInputConfigData> DefaultInputConfig(
+		TEXT("/Game/Data/DA_InputConfig.DA_InputConfig"));
+	if (DefaultInputConfig.Succeeded())
+	{
+		InputConfig = DefaultInputConfig.Object;
+	}
 }
 
 void ASPPlayerController::ReturnToMainMenu()

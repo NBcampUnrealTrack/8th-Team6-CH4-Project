@@ -11,6 +11,8 @@ class UKillerData;
 
 DECLARE_MULTICAST_DELEGATE(FOnKillerCarryPickupAttach);
 DECLARE_MULTICAST_DELEGATE(FOnKillerCarryPickupFinished);
+DECLARE_MULTICAST_DELEGATE(FOnKillerCarryPickupBegan);
+DECLARE_MULTICAST_DELEGATE(FOnKillerCarryEnded);
 
 /**
  * Killer hoist/carry animation:
@@ -37,8 +39,12 @@ public:
 	/** Keep / restart carrying montage while Carrying (drop/cage clears via EndCarryAnims). */
 	void EnsureCarryingMontagePlaying();
 
+	float GetPickupMontagePlayLength() const;
+
+	FOnKillerCarryPickupBegan OnPickupBegan;
 	FOnKillerCarryPickupAttach OnPickupAttachRequested;
 	FOnKillerCarryPickupFinished OnPickupFinished;
+	FOnKillerCarryEnded OnCarryEnded;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 

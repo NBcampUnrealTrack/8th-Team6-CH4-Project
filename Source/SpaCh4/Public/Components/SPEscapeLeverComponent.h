@@ -10,6 +10,9 @@ class UAnimInstance;
 class ASPEscapeGate;
 class ASurvivorCharacter;
 
+DECLARE_MULTICAST_DELEGATE(FOnLeverChannelBegan);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnLeverChannelEnded, bool /*bCompleted*/);
+
 UENUM()
 enum class ELeverAnimPhase : uint8
 {
@@ -42,6 +45,13 @@ public:
 	void BeginLeverChannelDebug();
 	void EndLeverChannelDebug();
 	void CancelLeverChannelDebug();
+
+	ASPEscapeGate* GetCurrentGate() const { return CurrentGate.Get(); }
+	float GetChannelDuration() const;
+	float GetChannelRemainingTime() const;
+
+	FOnLeverChannelBegan OnLeverChannelBegan;
+	FOnLeverChannelEnded OnLeverChannelEnded;
 
 protected:
 	void EnsureMontagesLoaded();

@@ -11,6 +11,7 @@
 #include "Player/LDPlayerState.h"
 #include "Player/SPPlayerController.h"
 #include "Systems/SPEOSSessionSubsystem.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace MatchGameModeStationIds
 {
@@ -22,7 +23,17 @@ AMatchGameMode::AMatchGameMode()
 {
 	GameStateClass = AMatchGameState::StaticClass();
 	PlayerStateClass = ALDPlayerState::StaticClass();
-	PlayerControllerClass = ASPPlayerController::StaticClass();
+
+	static ConstructorHelpers::FClassFinder<APlayerController> PlayerControllerBPClass(
+		TEXT("/Game/Characters/BluePrint/Killer/BP_SPPlayerController"));
+	if (PlayerControllerBPClass.Succeeded())
+	{
+		PlayerControllerClass = PlayerControllerBPClass.Class;
+	}
+	else
+	{
+		PlayerControllerClass = ASPPlayerController::StaticClass();
+	}
 }
 
 void AMatchGameMode::BeginPlay()
