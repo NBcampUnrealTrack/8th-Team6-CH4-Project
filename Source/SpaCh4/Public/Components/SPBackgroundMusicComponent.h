@@ -18,6 +18,7 @@ public:
 
 	void NotifyChaseMusicStarted();
 	void NotifyChaseMusicStopped();
+	void SyncToMatchPhase(EMatchPhase NewMatchPhase);
 
 protected:
 	virtual void BeginPlay() override;
@@ -27,10 +28,13 @@ private:
 	UFUNCTION()
 	void HandleMatchPhaseChanged(EMatchPhase NewMatchPhase);
 
+	void ResolveBackgroundMusicAsset();
+	UObject* GetAudioContextObject() const;
 	bool ShouldPlayForPhase(EMatchPhase MatchPhase) const;
 	bool ShouldPlayAudio() const;
 	void EnsureAudioComponent();
 	void StartBackgroundMusic();
+	void StartBackgroundMusicInternal();
 	void StopBackgroundMusic();
 	void DuckBackgroundMusic();
 	void RestoreBackgroundMusic();
@@ -55,5 +59,6 @@ private:
 
 	bool bMatchMusicEnabled = false;
 	bool bIsAudible = false;
+	bool bStartPending = false;
 	int32 ChaseSuppressCount = 0;
 };

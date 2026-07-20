@@ -2,8 +2,6 @@
 
 #include "Characters/Killer/KillerCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/StaticMeshComponent.h"
-#include "Engine/StaticMesh.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
 #include "NiagaraComponent.h"
@@ -43,54 +41,23 @@ void USPTaserVFXComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-UStaticMeshComponent* USPTaserVFXComponent::ResolveWeaponMesh() const
+USceneComponent* USPTaserVFXComponent::ResolveWeaponAttach() const
 {
 	AActor* Owner = GetOwner();
 	if (!Owner)
 	{
 		return nullptr;
 	}
-
-	UStaticMeshComponent* NamedWeapon = nullptr;
-	UStaticMeshComponent* TaserMesh = nullptr;
 
 	for (UActorComponent* Comp : Owner->GetComponents())
 	{
-		UStaticMeshComponent* StaticMesh = Cast<UStaticMeshComponent>(Comp);
-		if (!StaticMesh)
+		if (Comp && Comp->GetName().Contains(WeaponComponentName.ToString()))
 		{
-			continue;
-		}
-
-		if (Comp->GetName().Contains(WeaponComponentName.ToString()))
-		{
-			NamedWeapon = StaticMesh;
-		}
-
-		if (const UStaticMesh* Asset = StaticMesh->GetStaticMesh())
-		{
-			const FString AssetName = Asset->GetName();
-			if (AssetName.Contains(TEXT("Taser"), ESearchCase::IgnoreCase))
+			if (USceneComponent* SceneComp = Cast<USceneComponent>(Comp))
 			{
-				TaserMesh = StaticMesh;
+				return SceneComp;
 			}
 		}
-	}
-
-	return NamedWeapon ? NamedWeapon : TaserMesh;
-}
-
-USceneComponent* USPTaserVFXComponent::ResolveWeaponAttach() const
-{
-	if (UStaticMeshComponent* WeaponMesh = ResolveWeaponMesh())
-	{
-		return WeaponMesh;
-	}
-
-	AActor* Owner = GetOwner();
-	if (!Owner)
-	{
-		return nullptr;
 	}
 
 	if (const ACharacter* Character = Cast<ACharacter>(Owner))
@@ -101,21 +68,22 @@ USceneComponent* USPTaserVFXComponent::ResolveWeaponAttach() const
 	return Owner->GetRootComponent();
 }
 
-FName USPTaserVFXComponent::ResolveCharacterWeaponSocket() const
+FName USPTaserVFXComponent::ResolveTipSocketName() const
 {
 	if (const ACharacter* Character = Cast<ACharacter>(GetOwner()))
 	{
 		if (const USkeletalMeshComponent* Mesh = Character->GetMesh())
 		{
-			if (!CharacterWeaponSocketName.IsNone() && Mesh->DoesSocketExist(CharacterWeaponSocketName))
+			if (!TipSocketName.IsNone() && Mesh->DoesSocketExist(TipSocketName))
 			{
-				return CharacterWeaponSocketName;
+				return TipSocketName;
 			}
 
 			static const FName FallbackSockets[] = {
+				TEXT("hand_r"),
+				TEXT("Hand_R"),
 				TEXT("weapon_r"),
 				TEXT("WeaponSocket"),
-				TEXT("ik_hand_gun"),
 			};
 
 			for (const FName& Candidate : FallbackSockets)
@@ -131,50 +99,13 @@ FName USPTaserVFXComponent::ResolveCharacterWeaponSocket() const
 	return NAME_None;
 }
 
-FVector USPTaserVFXComponent::ResolveWeaponTipLocalOffset(const UStaticMeshComponent* WeaponMesh) const
-{
-	if (!WeaponMesh)
-	{
-		return TipRelativeOffset;
-	}
-
-	if (!WeaponTipSocketName.IsNone() && WeaponMesh->DoesSocketExist(WeaponTipSocketName))
-	{
-		return WeaponMesh->GetSocketTransform(WeaponTipSocketName, RTS_Component).GetLocation();
-	}
-
-	if (!TipRelativeOffset.IsNearlyZero())
-	{
-		return TipRelativeOffset;
-	}
-
-	if (const UStaticMesh* Asset = WeaponMesh->GetStaticMesh())
-	{
-		const FBox Bounds = Asset->GetBoundingBox();
-		const FVector LocalDir = BarrelLocalDirection.GetSafeNormal();
-		const float Extent = FMath::Max3(
-			FMath::Abs(Bounds.Max.X - Bounds.Min.X),
-			FMath::Abs(Bounds.Max.Y - Bounds.Min.Y),
-			FMath::Abs(Bounds.Max.Z - Bounds.Min.Z)) * 0.5f;
-		return LocalDir * Extent;
-	}
-
-	return BarrelLocalDirection.GetSafeNormal() * 50.f;
-}
-
 FVector USPTaserVFXComponent::GetTipWorldLocation() const
 {
-	if (UStaticMeshComponent* WeaponMesh = ResolveWeaponMesh())
-	{
-		const FVector LocalTip = ResolveWeaponTipLocalOffset(WeaponMesh);
-		return WeaponMesh->GetComponentTransform().TransformPosition(LocalTip);
-	}
-
 	if (const ACharacter* Character = Cast<ACharacter>(GetOwner()))
 	{
 		if (USkeletalMeshComponent* Mesh = Character->GetMesh())
 		{
-			const FName SocketName = ResolveCharacterWeaponSocket();
+			const FName SocketName = ResolveTipSocketName();
 			if (!SocketName.IsNone())
 			{
 				return Mesh->GetSocketLocation(SocketName);
@@ -189,7 +120,7 @@ FVector USPTaserVFXComponent::GetTipWorldLocation() const
 
 	if (const AActor* Owner = GetOwner())
 	{
-		return Owner->GetActorLocation() + GetAttackForward() * TipRelativeOffset.Size();
+		return Owner->GetActorLocation() + GetAttackForward() * TipRelativeOffset.X;
 	}
 
 	return FVector::ZeroVector;
@@ -197,17 +128,6 @@ FVector USPTaserVFXComponent::GetTipWorldLocation() const
 
 FVector USPTaserVFXComponent::GetAttackForward() const
 {
-	if (UStaticMeshComponent* WeaponMesh = ResolveWeaponMesh())
-	{
-		const FVector LocalDir = BarrelLocalDirection.GetSafeNormal();
-		if (!LocalDir.IsNearlyZero())
-		{
-			return WeaponMesh->GetComponentTransform().TransformVectorNoScale(LocalDir).GetSafeNormal();
-		}
-
-		return WeaponMesh->GetForwardVector().GetSafeNormal();
-	}
-
 	if (const AActor* Owner = GetOwner())
 	{
 		return Owner->GetActorForwardVector().GetSafeNormal();
@@ -246,14 +166,6 @@ void USPTaserVFXComponent::PlayDischarge(const FVector& EndWorld, const bool bHi
 	const FVector Start = GetTipWorldLocation();
 	const FVector End = ResolveBeamEnd(Start, EndWorld, bHit);
 
-	if (bDrawDebugBeam)
-	{
-		if (UStaticMeshComponent* WeaponMesh = ResolveWeaponMesh())
-		{
-			DrawDebugSphere(GetWorld(), WeaponMesh->GetComponentLocation(), 8.f, 8, FColor::Yellow, false, TetherBeamLifetime);
-		}
-	}
-
 	SpawnTetherBeam(Start, End);
 	DrawDebugBeam(Start, End);
 	ScheduleCleanup(TetherBeamLifetime);
@@ -288,7 +200,6 @@ void USPTaserVFXComponent::ApplyBeamParameters(UNiagaraComponent* BeamComponent,
 
 	const FVector LocalEnd = FVector(Length, 0.f, 0.f);
 
-	// TetherBeamFX reads start/end along the spawned component's forward axis.
 	BeamComponent->SetVariableVec3(BeamStartParameter, FVector::ZeroVector);
 	BeamComponent->SetVariableVec3(BeamEndParameter, LocalEnd);
 	BeamComponent->SetVariableFloat(BeamLengthParameter, Length);

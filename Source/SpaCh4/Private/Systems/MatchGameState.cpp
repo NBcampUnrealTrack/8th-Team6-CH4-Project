@@ -16,6 +16,27 @@ AMatchGameState::AMatchGameState()
 	BackgroundMusicComponent = CreateDefaultSubobject<USPBackgroundMusicComponent>(TEXT("BackgroundMusicComponent"));
 }
 
+void AMatchGameState::PostNetInit()
+{
+	Super::PostNetInit();
+	OnMatchPhaseChanged.Broadcast(MatchPhase);
+	SyncBackgroundMusicToMatchPhase();
+}
+
+void AMatchGameState::BeginPlay()
+{
+	Super::BeginPlay();
+	SyncBackgroundMusicToMatchPhase();
+}
+
+void AMatchGameState::SyncBackgroundMusicToMatchPhase()
+{
+	if (BackgroundMusicComponent)
+	{
+		BackgroundMusicComponent->SyncToMatchPhase(MatchPhase);
+	}
+}
+
 void AMatchGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -232,6 +253,7 @@ void AMatchGameState::SetMatchPhase(EMatchPhase NewMatchPhase)
 
 	MatchPhase = NewMatchPhase;
 	OnMatchPhaseChanged.Broadcast(MatchPhase);
+	SyncBackgroundMusicToMatchPhase();
 }
 
 void AMatchGameState::SetMatchResult(EMatchResult NewMatchResult)
@@ -386,8 +408,9 @@ void AMatchGameState::SetSurvivorState(const int32 SurvivorPlayerId, const ESurv
 }
 void AMatchGameState::OnRep_MatchPhase()
 {
-	UE_LOG(LogTemp, Warning, TEXT("MatchPhase()"));
+	UE_LOG(LogTemp, Warning, TEXT("MatchPhase OnRep: %d"), static_cast<int32>(MatchPhase));
 	OnMatchPhaseChanged.Broadcast(MatchPhase);
+	SyncBackgroundMusicToMatchPhase();
 }
 
 void AMatchGameState::OnRep_MatchResult()

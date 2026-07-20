@@ -106,6 +106,8 @@ public:
 
 	USPBackgroundMusicComponent* GetBackgroundMusicComponent() const { return BackgroundMusicComponent; }
 
+	virtual void BeginPlay() override;
+	virtual void PostNetInit() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Match")
@@ -249,6 +251,7 @@ protected:
 	void BroadcastDeliveryProgressChanged();
 	void BroadcastMatchPlayersChanged();
 	void RefreshSurvivorCountsFromMatchPlayers();
+	void SyncBackgroundMusicToMatchPhase();
 
 	UPROPERTY(ReplicatedUsing = OnRep_MatchPhase, VisibleAnywhere, BlueprintReadOnly, Category = "Match")
 	EMatchPhase MatchPhase = EMatchPhase::Waiting;

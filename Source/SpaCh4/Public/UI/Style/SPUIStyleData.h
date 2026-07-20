@@ -59,6 +59,9 @@ public:
 	TObjectPtr<UTexture2D> PortraitInjured;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Teammate")
+	TObjectPtr<UTexture2D> PortraitCaged;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Teammate")
 	TObjectPtr<UTexture2D> PortraitDead;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Teammate|Downed")

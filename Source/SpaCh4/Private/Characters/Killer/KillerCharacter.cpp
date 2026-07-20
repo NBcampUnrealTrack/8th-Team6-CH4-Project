@@ -1,7 +1,6 @@
 #include "Characters/Killer/KillerCharacter.h"
 #include "Systems/Data/KillerData.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
 #include "InputActionValue.h"
 #include "InputAction.h"

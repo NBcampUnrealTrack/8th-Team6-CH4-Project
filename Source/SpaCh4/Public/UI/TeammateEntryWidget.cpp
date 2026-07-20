@@ -150,6 +150,12 @@ UTexture2D* UTeammateEntryWidget::ResolvePortraitTexture(ESurvivorDisplayState S
 			return DeadIcon;
 		}
 		return GetValidTexture2D(Style.PortraitDead);
+	case ESurvivorDisplayState::Caged:
+		if (UTexture2D* CagedIcon = GetValidTexture2D(PortraitIconCaged))
+		{
+			return CagedIcon;
+		}
+		return GetValidTexture2D(Style.PortraitCaged);
 	default:
 		if (UTexture2D* HealthyIcon = GetValidTexture2D(PortraitIconHealthy))
 		{

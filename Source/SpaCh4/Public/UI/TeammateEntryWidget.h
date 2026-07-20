@@ -54,13 +54,17 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> DownedHealthBarProgress;
 
-	/** WBP 클래스 기본값에서 지정 — 노멀(Healthy/Caged/Escaped 등) 초상화 */
+	/** WBP 클래스 기본값에서 지정 — Healthy/Escaped 등 정상 초상화 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Portrait")
 	TObjectPtr<UTexture2D> PortraitIconHealthy;
 
 	/** WBP 클래스 기본값에서 지정 — 부상/다운/운반 초상화 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Portrait")
 	TObjectPtr<UTexture2D> PortraitIconInjured;
+
+	/** WBP 클래스 기본값에서 지정 — 케이지 감금 초상화 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Portrait")
+	TObjectPtr<UTexture2D> PortraitIconCaged;
 
 	/** WBP 클래스 기본값에서 지정 — 사망 초상화 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD|Portrait")

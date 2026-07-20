@@ -6,7 +6,6 @@
 
 class UNiagaraSystem;
 class UNiagaraComponent;
-class UStaticMeshComponent;
 
 UENUM(BlueprintType)
 enum class ETaserVFXPhase : uint8
@@ -35,10 +34,8 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
-	UStaticMeshComponent* ResolveWeaponMesh() const;
 	USceneComponent* ResolveWeaponAttach() const;
-	FName ResolveCharacterWeaponSocket() const;
-	FVector ResolveWeaponTipLocalOffset(const UStaticMeshComponent* WeaponMesh) const;
+	FName ResolveTipSocketName() const;
 	FVector GetTipWorldLocation() const;
 	FVector GetAttackForward() const;
 	FVector ResolveBeamEnd(const FVector& Start, const FVector& EndWorld, bool bHit) const;
@@ -69,27 +66,17 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX|TetherBeam")
 	FName BeamDirectionParameter = TEXT("BeamDirection");
 
-	/** Optional socket on the taser static mesh. Falls back to Tip Relative Offset / mesh bounds. */
 	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX")
-	FName WeaponTipSocketName = NAME_None;
+	FName TipSocketName = TEXT("hand_r");
 
-	/** Tip offset in WeaponMesh local space. SM_Taser barrel is roughly +Z (~100uu). */
 	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX")
-	FVector TipRelativeOffset = FVector(0.f, 0.f, 100.f);
-
-	/** Barrel direction in WeaponMesh local space. SM_Taser points along +Z. */
-	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX")
-	FVector BarrelLocalDirection = FVector(0.f, 0.f, 1.f);
+	FVector TipRelativeOffset = FVector(18.f, 0.f, 2.f);
 
 	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX")
 	FName WeaponComponentName = TEXT("WeaponMesh");
 
-	/** Fallback when WeaponMesh is missing: character mesh weapon socket (not hand). */
-	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX")
-	FName CharacterWeaponSocketName = TEXT("weapon_r");
-
 	UPROPERTY(EditDefaultsOnly, Category = "SP|TaserVFX|Debug")
-	bool bDrawDebugBeam = true;
+	bool bDrawDebugBeam = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UNiagaraComponent> ActiveTetherBeam;

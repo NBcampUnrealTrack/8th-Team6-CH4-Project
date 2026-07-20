@@ -81,6 +81,8 @@ namespace SPUIStyleLibrary
 			TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Placeholder.T_HUD_Portrait_Placeholder"));
 		static const FSoftObjectPath PortraitInjured(
 			TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Injured.T_HUD_Portrait_Injured"));
+		static const FSoftObjectPath PortraitCaged(
+			TEXT("/Game/UI/HUD/Textures/Portraits_Overlay/T_HUD_Portrait_Overlay_Caged.T_HUD_Portrait_Overlay_Caged"));
 		static const FSoftObjectPath PortraitDead(
 			TEXT("/Game/UI/HUD/Textures/Teammate/T_HUD_Portrait_Dead.T_HUD_Portrait_Dead"));
 		static const FSoftObjectPath DownedHealthBarBackground(
@@ -287,6 +289,10 @@ namespace SPUIStyleLibrary
 		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitInjured))
 		{
 			Style->PortraitInjured = LoadAsset<UTexture2D>(Paths::PortraitInjured);
+		}
+		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitCaged))
+		{
+			Style->PortraitCaged = LoadAsset<UTexture2D>(Paths::PortraitCaged);
 		}
 		if (!GetValidObjectPtr<UTexture2D>(Style->PortraitDead))
 		{
