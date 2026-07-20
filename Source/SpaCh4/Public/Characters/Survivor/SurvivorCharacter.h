@@ -144,6 +144,9 @@ private:
 
 	UFUNCTION()
 	void OnCageExpired();
+	
+	UFUNCTION(BlueprintCallable, Category = "Survivor|Cage")
+	void ExitCaged();
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_ApplyCagedPose(FVector Location, FRotator Rotation);

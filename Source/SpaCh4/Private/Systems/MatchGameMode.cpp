@@ -50,32 +50,26 @@ void AMatchGameMode::BeginPlay()
 
 UClass* AMatchGameMode::GetDefaultPawnClassForController_Implementation(AController* InController)
 {
-	if (IsValid(InController) == false)
+	if (!IsValid(InController)) return Super::GetDefaultPawnClassForController_Implementation(InController);
+    
+	ALDPlayerState* PlayerState = InController->GetPlayerState<ALDPlayerState>();
+	if (!PlayerState) return Super::GetDefaultPawnClassForController_Implementation(InController);
+
+	// 1. 로그로 역할 정보 직접 확인
+	ELobbyPlayerRole CurrentRole = PlayerState->GetPlayerRole();
+	UE_LOG(LogTemp, Warning, TEXT("GetDefaultPawnClass: Controller %s has Role %d"), *InController->GetName(), (int32)CurrentRole);
+
+	// 2. 분기 처리
+	if (CurrentRole == ELobbyPlayerRole::Killer)
 	{
-		return Super::GetDefaultPawnClassForController_Implementation(InController);
+		if (IsValid(KillerPawnClass)) return KillerPawnClass;
 	}
-	const ALDPlayerState* PlayerState = InController->GetPlayerState<ALDPlayerState>();
-	if (PlayerState == nullptr)
+	else if (CurrentRole == ELobbyPlayerRole::Survivor)
 	{
-		return Super::GetDefaultPawnClassForController_Implementation(InController);
+		if (IsValid(SurvivorPawnClass)) return SurvivorPawnClass;
 	}
-	// 로비에서 설정한 Tag값에 따라 생존자/살인마 스폰
-	if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Survivor)
-	{
-		if (IsValid(SurvivorPawnClass))
-		{
-			return SurvivorPawnClass;
-		}
-	}
-	else if (PlayerState->GetPlayerRole() == ELobbyPlayerRole::Killer)
-	{
-		if (IsValid(KillerPawnClass))
-		{
-			return KillerPawnClass;
-		}
-	}
+
 	return Super::GetDefaultPawnClassForController_Implementation(InController);
-	
 }
 
 AActor* AMatchGameMode::ChoosePlayerStart_Implementation(AController* Player)
@@ -122,10 +116,25 @@ AActor* AMatchGameMode::ChoosePlayerStart_Implementation(AController* Player)
 	return Super::ChoosePlayerStart_Implementation(Player);
 }
 
-
 void AMatchGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
+
+	if (ALDPlayerState* LDPlayerState = NewPlayer->GetPlayerState<ALDPlayerState>())
+	{
+		// 수정: Role -> AssignedRole (이름을 바꾸면 충돌이 해결됩니다)
+		ELobbyPlayerRole AssignedRole = (GetNumPlayers() == 1) ? ELobbyPlayerRole::Killer : ELobbyPlayerRole::Survivor;
+        
+		LDPlayerState->SetPlayerRole(AssignedRole);
+        
+		// RestartPlayer 호출 (캐릭터 스폰 강제 갱신)
+		RestartPlayer(NewPlayer);
+
+		UE_LOG(LogTemp, Warning, TEXT("PostLogin: Player %s assigned as %s"), 
+			*NewPlayer->GetName(), 
+			(AssignedRole == ELobbyPlayerRole::Killer) ? TEXT("KILLER") : TEXT("SURVIVOR"));
+	}
+    
 	RegisterMatchPlayer(NewPlayer);
 }
 
