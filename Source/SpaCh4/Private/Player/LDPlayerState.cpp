@@ -42,11 +42,13 @@ bool ALDPlayerState::IsLoadoutConfiguredForRole(const ELobbyPlayerRole PlayerRol
 {
 	if (PlayerRoleType == ELobbyPlayerRole::Survivor)
 	{
-		return SPPlayerLoadout::IsSurvivorLoadoutComplete(PlayerLoadout);
+		return SPPlayerLoadout::IsSurvivorLoadoutCompleteOnlyItem(PlayerLoadout);
+		//return SPPlayerLoadout::IsSurvivorLoadoutComplete(PlayerLoadout);
 	}
 	if (PlayerRoleType == ELobbyPlayerRole::Killer)
 	{
-		return SPPlayerLoadout::IsKillerLoadoutComplete(PlayerLoadout);
+		return true;
+		//return SPPlayerLoadout::IsKillerLoadoutComplete(PlayerLoadout);
 	}
 	return false;
 }

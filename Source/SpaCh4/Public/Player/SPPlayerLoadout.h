@@ -40,6 +40,8 @@ namespace SPPlayerLoadout
 	SPACH4_API bool IsValidSurvivorItem(EConsumableItemType ItemType);
 	SPACH4_API bool IsValidSurvivorPerk(EPerkType PerkType);
 	SPACH4_API bool IsValidKillerPerk(EKillerPerkType PerkType);
+	
+	SPACH4_API bool IsSurvivorLoadoutCompleteOnlyItem(const FSPPlayerLoadout& Loadout);
 	SPACH4_API bool IsSurvivorLoadoutComplete(const FSPPlayerLoadout& Loadout);
 	SPACH4_API bool IsKillerLoadoutComplete(const FSPPlayerLoadout& Loadout);
 	SPACH4_API bool IsComplete(const FSPPlayerLoadout& Loadout);

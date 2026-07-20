@@ -92,7 +92,7 @@ void AMainMenuPlayerController::SavePlayerLoadout(const FSPPlayerLoadout& NewLoa
 {
 	if (!SPPlayerLoadout::IsComplete(NewLoadout))
 	{
-		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템과 퍽 설정이 완성되지 않았습니다."));
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템 설정이 완성되지 않았습니다."));
 		return;
 	}
 
@@ -127,7 +127,7 @@ void AMainMenuPlayerController::ServerSavePlayerLoadout_Implementation(const FSP
 	ALDPlayerState* LDPlayerState = GetPlayerState<ALDPlayerState>();
 	if (!LDPlayerState || !LDPlayerState->SetPlayerLoadout(NewLoadout))
 	{
-		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템과 퍽 설정을 저장하지 못했습니다."));
+		ClientReceiveMainMenuMatchmakingStatus(false, TEXT("아이템 설정을 저장하지 못했습니다."));
 	}
 }
 

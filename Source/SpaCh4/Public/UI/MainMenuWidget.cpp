@@ -340,7 +340,7 @@ void UMainMenuWidget::StartOnlineMatchmakingAsRole(ELobbyPlayerRole SelectedRole
 	if (!IsRoleLoadoutConfigured(SelectedRole))
 	{
 		SelectedMatchmakingRole = ELobbyPlayerRole::None;
-		UpdateMatchmakingStatus(TEXT("매칭 시작 전에 설정에서 아이템과 퍽을 먼저 선택해야 합니다."), true);
+		UpdateMatchmakingStatus(TEXT("매칭 시작 전에 설정에서 아이템을 먼저 선택해야 합니다."), true);
 		return;
 	}
 
@@ -471,7 +471,7 @@ void UMainMenuWidget::OpenSettings()
 
 void UMainMenuWidget::HandleLoadoutSettingsSaved(const FSPPlayerLoadout& SavedLoadout)
 {
-	UpdateMatchmakingStatus(TEXT("아이템과 퍽 설정을 저장했습니다."), false);
+	UpdateMatchmakingStatus(TEXT("아이템 설정을 저장했습니다."), false);
 }
 
 void UMainMenuWidget::HandleLoadoutSettingsClosed()
@@ -520,6 +520,8 @@ void UMainMenuWidget::RefreshMatchmakingControls(bool bIsMatchmaking)
 
 bool UMainMenuWidget::IsRoleLoadoutConfigured(const ELobbyPlayerRole PlayerRoleType) const
 {
+	//return true;
+	
 	const UGameInstance* GameInstance = GetGameInstance();
 	const USPPlayerLoadoutSubsystem* LoadoutSubsystem = GameInstance
 		? GameInstance->GetSubsystem<USPPlayerLoadoutSubsystem>()
@@ -528,10 +530,13 @@ bool UMainMenuWidget::IsRoleLoadoutConfigured(const ELobbyPlayerRole PlayerRoleT
 	{
 		return false;
 	}
-
+	
+	//살인마 무조건 true, 생존자 아이템만 체크
 	return PlayerRoleType == ELobbyPlayerRole::Survivor
 		? LoadoutSubsystem->IsSurvivorLoadoutConfigured()
-		: PlayerRoleType == ELobbyPlayerRole::Killer && LoadoutSubsystem->IsKillerLoadoutConfigured();
+		//: PlayerRoleType == ELobbyPlayerRole::Killer && LoadoutSubsystem->IsKillerLoadoutConfigured();
+		: PlayerRoleType == ELobbyPlayerRole::Killer;
+	
 }
 
 void UMainMenuWidget::UpdateRoleCountStatus(int32 SurvivorCount, int32 KillerCount)

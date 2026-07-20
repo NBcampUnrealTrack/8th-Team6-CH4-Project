@@ -56,7 +56,7 @@ bool AMainMenuGameMode::SubmitMatchmakingRole(APlayerController* PlayerControlle
 	const ALDPlayerState* LDPlayerState = PlayerController->GetPlayerState<ALDPlayerState>();
 	if (!IsValid(LDPlayerState) || !LDPlayerState->IsLoadoutConfiguredForRole(SelectedRole))
 	{
-		OutStatusMessage = TEXT("매칭 시작 전에 설정에서 아이템과 퍽을 먼저 선택해야 합니다.");
+		OutStatusMessage = TEXT("매칭 시작 전에 설정에서 아이템을 먼저 선택해야 합니다.");
 		return false;
 	}
 

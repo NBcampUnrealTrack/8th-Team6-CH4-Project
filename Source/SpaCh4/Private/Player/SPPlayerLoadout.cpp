@@ -55,6 +55,13 @@ bool SPPlayerLoadout::IsValidKillerPerk(const EKillerPerkType PerkType)
 	}
 }
 
+bool SPPlayerLoadout::IsSurvivorLoadoutCompleteOnlyItem(const FSPPlayerLoadout& Loadout)
+{
+	return IsValidSurvivorItem(Loadout.SurvivorItem);
+
+}
+
+
 bool SPPlayerLoadout::IsSurvivorLoadoutComplete(const FSPPlayerLoadout& Loadout)
 {
 	if (!IsValidSurvivorItem(Loadout.SurvivorItem)
@@ -85,5 +92,6 @@ bool SPPlayerLoadout::IsKillerLoadoutComplete(const FSPPlayerLoadout& Loadout)
 
 bool SPPlayerLoadout::IsComplete(const FSPPlayerLoadout& Loadout)
 {
-	return IsSurvivorLoadoutComplete(Loadout) && IsKillerLoadoutComplete(Loadout);
+	return IsSurvivorLoadoutCompleteOnlyItem(Loadout);
+	//return IsSurvivorLoadoutComplete(Loadout) && IsKillerLoadoutComplete(Loadout);
 }

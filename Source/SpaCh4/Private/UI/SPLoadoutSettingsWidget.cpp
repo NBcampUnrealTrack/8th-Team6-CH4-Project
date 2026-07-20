@@ -52,6 +52,13 @@ bool USPLoadoutSettingsWidget::ToggleKillerPerk(const EKillerPerkType PerkType)
 
 bool USPLoadoutSettingsWidget::SaveLoadout()
 {
+	if (!SPPlayerLoadout::IsSurvivorLoadoutCompleteOnlyItem(PendingLoadout))
+	{
+		OnLoadoutValidationFailed(FText::FromString(TEXT("기본 사용 아이템 하나를 선택해야 합니다.")));
+		return false;
+	}
+	
+	/*
 	if (!SPPlayerLoadout::IsSurvivorLoadoutComplete(PendingLoadout))
 	{
 		OnLoadoutValidationFailed(FText::FromString(TEXT("생존자 아이템 1개와 서로 다른 퍽 2개를 선택해야 합니다.")));
@@ -62,7 +69,7 @@ bool USPLoadoutSettingsWidget::SaveLoadout()
 	{
 		OnLoadoutValidationFailed(FText::FromString(TEXT("살인마 퍽을 서로 다르게 2개 선택해야 합니다.")));
 		return false;
-	}
+	}*/
 
 
 	AMainMenuPlayerController* PlayerController = GetOwningPlayer<AMainMenuPlayerController>();

@@ -13,12 +13,15 @@ const FSPPlayerLoadout& USPPlayerLoadoutSubsystem::GetCachedLoadout() const
 
 bool USPPlayerLoadoutSubsystem::IsSurvivorLoadoutConfigured() const
 {
-	return SPPlayerLoadout::IsSurvivorLoadoutComplete(CachedLoadout);
+	// 기간상, 아이템만 체크함.
+	return SPPlayerLoadout::IsSurvivorLoadoutCompleteOnlyItem(CachedLoadout);
+	//return SPPlayerLoadout::IsSurvivorLoadoutComplete(CachedLoadout);
 }
 
 bool USPPlayerLoadoutSubsystem::IsKillerLoadoutConfigured() const
 {
-	return SPPlayerLoadout::IsKillerLoadoutComplete(CachedLoadout);
+	return true;
+	//return SPPlayerLoadout::IsKillerLoadoutComplete(CachedLoadout);
 }
 
 bool USPPlayerLoadoutSubsystem::IsLoadoutComplete() const
