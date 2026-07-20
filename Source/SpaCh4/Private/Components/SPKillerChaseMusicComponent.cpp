@@ -6,14 +6,28 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SPBackgroundMusicComponent.h"
 #include "Components/SphereComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Systems/Data/KillerData.h"
 #include "Systems/MatchGameState.h"
+#include "UObject/ConstructorHelpers.h"
+
+namespace SPChaseMusicPaths
+{
+	const TCHAR* DefaultChaseMusic = TEXT(
+		"/Game/Sound/BackGround/MUSCSong_Haunted_Chase_GoAg_SWSH_Cminor-132BPM-2448-Full.MUSCSong_Haunted_Chase_GoAg_SWSH_Cminor-132BPM-2448-Full");
+}
 
 USPKillerChaseMusicComponent::USPKillerChaseMusicComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> ChaseMusicFinder(SPChaseMusicPaths::DefaultChaseMusic);
+	if (ChaseMusicFinder.Succeeded())
+	{
+		ChaseMusic = ChaseMusicFinder.Object;
+	}
 }
 
 void USPKillerChaseMusicComponent::OnRegister()
@@ -30,9 +44,12 @@ void USPKillerChaseMusicComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ResolveChaseMusicAsset();
+
 	if (CanManageDetectionSphere())
 	{
 		SetupDetectionSphere();
+		RefreshExistingOverlaps();
 	}
 
 	UpdateChaseMusicState();
@@ -105,6 +122,27 @@ void USPKillerChaseMusicComponent::SetupDetectionSphere()
 
 	ApplyDetectionRadiusToSphere();
 	UpdateDetectionSphereVisuals();
+}
+
+void USPKillerChaseMusicComponent::RefreshExistingOverlaps()
+{
+	if (!DetectionSphere)
+	{
+		return;
+	}
+
+	TArray<AActor*> OverlappingActors;
+	DetectionSphere->GetOverlappingActors(OverlappingActors, ASurvivorCharacter::StaticClass());
+	for (AActor* Actor : OverlappingActors)
+	{
+		if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(Actor))
+		{
+			if (IsValidChaseTarget(Survivor))
+			{
+				OverlappingSurvivors.Add(Survivor);
+			}
+		}
+	}
 }
 
 void USPKillerChaseMusicComponent::UpdateDetectionSphereVisuals()
@@ -311,48 +349,102 @@ void USPKillerChaseMusicComponent::UpdateChaseMusicState()
 	}
 }
 
-void USPKillerChaseMusicComponent::StartChaseMusic()
+void USPKillerChaseMusicComponent::ResolveChaseMusicAsset()
 {
-	if (bIsPlayingChaseMusic || !ChaseMusic)
+	if (ChaseMusic)
 	{
 		return;
 	}
 
-	AActor* Owner = GetOwner();
-	if (!Owner)
+	ChaseMusic = LoadObject<USoundBase>(nullptr, SPChaseMusicPaths::DefaultChaseMusic);
+	if (!ChaseMusic)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SPChaseMusic: Failed to load default chase music at %s"), SPChaseMusicPaths::DefaultChaseMusic);
+	}
+}
+
+UObject* USPKillerChaseMusicComponent::GetAudioContextObject() const
+{
+	if (const UWorld* World = GetWorld())
+	{
+		if (APlayerController* PlayerController = UGameplayStatics::GetPlayerController(World, 0))
+		{
+			return PlayerController;
+		}
+
+		if (AActor* Owner = GetOwner())
+		{
+			return Owner;
+		}
+
+		return const_cast<UWorld*>(World);
+	}
+
+	return const_cast<UObject*>(static_cast<const UObject*>(GetOwner()));
+}
+
+void USPKillerChaseMusicComponent::StartChaseMusic()
+{
+	ResolveChaseMusicAsset();
+
+	if (bIsPlayingChaseMusic || !ShouldPlayAudio() || !ChaseMusic)
 	{
 		return;
+	}
+
+	UObject* AudioContext = GetAudioContextObject();
+	if (!AudioContext)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SPChaseMusic: No audio context object"));
+		return;
+	}
+
+	if (!ChaseAudioComponent || !IsValid(ChaseAudioComponent))
+	{
+		ChaseAudioComponent = UGameplayStatics::SpawnSound2D(
+			AudioContext,
+			ChaseMusic,
+			VolumeMultiplier,
+			PitchMultiplier,
+			0.f,
+			nullptr,
+			false,
+			false);
+
+		if (ChaseAudioComponent)
+		{
+			ChaseAudioComponent->bAllowSpatialization = false;
+			ChaseAudioComponent->bAutoDestroy = false;
+		}
+	}
+	else
+	{
+		ChaseAudioComponent->SetSound(ChaseMusic);
+		ChaseAudioComponent->SetPitchMultiplier(PitchMultiplier);
+		ChaseAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
+		if (!ChaseAudioComponent->IsPlaying())
+		{
+			ChaseAudioComponent->Play();
+		}
 	}
 
 	if (!ChaseAudioComponent)
 	{
-		ChaseAudioComponent = NewObject<UAudioComponent>(Owner, TEXT("ChaseMusicAudio"));
-		ChaseAudioComponent->bAutoActivate = false;
-		ChaseAudioComponent->bAutoDestroy = false;
-		ChaseAudioComponent->bAllowSpatialization = false;
-		ChaseAudioComponent->RegisterComponent();
+		UE_LOG(LogTemp, Warning, TEXT("SPChaseMusic: Failed to create audio component for %s"), *ChaseMusic->GetName());
+		return;
 	}
 
 	PlayEnterSound();
-
-	ChaseAudioComponent->Stop();
-	ChaseAudioComponent->SetSound(ChaseMusic);
-	ChaseAudioComponent->SetPitchMultiplier(PitchMultiplier);
-
-	if (FadeInDuration > 0.f)
-	{
-		ChaseAudioComponent->SetVolumeMultiplier(0.f);
-		ChaseAudioComponent->Play();
-		ChaseAudioComponent->FadeIn(FadeInDuration, VolumeMultiplier);
-	}
-	else
-	{
-		ChaseAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
-		ChaseAudioComponent->Play();
-	}
-
 	NotifyBackgroundMusicChaseState(true);
 	bIsPlayingChaseMusic = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("SPChaseMusic: Started %s playing=%d vol=%.2f"),
+		*ChaseMusic->GetName(),
+		ChaseAudioComponent->IsPlaying() ? 1 : 0,
+		ChaseAudioComponent->VolumeMultiplier);
 }
 
 void USPKillerChaseMusicComponent::StopChaseMusic()
@@ -363,7 +455,6 @@ void USPKillerChaseMusicComponent::StopChaseMusic()
 	}
 
 	NotifyBackgroundMusicChaseState(false);
-
 	PlayExitSound();
 
 	if (ChaseAudioComponent && ChaseAudioComponent->IsPlaying())
@@ -388,7 +479,13 @@ void USPKillerChaseMusicComponent::PlayEnterSound() const
 		return;
 	}
 
-	UGameplayStatics::PlaySound2D(GetWorld(), ChaseEnterSound, VolumeMultiplier, PitchMultiplier);
+	UObject* AudioContext = GetAudioContextObject();
+	if (!AudioContext)
+	{
+		return;
+	}
+
+	UGameplayStatics::PlaySound2D(AudioContext, ChaseEnterSound, VolumeMultiplier, PitchMultiplier);
 }
 
 void USPKillerChaseMusicComponent::PlayExitSound() const
@@ -398,7 +495,13 @@ void USPKillerChaseMusicComponent::PlayExitSound() const
 		return;
 	}
 
-	UGameplayStatics::PlaySound2D(GetWorld(), ChaseExitSound, VolumeMultiplier, PitchMultiplier);
+	UObject* AudioContext = GetAudioContextObject();
+	if (!AudioContext)
+	{
+		return;
+	}
+
+	UGameplayStatics::PlaySound2D(AudioContext, ChaseExitSound, VolumeMultiplier, PitchMultiplier);
 }
 
 AKillerCharacter* USPKillerChaseMusicComponent::GetKiller() const
