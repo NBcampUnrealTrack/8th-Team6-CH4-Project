@@ -497,9 +497,20 @@ void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
     CarriedSurvivor = Target;
     Survivor->SetSurvivorState(ESurvivorState::Carried);
     
+    // 1. 생존자의 무브먼트 비활성화
     if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
     {
         MoveComp->DisableMovement(); 
+    }
+
+    // 2. [추가] 생존자의 콜리전을 완전히 끄거나 킬러와의 충돌을 무시
+    // 방법 A: 모든 콜리전 끄기 (권장)
+    TArray<UPrimitiveComponent*> Primitives;
+    Survivor->GetComponents<UPrimitiveComponent>(Primitives);
+    for (auto* Comp : Primitives)
+    {
+        // 킬러와 충돌하지 않도록 설정
+        Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision); 
     }
 
     ApplyCarryAttachmentTransform(CarriedSurvivor);
@@ -634,12 +645,11 @@ void AKillerCharacter::DropSurvivor()
 
     if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
     {
-        Survivor->SetSurvivorState(ESurvivorState::Downed);
-        
+        // 1.Detach 하기 전에 먼저 상태를 복구시도
         Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-
-        Survivor->SetActorEnableCollision(true);
         
+        // 2. 콜리전 우선 복구
+        Survivor->SetActorEnableCollision(true);
         TArray<UPrimitiveComponent*> Primitives;
         Survivor->GetComponents<UPrimitiveComponent>(Primitives);
         for (auto* Comp : Primitives)
@@ -648,27 +658,29 @@ void AKillerCharacter::DropSurvivor()
             Comp->SetCollisionResponseToAllChannels(ECR_Block);
         }
 
+        // 3. 무브먼트 완전 초기화 (가장 중요)
         if (UCharacterMovementComponent* MoveComp = Survivor->FindComponentByClass<UCharacterMovementComponent>())
         {
-            MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
             MoveComp->SetMovementMode(MOVE_Walking);
+            MoveComp->bOrientRotationToMovement = true;
+            MoveComp->Velocity = FVector::ZeroVector; // 관성 제거
+            MoveComp->StopMovementImmediately();
+            UE_LOG(LogTemp, Warning, TEXT("Survivor Movement Restored"));
         }
+        
+        // 4. 상태 변경
+        Survivor->SetSurvivorState(ESurvivorState::Downed);
     }
     
+    // 킬러 상태 복구
     SetKillerState(EKillerState::Idle);
     bIsBusy = false;
     
     if (GetCharacterMovement())
     {
         GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-        
-        GetCharacterMovement()->StopMovementImmediately(); 
+        GetCharacterMovement()->StopMovementImmediately();
         GetCharacterMovement()->Velocity = FVector::ZeroVector;
-        
-        /*if (GetRootComponent())
-        {
-            GetRootComponent()->SetComponentTickEnabled(true);
-        }*/
     }
 
     CarriedSurvivor = nullptr;
@@ -980,7 +992,13 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
-            // 1. 생존자를 케이지로 전송 (이 함수 내부에서 콜리전/무브먼트 제어)
+            TArray<UPrimitiveComponent*> Primitives;
+            Survivor->GetComponents<UPrimitiveComponent>(Primitives);
+            for (auto* Comp : Primitives)
+            {
+                Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            }
+            
             Survivor->EnterCaged(TargetCage);
         }
         TargetCage->SetCageStatus(ECageStatus::Occupied);
