@@ -1,4 +1,4 @@
-﻿#include "Systems/MatchGameMode.h"
+#include "Systems/MatchGameMode.h"
 
 #include "EngineUtils.h"
 #include "SkeletalMeshAttributes.h"
