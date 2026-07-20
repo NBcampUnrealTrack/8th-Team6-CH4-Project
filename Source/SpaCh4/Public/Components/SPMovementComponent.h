@@ -72,6 +72,7 @@ private:
 	float GetCarryMoveSpeedMultiplier() const;
 	float GetDeliveryMoveSpeedMultiplier() const;
 	float GetSpeedPotionMultiplier() const;
+	void ClampPlanarVelocityToSpeed(float MaxPlanarSpeed) const;
 
 	UFUNCTION()
 	void OnRep_DeliveryMovePenaltyActive();

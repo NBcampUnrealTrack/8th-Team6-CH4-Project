@@ -20,6 +20,9 @@ public:
 	bool ContainsPoint(const FVector& WorldPoint) const;
 
 	UFUNCTION(BlueprintPure, Category = "SP|Parkour")
+	bool OverlapsCharacter(const ACharacter* Character) const;
+
+	UFUNCTION(BlueprintPure, Category = "SP|Parkour")
 	UBoxComponent* GetZoneBox() const { return ZoneBox; }
 
 protected:

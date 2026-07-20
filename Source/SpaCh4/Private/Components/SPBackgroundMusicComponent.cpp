@@ -68,6 +68,17 @@ void USPBackgroundMusicComponent::EndPlay(const EEndPlayReason::Type EndPlayReas
 void USPBackgroundMusicComponent::NotifyChaseMusicStarted()
 {
 	ChaseSuppressCount = FMath::Max(0, ChaseSuppressCount) + 1;
+
+	if (!ShouldPlayAudio() || !BackgroundMusic)
+	{
+		return;
+	}
+
+	if (!bMatchMusicEnabled)
+	{
+		StartBackgroundMusicInternal();
+	}
+
 	if (ChaseSuppressCount != 1)
 	{
 		return;
@@ -294,47 +305,67 @@ void USPBackgroundMusicComponent::StopBackgroundMusic()
 
 void USPBackgroundMusicComponent::DuckBackgroundMusic()
 {
-	if (!bMatchMusicEnabled || !bIsAudible || !BackgroundAudioComponent || !BackgroundAudioComponent->IsPlaying())
+	if (!bMatchMusicEnabled || !ShouldPlayAudio() || !BackgroundMusic)
 	{
 		return;
 	}
 
-	if (FadeOutDuration > 0.f)
+	bIsAudible = false;
+	EnsureAudioComponent();
+
+	if (!BackgroundAudioComponent || !IsValid(BackgroundAudioComponent))
 	{
-		BackgroundAudioComponent->FadeOut(FadeOutDuration, 0.f);
+		return;
 	}
-	else
+
+	// Do not FadeOut here: an in-progress fade can keep running after Restore and mute BGM again.
+	if (BackgroundAudioComponent->IsPlaying())
 	{
 		BackgroundAudioComponent->SetVolumeMultiplier(0.f);
 	}
-
-	bIsAudible = false;
 }
 
 void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 {
-	if (!bMatchMusicEnabled || bIsAudible || !ShouldPlayAudio() || !BackgroundMusic)
+	if (!ShouldPlayAudio() || !BackgroundMusic)
 	{
 		return;
 	}
 
+	if (ChaseSuppressCount > 0)
+	{
+		return;
+	}
+
+	if (!bMatchMusicEnabled)
+	{
+		StartBackgroundMusicInternal();
+		return;
+	}
+
+	EnsureAudioComponent();
 	if (!BackgroundAudioComponent || !IsValid(BackgroundAudioComponent))
 	{
 		StartBackgroundMusicInternal();
 		return;
 	}
 
+	BackgroundAudioComponent->SetSound(BackgroundMusic);
+	BackgroundAudioComponent->SetPitchMultiplier(PitchMultiplier);
+
 	if (!BackgroundAudioComponent->IsPlaying())
 	{
-		BackgroundAudioComponent->SetSound(BackgroundMusic);
-		BackgroundAudioComponent->SetPitchMultiplier(PitchMultiplier);
-		BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
 		BackgroundAudioComponent->Play();
 	}
-	else
-	{
-		BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
-	}
 
+	// FadeIn gets cancelled when chase re-triggers duck; restore audibly immediately.
+	BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
 	bIsAudible = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("SPBackgroundMusic: Restored after chase playing=%d vol=%.2f"),
+		BackgroundAudioComponent->IsPlaying() ? 1 : 0,
+		BackgroundAudioComponent->VolumeMultiplier);
 }
