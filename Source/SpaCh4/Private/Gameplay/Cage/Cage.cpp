@@ -317,6 +317,7 @@ void ACage::BeginPlay()
 void ACage::GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ACage, CurrentStatus);
 	DOREPLIFETIME(ACage, TrappedSurvivor);
 }
 
@@ -336,6 +337,8 @@ void ACage::SetCageStatus(ECageStatus NewStatus)
 		default:
 			break;
 		}
+
+		ForceNetUpdate();
 	}
 }
 

@@ -10,7 +10,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "Gameplay/Cage/Cage.h"
 #include "Gameplay/Collectibles/SPCollectibleItem.h"
@@ -546,6 +545,7 @@ void USPInteractionComponent::CancelInteract()
 
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	const bool bWasPickup = CurrentPickupItem.IsValid();
+	const bool bWasDelivery = CurrentDeliveryStation.IsValid();
 	if (ASPPickupItem* PickupItem = CurrentPickupItem.Get())
 	{
 		PickupItem->ReleaseReservation(Survivor);
@@ -555,6 +555,14 @@ void USPInteractionComponent::CancelInteract()
 	CurrentPickupItem = nullptr;
 	CurrentDeliveryStation = nullptr;
 	StopInteractMontage();
+
+	if (bWasDelivery && Survivor)
+	{
+		if (USPMovementComponent* Movement = Survivor->GetSPMovementComponent())
+		{
+			Movement->SetDeliveryMovePenaltyActive(false);
+		}
+	}
 
 	if (bIsSelfHealing)
 	{
@@ -817,9 +825,9 @@ void USPInteractionComponent::BeginDelivery(ASPDeliveryStation* Station)
 
 	if (!bCancelInteractOnMove)
 	{
-		if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
+		if (USPMovementComponent* Movement = Survivor->GetSPMovementComponent())
 		{
-			MoveComp->MaxWalkSpeed *= Data->DeliveryMovePenalty;
+			Movement->SetDeliveryMovePenaltyActive(true);
 		}
 	}
 
@@ -838,7 +846,15 @@ void USPInteractionComponent::CompleteDelivery()
 	ASPDeliveryStation* Station = CurrentDeliveryStation.Get();
 	CurrentDeliveryStation = nullptr;
 
-	const ASurvivorCharacter* Survivor = GetSurvivor();
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (Survivor)
+	{
+		if (USPMovementComponent* Movement = Survivor->GetSPMovementComponent())
+		{
+			Movement->SetDeliveryMovePenaltyActive(false);
+		}
+	}
+
 	USPInventoryComponent* Inv = Survivor ? Survivor->GetInventoryComponent() : nullptr;
 	if (!Station || !Inv)
 	{

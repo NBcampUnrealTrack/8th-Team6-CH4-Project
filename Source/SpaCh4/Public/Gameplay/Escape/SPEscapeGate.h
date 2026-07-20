@@ -46,6 +46,8 @@ public:
 
 	USceneComponent* GetLeverPivot() const { return LeverPivot; }
 	UStaticMeshComponent* GetSwitchMesh() const { return SwitchMesh; }
+	UStaticMeshComponent* GetLeftDoorMesh() const { return LeftDoorMesh; }
+	UStaticMeshComponent* GetRightDoorMesh() const { return RightDoorMesh; }
 	USPEscapeLeverSoundComponent* GetLeverSoundComponent() const { return LeverSoundComponent; }
 
 protected:
@@ -61,7 +63,12 @@ protected:
 	void OnEscapeAvailabilityChanged(bool bCanActivate);
 	
 	void BindAvailabilityDelegate();
+	void RefreshInteractionCollision();
+	void CancelCurrentOpening();
 	void UpdateLeverRotation(float DeltaSeconds);
+	void CacheDoorClosedLocations();
+	void UpdateDoorMovement(float DeltaSeconds);
+	void ApplyDoorMovement(float NormalizedOpenAlpha);
 	void NotifyLeverChannelStopped(bool bCompleted);
 
 	UFUNCTION(NetMulticast, Reliable)
@@ -84,6 +91,12 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape|Door")
+	TObjectPtr<UStaticMeshComponent> LeftDoorMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape|Door")
+	TObjectPtr<UStaticMeshComponent> RightDoorMesh;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TObjectPtr<UBoxComponent> ExitTrigger;
@@ -99,6 +112,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape")
 	TArray<float> ProgressCheckpoints = {0.33f, 0.66f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Door", meta = (Units = "cm"))
+	FVector LeftDoorOpenOffset = FVector(-100.0f, 0.0f, 0.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Door", meta = (Units = "cm"))
+	FVector RightDoorOpenOffset = FVector(100.0f, 0.0f, 0.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Door", meta = (ClampMin = "0.0", UIMin = "0.0", Units = "s"))
+	float DoorMoveDuration = 1.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SP|Escape|Lever")
 	FRotator LeverInitialRotation = FRotator::ZeroRotator;
@@ -128,4 +150,12 @@ private:
 	FRotator CurrentLeverOffset = FRotator::ZeroRotator;
 
 	FRotator InitialLeverPivotRotation = FRotator::ZeroRotator;
+
+	FVector LeftDoorClosedLocation = FVector::ZeroVector;
+
+	FVector RightDoorClosedLocation = FVector::ZeroVector;
+
+	float DoorOpenAlpha = 0.0f;
+
+	bool bDoorClosedLocationsCached = false;
 };
