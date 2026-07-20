@@ -24,6 +24,7 @@ protected:
 	virtual void OnRegister() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -59,8 +60,10 @@ private:
 	bool ShouldPlayAudio() const;
 
 	void UpdateChaseMusicState();
+	void SyncOverlappingSurvivorsFromSphere();
 	void StartChaseMusic();
 	void StopChaseMusic();
+	void StopChaseAudio();
 	void NotifyBackgroundMusicChaseState(bool bChaseActive);
 
 	AKillerCharacter* GetKiller() const;
@@ -109,10 +112,16 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|ChaseMusic", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float FadeOutDuration = 0.75f;
 
+	/** Delay before stopping chase after the last valid survivor leaves the sphere. */
+	UPROPERTY(EditDefaultsOnly, Category = "SP|ChaseMusic", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float ChaseStopDelaySeconds = 0.45f;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> ChaseAudioComponent;
 
 	TSet<TWeakObjectPtr<ASurvivorCharacter>> OverlappingSurvivors;
 
 	bool bIsPlayingChaseMusic = false;
+	bool bBackgroundMusicSuppressed = false;
+	float LastChaseEligibleWorldTime = -1000.f;
 };

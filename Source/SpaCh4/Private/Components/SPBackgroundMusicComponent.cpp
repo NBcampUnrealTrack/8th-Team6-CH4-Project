@@ -68,6 +68,17 @@ void USPBackgroundMusicComponent::EndPlay(const EEndPlayReason::Type EndPlayReas
 void USPBackgroundMusicComponent::NotifyChaseMusicStarted()
 {
 	ChaseSuppressCount = FMath::Max(0, ChaseSuppressCount) + 1;
+
+	if (!ShouldPlayAudio() || !BackgroundMusic)
+	{
+		return;
+	}
+
+	if (!bMatchMusicEnabled)
+	{
+		StartBackgroundMusicInternal();
+	}
+
 	if (ChaseSuppressCount != 1)
 	{
 		return;
@@ -300,6 +311,7 @@ void USPBackgroundMusicComponent::DuckBackgroundMusic()
 	}
 
 	bIsAudible = false;
+	EnsureAudioComponent();
 
 	if (!BackgroundAudioComponent || !IsValid(BackgroundAudioComponent))
 	{
@@ -315,7 +327,7 @@ void USPBackgroundMusicComponent::DuckBackgroundMusic()
 
 void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 {
-	if (!bMatchMusicEnabled || !ShouldPlayAudio() || !BackgroundMusic)
+	if (!ShouldPlayAudio() || !BackgroundMusic)
 	{
 		return;
 	}
@@ -325,28 +337,29 @@ void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 		return;
 	}
 
+	if (!bMatchMusicEnabled)
+	{
+		StartBackgroundMusicInternal();
+		return;
+	}
+
+	EnsureAudioComponent();
 	if (!BackgroundAudioComponent || !IsValid(BackgroundAudioComponent))
 	{
 		StartBackgroundMusicInternal();
 		return;
 	}
 
+	BackgroundAudioComponent->SetSound(BackgroundMusic);
+	BackgroundAudioComponent->SetPitchMultiplier(PitchMultiplier);
+
 	if (!BackgroundAudioComponent->IsPlaying())
 	{
-		BackgroundAudioComponent->SetSound(BackgroundMusic);
-		BackgroundAudioComponent->SetPitchMultiplier(PitchMultiplier);
 		BackgroundAudioComponent->Play();
 	}
 
-	if (FadeInDuration > 0.f)
-	{
-		BackgroundAudioComponent->FadeIn(FadeInDuration, VolumeMultiplier);
-	}
-	else
-	{
-		BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
-	}
-
+	// FadeIn gets cancelled when chase re-triggers duck; restore audibly immediately.
+	BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
 	bIsAudible = true;
 
 	UE_LOG(

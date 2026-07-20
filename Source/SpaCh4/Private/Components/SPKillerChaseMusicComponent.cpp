@@ -21,7 +21,8 @@ namespace SPChaseMusicPaths
 
 USPKillerChaseMusicComponent::USPKillerChaseMusicComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickInterval = 0.25f;
 
 	static ConstructorHelpers::FObjectFinder<USoundBase> ChaseMusicFinder(SPChaseMusicPaths::DefaultChaseMusic);
 	if (ChaseMusicFinder.Succeeded())
@@ -52,6 +53,20 @@ void USPKillerChaseMusicComponent::BeginPlay()
 		RefreshExistingOverlaps();
 	}
 
+	if (const UWorld* World = GetWorld())
+	{
+		LastChaseEligibleWorldTime = World->GetTimeSeconds() - ChaseStopDelaySeconds;
+	}
+
+	UpdateChaseMusicState();
+}
+
+void USPKillerChaseMusicComponent::TickComponent(
+	float DeltaTime,
+	ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	UpdateChaseMusicState();
 }
 
@@ -126,7 +141,14 @@ void USPKillerChaseMusicComponent::SetupDetectionSphere()
 
 void USPKillerChaseMusicComponent::RefreshExistingOverlaps()
 {
-	if (!DetectionSphere)
+	SyncOverlappingSurvivorsFromSphere();
+}
+
+void USPKillerChaseMusicComponent::SyncOverlappingSurvivorsFromSphere()
+{
+	OverlappingSurvivors.Empty();
+
+	if (!DetectionSphere || !DetectionSphere->IsRegistered())
 	{
 		return;
 	}
@@ -335,22 +357,29 @@ bool USPKillerChaseMusicComponent::ShouldPlayAudio() const
 
 void USPKillerChaseMusicComponent::UpdateChaseMusicState()
 {
-	for (auto It = OverlappingSurvivors.CreateIterator(); It; ++It)
+	SyncOverlappingSurvivorsFromSphere();
+
+	UWorld* World = GetWorld();
+	const float Now = World ? World->GetTimeSeconds() : 0.f;
+	const bool bShouldPlay = ShouldLocalViewerHearChaseMusic();
+
+	if (bShouldPlay)
 	{
-		if (!It->IsValid() || !IsValidChaseTarget(It->Get()))
-		{
-			It.RemoveCurrent();
-		}
+		LastChaseEligibleWorldTime = Now;
+		StartChaseMusic();
+		return;
 	}
 
-	if (ShouldLocalViewerHearChaseMusic())
+	const bool bChaseActive = bIsPlayingChaseMusic
+		|| bBackgroundMusicSuppressed
+		|| (ChaseAudioComponent && IsValid(ChaseAudioComponent) && ChaseAudioComponent->IsPlaying());
+
+	if (bChaseActive && (Now - LastChaseEligibleWorldTime) < ChaseStopDelaySeconds)
 	{
-		StartChaseMusic();
+		return;
 	}
-	else
-	{
-		StopChaseMusic();
-	}
+
+	StopChaseMusic();
 }
 
 void USPKillerChaseMusicComponent::ResolveChaseMusicAsset()
@@ -438,8 +467,13 @@ void USPKillerChaseMusicComponent::StartChaseMusic()
 		return;
 	}
 
+	if (!bBackgroundMusicSuppressed)
+	{
+		NotifyBackgroundMusicChaseState(true);
+		bBackgroundMusicSuppressed = true;
+	}
+
 	PlayEnterSound();
-	NotifyBackgroundMusicChaseState(true);
 	bIsPlayingChaseMusic = true;
 
 	UE_LOG(
@@ -453,27 +487,45 @@ void USPKillerChaseMusicComponent::StartChaseMusic()
 
 void USPKillerChaseMusicComponent::StopChaseMusic()
 {
-	if (!bIsPlayingChaseMusic)
+	const bool bAudioPlaying = ChaseAudioComponent
+		&& IsValid(ChaseAudioComponent)
+		&& ChaseAudioComponent->IsPlaying();
+
+	if (!bBackgroundMusicSuppressed && !bIsPlayingChaseMusic && !bAudioPlaying)
 	{
 		return;
 	}
 
-	NotifyBackgroundMusicChaseState(false);
-	PlayExitSound();
-
-	if (ChaseAudioComponent && ChaseAudioComponent->IsPlaying())
+	if (bBackgroundMusicSuppressed)
 	{
-		if (FadeOutDuration > 0.f)
-		{
-			ChaseAudioComponent->FadeOut(FadeOutDuration, 0.f);
-		}
-		else
-		{
-			ChaseAudioComponent->Stop();
-		}
+		NotifyBackgroundMusicChaseState(false);
+		bBackgroundMusicSuppressed = false;
 	}
 
+	if (bIsPlayingChaseMusic)
+	{
+		PlayExitSound();
+	}
+
+	StopChaseAudio();
 	bIsPlayingChaseMusic = false;
+}
+
+void USPKillerChaseMusicComponent::StopChaseAudio()
+{
+	if (!ChaseAudioComponent || !IsValid(ChaseAudioComponent) || !ChaseAudioComponent->IsPlaying())
+	{
+		return;
+	}
+
+	if (FadeOutDuration > 0.f)
+	{
+		ChaseAudioComponent->FadeOut(FadeOutDuration, 0.f);
+	}
+	else
+	{
+		ChaseAudioComponent->Stop();
+	}
 }
 
 void USPKillerChaseMusicComponent::PlayEnterSound() const
