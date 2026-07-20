@@ -279,23 +279,62 @@ bool USPInteractionComponent::Server_Interact_Validate()
 
 void USPInteractionComponent::Server_Interact_Implementation()
 {
+	UE_LOG(LogTemp, Warning, TEXT("서버: Interact 호출됨!"));
+	
 	ASurvivorCharacter* Survivor = GetSurvivor();
 	if (!Survivor || !Survivor->CanInteract() || bIsInteract)
 	{
 		Client_ResolveInteractionRequest(false);
 		return;
 	}
-
-	FHitResult Hit;
-	if (TraceInteractable(Hit) && Hit.GetActor() && Hit.GetActor()->Implements<USPInteractable>()
-		&& ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
+	
+	ASurvivorCharacter* FoundTarget = Survivor->FindHealableSurvivor(200.f);
+	if (FoundTarget)
 	{
-		FaceInteractTarget(Hit.GetActor());
-		ISPInteractable::Execute_Interact(Hit.GetActor(), Survivor);
-		Client_ResolveInteractionRequest(bIsInteract);
-		return;
+		UE_LOG(LogTemp, Warning, TEXT("힐러 %s가 치료 대상 %s를 찾았습니다!"), *Survivor->GetName(), *FoundTarget->GetName());
+		if (TryBeginHealOther(FoundTarget))
+		{
+			FaceInteractTarget(FoundTarget);
+			Client_ResolveInteractionRequest(true);
+			return;
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("TryBeginHealOther가 false를 반환했습니다."));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("힐러 근처에 치료 가능한 생존자가 없습니다."));
 	}
 
+	FHitResult Hit;
+	if (TraceInteractable(Hit) && Hit.GetActor())
+	{
+		// 1. 타겟이 생존자인지 확인 (타인 치료)
+		ASurvivorCharacter* TargetSurvivor = Cast<ASurvivorCharacter>(Hit.GetActor());
+		if (TargetSurvivor && TargetSurvivor != Survivor)
+		{
+			if (TryBeginHealOther(TargetSurvivor))
+			{
+				FaceInteractTarget(TargetSurvivor);
+				Client_ResolveInteractionRequest(true); // 성공적으로 상호작용 시작
+				return;
+			}
+		}
+
+		// 2. 기존 인터랙터블(레버, 발전기 등) 상호작용
+		if (Hit.GetActor()->Implements<USPInteractable>() && 
+			ISPInteractable::Execute_IsInteractable(Hit.GetActor()))
+		{
+			FaceInteractTarget(Hit.GetActor());
+			ISPInteractable::Execute_Interact(Hit.GetActor(), Survivor);
+			Client_ResolveInteractionRequest(bIsInteract);
+			return;
+		}
+	}
+
+	// 3. 소모품 사용 (자가 치료 등)
 	TryUseSelectedConsumable();
 	Client_ResolveInteractionRequest(bIsInteract);
 }
@@ -1047,4 +1086,54 @@ void USPInteractionComponent::CompleteRescue()
 		}
 	}
 	Cage->SetCageStatus(ECageStatus::Empty);
+}
+
+// SPInteractionComponent.cpp의 마지막 부분에 아래 내용만 남기세요.
+bool USPInteractionComponent::TryBeginHealOther(ASurvivorCharacter* TargetSurvivor)
+{
+	ASurvivorCharacter* Healer = GetSurvivor();
+	const USurvivorData* Data = GetSurvivorData();
+	UWorld* World = GetWorld();
+
+	if (!Healer || !Healer->HasAuthority() || bIsInteract || !TargetSurvivor || !Data || !World)
+		return false;
+
+	ESurvivorState TargetState = TargetSurvivor->GetSurvivorState();
+	if (TargetState != ESurvivorState::Downed && TargetState != ESurvivorState::Injured)
+		return false;
+
+	bIsInteract = true;
+	bIsSelfHealing = true;
+	this->TargetToHeal = TargetSurvivor; // this-> 를 붙여 에러 해결
+
+	if (USPHealingAnimComponent* HealAnim = Healer->GetHealingAnimComponent())
+	{
+		HealAnim->SetAutoCompleteLoop(false);
+		HealAnim->BeginHealingChannel();
+	}
+
+	World->GetTimerManager().SetTimer(HealTimer, this, &USPInteractionComponent::CompleteHealOther, Data->MedkitDuration, false);
+	return true;
+}
+
+void USPInteractionComponent::CompleteHealOther()
+{
+	ASurvivorCharacter* Healer = GetSurvivor();
+	bIsInteract = false;
+	bIsSelfHealing = false;
+    
+	if (Healer)
+	{
+		if (USPHealingAnimComponent* HealAnim = Healer->GetHealingAnimComponent())
+		{
+			HealAnim->EndHealingChannel(true);
+			HealAnim->SetAutoCompleteLoop(true);
+		}
+	}
+
+	if (TargetToHeal.IsValid())
+	{
+		TargetToHeal->ReceiveHealing(Healer);
+	}
+	TargetToHeal = nullptr;
 }

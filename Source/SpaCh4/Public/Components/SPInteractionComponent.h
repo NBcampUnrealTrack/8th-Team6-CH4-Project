@@ -57,6 +57,16 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "SP|Interact")
 	float GetInteractProgress() const { return InteractProgress; }
+	
+	// 1. 타인 치료 시작 함수
+	bool TryBeginHealOther(ASurvivorCharacter* TargetSurvivor);
+
+	// 2. 타인 치료 완료/취소 관련 함수
+	void CompleteHealOther();
+
+	// 3. 현재 치료 중인 대상 저장
+	UPROPERTY()
+	TWeakObjectPtr<ASurvivorCharacter> TargetToHeal;
 
 protected:
 	virtual void BeginPlay() override;

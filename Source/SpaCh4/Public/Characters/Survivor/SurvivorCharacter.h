@@ -108,6 +108,11 @@ public:
 	TObjectPtr<USPInventoryComponent> InventoryComponent;
 	
 	ACage* GetCurrentCage() const { return CurrentCage; }
+	
+	void BeginHealingOther(ASurvivorCharacter* TargetSurvivor);
+	void ReceiveHealing(ASurvivorCharacter* Healer);
+	
+	ASurvivorCharacter* FindHealableSurvivor(float Radius);
 
 protected:
 	virtual void BeginPlay() override;

@@ -36,6 +36,7 @@
 #include "Type/SPCollisionChannels.h"
 #include "Type/SPGameplayTag.h"
 #include "UI/GameHUD.h"
+#include "Engine/OverlapResult.h"
 
 ASurvivorCharacter::ASurvivorCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<USPSurvivorCharacterMovementComponent>(
@@ -477,6 +478,47 @@ void ASurvivorCharacter::ApplyHit()
 	}
 }
 
+ASurvivorCharacter* ASurvivorCharacter::FindHealableSurvivor(float Radius)
+{
+	TArray<FOverlapResult> Overlaps;
+	FCollisionShape Sphere = FCollisionShape::MakeSphere(Radius);
+	FCollisionQueryParams Params(NAME_None, false, this);
+    
+	if (GetWorld()->OverlapMultiByChannel(Overlaps, GetActorLocation(), FQuat::Identity, ECC_Pawn, Sphere, Params))
+	{
+		for (const auto& Result : Overlaps)
+		{
+			ASurvivorCharacter* OtherSurvivor = Cast<ASurvivorCharacter>(Result.GetActor());
+			if (OtherSurvivor && OtherSurvivor != this)
+			{
+				ESurvivorState State = OtherSurvivor->GetSurvivorState();
+				if (State == ESurvivorState::Downed || State == ESurvivorState::Injured)
+					return OtherSurvivor;
+			}
+		}
+	}
+	return nullptr;
+}
+
+void ASurvivorCharacter::BeginHealingOther(ASurvivorCharacter* TargetSurvivor)
+{
+	if (!HasAuthority() || !TargetSurvivor) return;
+	if (InteractionComponent)
+	{
+		InteractionComponent->TryBeginHealOther(TargetSurvivor);
+	}
+}
+
+void ASurvivorCharacter::ReceiveHealing(ASurvivorCharacter* Healer)
+{
+	if (!HasAuthority()) return;
+
+	if (SurvivorState == ESurvivorState::Downed)
+		SetSurvivorState(ESurvivorState::Injured);
+	else if (SurvivorState == ESurvivorState::Injured)
+		SetSurvivorState(ESurvivorState::Healthy);
+}
+
 void ASurvivorCharacter::RecoverOneStep()
 {
 	if (!HasAuthority())
@@ -560,6 +602,7 @@ void ASurvivorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		{
 			if (UInputAction* InteractAction = InputConfig->InteractAction.Get())
 			{
+				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Started, this, &ASurvivorCharacter::Interact);
 				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Completed, this, &ASurvivorCharacter::StopInteract);
 				EnhancedInput->BindAction(InteractAction, ETriggerEvent::Canceled, this, &ASurvivorCharacter::StopInteract);
 			}
@@ -751,7 +794,9 @@ bool ASurvivorCharacter::CanMove() const
 
 bool ASurvivorCharacter::CanInteract() const
 {
-	return SurvivorState == ESurvivorState::Healthy || SurvivorState == ESurvivorState::Injured;
+	return SurvivorState == ESurvivorState::Healthy || 
+		   SurvivorState == ESurvivorState::Injured || 
+		   SurvivorState == ESurvivorState::Downed;
 }
 
 bool ASurvivorCharacter::CanJumpOver() const
