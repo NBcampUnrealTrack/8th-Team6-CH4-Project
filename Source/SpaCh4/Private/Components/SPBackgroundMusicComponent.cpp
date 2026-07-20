@@ -294,26 +294,33 @@ void USPBackgroundMusicComponent::StopBackgroundMusic()
 
 void USPBackgroundMusicComponent::DuckBackgroundMusic()
 {
-	if (!bMatchMusicEnabled || !bIsAudible || !BackgroundAudioComponent || !BackgroundAudioComponent->IsPlaying())
+	if (!bMatchMusicEnabled || !ShouldPlayAudio() || !BackgroundMusic)
 	{
 		return;
 	}
 
-	if (FadeOutDuration > 0.f)
+	bIsAudible = false;
+
+	if (!BackgroundAudioComponent || !IsValid(BackgroundAudioComponent))
 	{
-		BackgroundAudioComponent->FadeOut(FadeOutDuration, 0.f);
+		return;
 	}
-	else
+
+	// Do not FadeOut here: an in-progress fade can keep running after Restore and mute BGM again.
+	if (BackgroundAudioComponent->IsPlaying())
 	{
 		BackgroundAudioComponent->SetVolumeMultiplier(0.f);
 	}
-
-	bIsAudible = false;
 }
 
 void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 {
-	if (!bMatchMusicEnabled || bIsAudible || !ShouldPlayAudio() || !BackgroundMusic)
+	if (!bMatchMusicEnabled || !ShouldPlayAudio() || !BackgroundMusic)
+	{
+		return;
+	}
+
+	if (ChaseSuppressCount > 0)
 	{
 		return;
 	}
@@ -328,8 +335,12 @@ void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 	{
 		BackgroundAudioComponent->SetSound(BackgroundMusic);
 		BackgroundAudioComponent->SetPitchMultiplier(PitchMultiplier);
-		BackgroundAudioComponent->SetVolumeMultiplier(VolumeMultiplier);
 		BackgroundAudioComponent->Play();
+	}
+
+	if (FadeInDuration > 0.f)
+	{
+		BackgroundAudioComponent->FadeIn(FadeInDuration, VolumeMultiplier);
 	}
 	else
 	{
@@ -337,4 +348,11 @@ void USPBackgroundMusicComponent::RestoreBackgroundMusic()
 	}
 
 	bIsAudible = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("SPBackgroundMusic: Restored after chase playing=%d vol=%.2f"),
+		BackgroundAudioComponent->IsPlaying() ? 1 : 0,
+		BackgroundAudioComponent->VolumeMultiplier);
 }

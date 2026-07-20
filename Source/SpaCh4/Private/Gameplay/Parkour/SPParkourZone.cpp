@@ -2,6 +2,7 @@
 
 #include "Components/BoxComponent.h"
 #include "Components/BillboardComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SPParkourComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -35,7 +36,54 @@ void ASPParkourZone::BeginPlay()
 	{
 		ZoneBox->OnComponentBeginOverlap.AddDynamic(this, &ASPParkourZone::OnZoneBeginOverlap);
 		ZoneBox->OnComponentEndOverlap.AddDynamic(this, &ASPParkourZone::OnZoneEndOverlap);
+
+		TArray<AActor*> OverlappingActors;
+		ZoneBox->GetOverlappingActors(OverlappingActors, ACharacter::StaticClass());
+		for (AActor* Actor : OverlappingActors)
+		{
+			if (ACharacter* Character = Cast<ACharacter>(Actor))
+			{
+				HandleCharacterOverlap(Character, true);
+			}
+		}
 	}
+}
+
+bool ASPParkourZone::OverlapsCharacter(const ACharacter* Character) const
+{
+	if (!ZoneBox || !Character)
+	{
+		return false;
+	}
+
+	if (const UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+	{
+		if (ZoneBox->IsOverlappingComponent(Capsule))
+		{
+			return true;
+		}
+
+		const FVector Location = Character->GetActorLocation();
+		if (ContainsPoint(Location))
+		{
+			return true;
+		}
+
+		const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+		if (ContainsPoint(Location - FVector(0.f, 0.f, HalfHeight)))
+		{
+			return true;
+		}
+
+		const float Radius = Capsule->GetScaledCapsuleRadius();
+		const FVector Forward = Character->GetActorForwardVector().GetSafeNormal2D();
+		if (!Forward.IsNearlyZero() && ContainsPoint(Location + Forward * Radius))
+		{
+			return true;
+		}
+	}
+
+	return ContainsPoint(Character->GetActorLocation());
 }
 
 bool ASPParkourZone::ContainsPoint(const FVector& WorldPoint) const
@@ -47,7 +95,7 @@ bool ASPParkourZone::ContainsPoint(const FVector& WorldPoint) const
 
 	const FTransform BoxTransform = ZoneBox->GetComponentTransform();
 	const FVector LocalPoint = BoxTransform.InverseTransformPosition(WorldPoint);
-	const FVector Extent = ZoneBox->GetUnscaledBoxExtent();
+	const FVector Extent = ZoneBox->GetScaledBoxExtent();
 
 	return FMath::Abs(LocalPoint.X) <= Extent.X
 		&& FMath::Abs(LocalPoint.Y) <= Extent.Y

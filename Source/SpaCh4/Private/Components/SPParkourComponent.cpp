@@ -249,6 +249,55 @@ void USPParkourComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME(USPParkourComponent, bIsParkour);
 }
 
+void USPParkourComponent::OnRep_bIsParkour()
+{
+	if (!bIsParkour)
+	{
+		EndParkour(false);
+	}
+}
+
+bool USPParkourComponent::IsParkourMontagePlaying() const
+{
+	if (!ActiveParkourMontage)
+	{
+		return false;
+	}
+
+	const ACharacter* Character = GetParkourCharacter();
+	if (!Character)
+	{
+		return false;
+	}
+
+	const USkeletalMeshComponent* MeshComp = Character->GetMesh();
+	const UAnimInstance* AnimInstance = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+	return AnimInstance && AnimInstance->Montage_IsPlaying(ActiveParkourMontage);
+}
+
+bool USPParkourComponent::IsParkouring() const
+{
+	if (bParkourLocalCleanupDone || !bIsParkour)
+	{
+		return false;
+	}
+
+	return IsParkourMontagePlaying();
+}
+
+void USPParkourComponent::ResetStaleParkourState()
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		bIsParkour = false;
+	}
+
+	if (!bParkourLocalCleanupDone)
+	{
+		FinishParkourLocalState(true);
+	}
+}
+
 void USPParkourComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -299,6 +348,11 @@ void USPParkourComponent::BeginPlay()
 
 	EnsureMontagesLoaded();
 
+	if (bIsParkour && !bParkourLocalCleanupDone && !IsParkourMontagePlaying())
+	{
+		ResetStaleParkourState();
+	}
+
 	if (ACharacter* Character = GetParkourCharacter())
 	{
 		if (USkeletalMeshComponent* MeshComp = Character->GetMesh())
@@ -309,12 +363,20 @@ void USPParkourComponent::BeginPlay()
 				CachedRootMotionMode = ERootMotionMode::RootMotionFromMontagesOnly;
 			}
 		}
+
+		RefreshParkourZoneMembership();
 	}
 }
 
 void USPParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bIsParkour && !bParkourLocalCleanupDone && !IsParkourMontagePlaying())
+	{
+		EndParkour(false);
+		return;
+	}
 
 	if (!bIsParkour || !ActiveParkourMontage)
 	{
@@ -334,10 +396,7 @@ void USPParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
 	if (!AnimInstance || !AnimInstance->Montage_IsPlaying(ActiveParkourMontage))
 	{
-		if (bCanDriveParkourMotion)
-		{
-			EndParkour(false);
-		}
+		EndParkour(false);
 	}
 }
 
@@ -409,14 +468,16 @@ float USPParkourComponent::GetParkourFeetZ(const ACharacter* Character, const UC
 
 bool USPParkourComponent::CanJumpOver() const
 {
-	if (bIsParkour)
+	if (IsParkouring())
 	{
+		LogParkourDebug(TEXT("CanJumpOver=false: parkour active"), FColor::Red);
 		return false;
 	}
 
 	const ACharacter* Character = GetParkourCharacter();
 	if (!Character)
 	{
+		LogParkourDebug(TEXT("CanJumpOver=false: no character"), FColor::Red);
 		return false;
 	}
 
@@ -424,17 +485,20 @@ bool USPParkourComponent::CanJumpOver() const
 	{
 		if (MoveComp->IsFalling())
 		{
+			LogParkourDebug(TEXT("CanJumpOver=false: falling"), FColor::Red);
 			return false;
 		}
 	}
 
 	if (!CanOwnerPerformParkour())
 	{
+		LogParkourDebug(TEXT("CanJumpOver=false: owner state"), FColor::Red);
 		return false;
 	}
 
 	if (bRequireParkourZone && !IsInsideParkourZone())
 	{
+		LogParkourDebug(TEXT("CanJumpOver=false: outside parkour zone"), FColor::Red);
 		return false;
 	}
 
@@ -444,6 +508,11 @@ bool USPParkourComponent::CanJumpOver() const
 void USPParkourComponent::RequestJumpOver()
 {
 	LogParkourDebug(TEXT("JumpOver input"), FColor::Cyan);
+
+	if (bRequireParkourZone)
+	{
+		RefreshParkourZoneMembership();
+	}
 
 	if (!CanJumpOver())
 	{
@@ -483,7 +552,12 @@ void USPParkourComponent::Server_JumpOver_Implementation()
 {
 	EnsureMontagesLoaded();
 
-	if (!CanJumpOver() || bIsParkour)
+	if (bRequireParkourZone)
+	{
+		RefreshParkourZoneMembership();
+	}
+
+	if (!CanJumpOver() || IsParkouring())
 	{
 		LogParkourDebug(TEXT("Server: blocked (state/parkour)"), FColor::Red);
 		return;
@@ -555,7 +629,7 @@ void USPParkourComponent::Multicast_PlayParkourMontage_Implementation(
 	float ObstacleHeight,
 	FVector_NetQuantize ObstacleImpactPoint)
 {
-	if (!Montage || bIsParkour)
+	if (!Montage || IsParkourMontagePlaying())
 	{
 		return;
 	}
@@ -889,6 +963,7 @@ void USPParkourComponent::PlayParkourMontage(
 
 	ActiveParkourMontage = Montage;
 	bIsParkour = true;
+	bParkourLocalCleanupDone = false;
 	bParkourFeetOnGround = false;
 	ParkourMontageElapsed = 0.f;
 
@@ -1693,7 +1768,7 @@ FVector USPParkourComponent::BuildParkourLocationFromRootMotion(
 
 void USPParkourComponent::OnParkourLandNotify()
 {
-	if (!bIsParkour)
+	if (!IsParkouring())
 	{
 		return;
 	}
@@ -1857,15 +1932,6 @@ bool USPParkourComponent::IsInsideParkourZone() const
 		return false;
 	}
 
-	const FVector CharacterLocation = Character->GetActorLocation();
-	for (TActorIterator<ASPParkourZone> It(GetWorld()); It; ++It)
-	{
-		if (It->ContainsPoint(CharacterLocation))
-		{
-			return true;
-		}
-	}
-
 	for (const TWeakObjectPtr<ASPParkourZone>& ZonePtr : OverlappingParkourZones)
 	{
 		if (ZonePtr.IsValid())
@@ -1874,7 +1940,46 @@ bool USPParkourComponent::IsInsideParkourZone() const
 		}
 	}
 
+	for (TActorIterator<ASPParkourZone> It(GetWorld()); It; ++It)
+	{
+		if (It->OverlapsCharacter(Character))
+		{
+			return true;
+		}
+	}
+
 	return false;
+}
+
+void USPParkourComponent::RefreshParkourZoneMembership()
+{
+	if (!bRequireParkourZone)
+	{
+		return;
+	}
+
+	const ACharacter* Character = GetParkourCharacter();
+	UWorld* World = GetWorld();
+	if (!Character || !World)
+	{
+		return;
+	}
+
+	OverlappingParkourZones.RemoveAll([](const TWeakObjectPtr<ASPParkourZone>& Entry)
+	{
+		return !Entry.IsValid();
+	});
+
+	for (TActorIterator<ASPParkourZone> It(World); It; ++It)
+	{
+		ASPParkourZone* Zone = *It;
+		if (!Zone || !Zone->OverlapsCharacter(Character))
+		{
+			continue;
+		}
+
+		OverlappingParkourZones.AddUnique(Zone);
+	}
 }
 
 FParkourWallVaultRecord* USPParkourComponent::FindWallVaultRecord(AActor* ObstacleActor)
@@ -2459,21 +2564,37 @@ void USPParkourComponent::OnParkourMontageEnded(UAnimMontage* Montage, bool bInt
 
 void USPParkourComponent::EndParkour(bool bInterrupted)
 {
-	if (!bIsParkour)
+	if (bParkourLocalCleanupDone)
+	{
+		if (bIsParkour && GetOwner() && GetOwner()->HasAuthority())
+		{
+			bIsParkour = false;
+		}
+		return;
+	}
+
+	const bool bWasActive = bIsParkour || ActiveParkourMontage != nullptr;
+	if (!bWasActive)
 	{
 		return;
+	}
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(ParkourEndTimerHandle);
 	}
 
 	ACharacter* Character = GetParkourCharacter();
 
 	if (!bInterrupted && bParkourVaultEndValid && Character)
 	{
-		ParkourMontageElapsed = ParkourMontageDuration;
-		UpdateParkourRootMotion(1.f / 60.f);
+		const ENetRole LocalRole = Character->GetLocalRole();
+		if (LocalRole == ROLE_Authority || LocalRole == ROLE_AutonomousProxy)
+		{
+			ParkourMontageElapsed = ParkourMontageDuration;
+			UpdateParkourRootMotion(1.f / 60.f);
+		}
 	}
-
-	bIsParkour = false;
-	GetWorld()->GetTimerManager().ClearTimer(ParkourEndTimerHandle);
 
 	FVector LandingLocation = ParkourStartTransform.GetLocation();
 	FRotator LandingRotation = ParkourStartTransform.Rotator();
@@ -2514,11 +2635,28 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 		{
 			Multicast_SnapParkourLanding(LandingLocation, LandingRotation);
 		}
-		else
+		else if (Character && Character->IsLocallyControlled())
 		{
 			ApplyParkourLanding(LandingLocation, LandingRotation);
 		}
 	}
+
+	FinishParkourLocalState(bInterrupted);
+
+	if (GetOwner()->HasAuthority())
+	{
+		bIsParkour = false;
+	}
+}
+
+void USPParkourComponent::FinishParkourLocalState(bool bInterrupted)
+{
+	if (bParkourLocalCleanupDone)
+	{
+		return;
+	}
+
+	ACharacter* Character = GetParkourCharacter();
 
 	if (Character)
 	{
@@ -2551,10 +2689,12 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 			MoveComp->bAllowPhysicsRotationDuringAnimRootMotion = false;
 			MoveComp->GravityScale = CachedGravityScale;
 			MoveComp->NetworkSmoothingMode = CachedNetworkSmoothingMode;
-			if (CachedMovementMode != MOVE_None)
-			{
-				MoveComp->SetMovementMode(CachedMovementMode);
-			}
+
+			const EMovementMode RestoreMode = CachedMovementMode != MOVE_None
+				? CachedMovementMode.GetValue()
+				: MOVE_Walking;
+			MoveComp->SetMovementMode(RestoreMode);
+			MoveComp->bForceNextFloorCheck = true;
 		}
 	}
 
@@ -2576,6 +2716,8 @@ void USPParkourComponent::EndParkour(bool bInterrupted)
 	ParkourKillerDescentStartAlpha = -1.f;
 	ParkourMontageElapsed = 0.f;
 	ParkourMontageDuration = 0.f;
+
+	bParkourLocalCleanupDone = true;
 
 	if (Character)
 	{

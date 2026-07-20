@@ -31,7 +31,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	bool IsParkouring() const { return bIsParkour; }
+	bool IsParkouring() const;
 	bool CanJumpOver() const;
 
 	void RequestJumpOver();
@@ -74,6 +74,9 @@ private:
 		float ObstacleHeight,
 		const FVector& ObstacleImpactPoint);
 	void EndParkour(bool bInterrupted);
+	void FinishParkourLocalState(bool bInterrupted);
+	void ResetStaleParkourState();
+	bool IsParkourMontagePlaying() const;
 	void UpdateParkourRootMotion(float DeltaTime);
 	void InitParkourVaultTargets(AActor* ObstacleActor, const FVector& ObstacleImpactPoint);
 	void CacheParkourLandNotifyTiming(UAnimMontage* Montage);
@@ -125,6 +128,7 @@ private:
 	bool HasSufficientVaultForwardProgress(const FVector& Location) const;
 	float GetParkourMontageAlpha() const;
 	bool IsInsideParkourZone() const;
+	void RefreshParkourZoneMembership();
 	bool IsObstacleVaultBlocked(AActor* ObstacleActor, FString* OutFailReason = nullptr) const;
 	bool TryRegisterWallVault(AActor* ObstacleActor, FString* OutFailReason = nullptr);
 	FParkourWallVaultRecord* FindWallVaultRecord(AActor* ObstacleActor);
@@ -209,8 +213,13 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category = "SP|Parkour|WallLimit", meta = (ClampMin = "1"))
 	float WallVaultCooldownSeconds{180.f};
 
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_bIsParkour)
 	bool bIsParkour{false};
+
+	bool bParkourLocalCleanupDone = false;
+
+	UFUNCTION()
+	void OnRep_bIsParkour();
 
 	TWeakObjectPtr<AActor> CurrentParkourObstacle;
 	FOnMontageEnded ParkourMontageEndedDelegate;
