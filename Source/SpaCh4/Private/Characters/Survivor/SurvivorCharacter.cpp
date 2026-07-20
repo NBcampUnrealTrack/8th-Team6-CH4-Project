@@ -79,6 +79,7 @@ void ASurvivorCharacter::GetLifetimeReplicatedProps(TArray<class FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASurvivorCharacter, SurvivorState);
+	DOREPLIFETIME(ASurvivorCharacter, CagedCount);
 }
 
 void ASurvivorCharacter::Move(const FInputActionValue& Value)
@@ -164,24 +165,45 @@ void ASurvivorCharacter::StopRun()
 
 void ASurvivorCharacter::EnterCaged(ACage* Cage)
 {
+	// 서버에서만 실행되도록 보장
 	if (!HasAuthority() || !Cage) return;
 
 	CurrentCage = Cage;
 	++CagedCount;
-	
+    
 	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s 갇힘! 현재 누적: %d"), *GetName(), CagedCount);
+    
 	// 케이지 당한 횟수 기록
 	if (ALDPlayerState* LDPlayerState = GetController() ? GetController()->GetPlayerState<ALDPlayerState>() : nullptr)
 	{
 		LDPlayerState->RecordCaged();
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에 갇혔습니다. 누적 횟수: %d"), *GetName(), CagedCount);
-
+	// 1. 살인마로부터 분리
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+	// 2. 무브먼트 완전 중지 (물리 모드 해제)
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->DisableMovement();
+		MoveComp->SetMovementMode(MOVE_None);
+	}
+
+	// 3. 콜리전 완전 비활성화 (바닥 뚫림 및 케이지와 충돌 방지)
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+
+	// 4. 고정 포즈 적용
 	const FTransform Anchor = Cage->GetPrisonerAnchorTransform();
 	Multicast_ApplyCagedPose(Anchor.GetLocation(), Anchor.Rotator());
-	
+    
+	// 사망 처리 체크
 	if (CagedCount >= 3)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 3회 누적되어 즉시 사망 처리합니다."));
@@ -189,9 +211,11 @@ void ASurvivorCharacter::EnterCaged(ACage* Cage)
 		return;
 	}
 
+	// 케이지 상태 갱신
 	Cage->SetOccupied(this);
 	SetSurvivorState(ESurvivorState::Caged);
 
+	// 탈출 제한 시간 타이머 설정
 	const float Time = (CagedCount == 1) ? Cage->GetStageOneDuration() : Cage->GetStageTwoDuration();
 	GetWorldTimerManager().SetTimer(
 	CageTimerHandle, this, &ASurvivorCharacter::OnCageExpired, Time, true);
@@ -207,6 +231,47 @@ void ASurvivorCharacter::OnCageExpired()
 		GetWorldTimerManager().ClearTimer(CageTimerHandle);
 		SetSurvivorState(ESurvivorState::Dead);
 	}
+}
+
+void ASurvivorCharacter::ExitCaged()
+{
+	// 서버에서만 실행
+	if (!HasAuthority()) return;
+
+	// 1. 타이머 정리 (갇혀있는 동안의 타이머가 있다면)
+	GetWorldTimerManager().ClearTimer(CageTimerHandle);
+
+	// 2. 무브먼트 모드 복구
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->SetMovementMode(MOVE_Walking); // 물리 이동 복구
+		MoveComp->StopMovementImmediately();    // 기존 관성 제거
+	}
+
+	// 3. 콜리전 복구 (캡슐 및 메쉬)
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+
+	// 4. 살인마와 충돌 무시가 되어있었다면 복구 (필요시)
+	// GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+
+	// 5. 상태를 Injured 등으로 복구 (필요에 따라 설정)
+	SetSurvivorState(ESurvivorState::Injured);
+
+	// 6. 케이지 참조 정리
+	if (CurrentCage)
+	{
+		CurrentCage->SetOccupied(nullptr);
+		CurrentCage = nullptr;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Cage Log] 생존자 %s가 케이지에서 탈출/구출되었습니다."), *GetName());
 }
 
 void ASurvivorCharacter::ApplyDeathRagdoll()
@@ -288,8 +353,7 @@ void ASurvivorCharacter::Multicast_RestoreOrientRotation_Implementation()
 void ASurvivorCharacter::RescueFromCage(ASurvivorCharacter* Rescuer)
 {
 	if (!HasAuthority()) return;
-	GetWorldTimerManager().ClearTimer(CageTimerHandle);
-
+	ExitCaged();
 	Multicast_RestoreOrientRotation();
 	SetSurvivorState(ESurvivorState::Injured);
 	TryPlaceAfterRescue(Rescuer);
