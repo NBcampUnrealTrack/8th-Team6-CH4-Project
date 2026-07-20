@@ -71,6 +71,163 @@ namespace SPParkour
 		// Capsule bottom sits on the measured wall top (+ optional tiny clearance).
 		return ObstacleTopWorldZ + HalfHeight + Clearance;
 	}
+
+	static bool IsWalkableFloorHit(const FHitResult& Hit, const float MinNormalZ = 0.45f)
+	{
+		return Hit.bBlockingHit && Hit.ImpactNormal.Z >= MinNormalZ;
+	}
+
+	static bool IsCeilingLikeHit(const FHitResult& Hit)
+	{
+		return Hit.bBlockingHit && Hit.ImpactNormal.Z < -0.2f;
+	}
+
+	static bool IsObstacleWallHit(const FHitResult& Hit, const AActor* ObstacleActor)
+	{
+		if (!Hit.bBlockingHit)
+		{
+			return false;
+		}
+
+		if (ObstacleActor && Hit.GetActor() == ObstacleActor)
+		{
+			return true;
+		}
+
+		const float NormalUpDot = Hit.ImpactNormal.Z;
+		return FMath::Abs(NormalUpDot) <= 0.55f;
+	}
+
+	static bool IsFeetZWithinLandingBounds(
+		const float FeetZ,
+		const float ReferenceFeetZ,
+		const float MaxObstacleHeight,
+		const float MaxLandingDrop,
+		const float MaxLandingRise = 35.f)
+	{
+		if (ReferenceFeetZ <= 0.f)
+		{
+			return true;
+		}
+
+		const float MaxAllowedFeetZ = ReferenceFeetZ + MaxObstacleHeight + MaxLandingRise;
+		const float MinAllowedFeetZ = ReferenceFeetZ - MaxLandingDrop;
+		return FeetZ >= MinAllowedFeetZ && FeetZ <= MaxAllowedFeetZ;
+	}
+
+	static bool FindBestDownwardGroundHit(
+		const UWorld* World,
+		const FVector& TraceStart,
+		const FVector& TraceEnd,
+		const FCollisionQueryParams& Params,
+		const float ReferenceFeetZ,
+		const float MaxObstacleHeight,
+		const float MaxLandingDrop,
+		FHitResult& OutHit)
+	{
+		if (!World)
+		{
+			return false;
+		}
+
+		const ECollisionChannel GroundChannels[] = { ECC_Visibility, ECC_WorldStatic, ECC_WorldDynamic };
+		FHitResult BestHit;
+		float BestScore = -MAX_FLT;
+
+		for (const ECollisionChannel Channel : GroundChannels)
+		{
+			TArray<FHitResult> Hits;
+			if (!World->LineTraceMultiByChannel(Hits, TraceStart, TraceEnd, Channel, Params))
+			{
+				continue;
+			}
+
+			for (const FHitResult& Hit : Hits)
+			{
+				if (!IsWalkableFloorHit(Hit) || IsCeilingLikeHit(Hit))
+				{
+					continue;
+				}
+
+				const float FeetZ = Hit.ImpactPoint.Z;
+				if (!IsFeetZWithinLandingBounds(FeetZ, ReferenceFeetZ, MaxObstacleHeight, MaxLandingDrop))
+				{
+					continue;
+				}
+
+				const float Score = FeetZ - FMath::Abs(FeetZ - ReferenceFeetZ) * 0.15f;
+				if (Score > BestScore)
+				{
+					BestScore = Score;
+					BestHit = Hit;
+				}
+			}
+		}
+
+		if (BestScore <= -MAX_FLT + 1.f)
+		{
+			return false;
+		}
+
+		OutHit = BestHit;
+		return true;
+	}
+
+	static bool FindObstacleTopZ(
+		const UWorld* World,
+		const FVector& TraceStart,
+		const FVector& TraceEnd,
+		const FCollisionQueryParams& Params,
+		const FCollisionObjectQueryParams& ObjQuery,
+		const AActor* ObstacleActor,
+		const float FeetZ,
+		const float MaxObstacleHeight,
+		float& OutObstacleTopZ)
+	{
+		if (!World)
+		{
+			return false;
+		}
+
+		TArray<FHitResult> Hits;
+		if (!World->LineTraceMultiByObjectType(Hits, TraceStart, TraceEnd, ObjQuery, Params))
+		{
+			return false;
+		}
+
+		const float MaxTopZ = FeetZ + MaxObstacleHeight + 20.f;
+		float BestTopZ = -MAX_FLT;
+
+		for (const FHitResult& Hit : Hits)
+		{
+			if (!Hit.bBlockingHit || IsCeilingLikeHit(Hit))
+			{
+				continue;
+			}
+
+			const bool bSameObstacle = ObstacleActor && Hit.GetActor() == ObstacleActor;
+			if (!bSameObstacle && !IsObstacleWallHit(Hit, ObstacleActor))
+			{
+				continue;
+			}
+
+			const float CandidateTopZ = Hit.ImpactPoint.Z;
+			if (CandidateTopZ < FeetZ + 5.f || CandidateTopZ > MaxTopZ)
+			{
+				continue;
+			}
+
+			BestTopZ = FMath::Max(BestTopZ, CandidateTopZ);
+		}
+
+		if (BestTopZ <= -MAX_FLT + 1.f)
+		{
+			return false;
+		}
+
+		OutObstacleTopZ = BestTopZ;
+		return true;
+	}
 }
 
 USPParkourComponent::USPParkourComponent()
@@ -593,7 +750,7 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 	}
 	const FVector WallSamplePoint = OutObstacleHit.ImpactPoint - ImpactNormal * 10.f;
 
-	const float TopTraceStartZ = FMath::Max(OutObstacleHit.ImpactPoint.Z, FeetLocation.Z) + MaxObstacleHeight + 15.f;
+	const float TopTraceStartZ = FeetLocation.Z + MaxObstacleHeight + HalfHeight + 30.f;
 	const FVector TopTraceStart(
 		WallSamplePoint.X,
 		WallSamplePoint.Y,
@@ -605,22 +762,19 @@ bool USPParkourComponent::TraceParkourObstacle(FHitResult& OutObstacleHit, float
 
 	AActor* ForwardHitActor = OutObstacleHit.GetActor();
 
-	FHitResult TopHit;
-	const bool bTopHit = GetWorld()->LineTraceSingleByObjectType(
-		TopHit,
+	float ObstacleTopZ = -MAX_FLT;
+	if (SPParkour::FindObstacleTopZ(
+		GetWorld(),
 		TopTraceStart,
 		TopTraceEnd,
+		Params,
 		ObjQuery,
-		Params);
-
-	float ObstacleTopZ = -MAX_FLT;
-	if (bTopHit && TopHit.bBlockingHit)
+		ForwardHitActor,
+		FeetLocation.Z,
+		MaxObstacleHeight,
+		ObstacleTopZ))
 	{
-		const bool bSameObstacle = !ForwardHitActor || TopHit.GetActor() == ForwardHitActor;
-		if (bSameObstacle)
-		{
-			ObstacleTopZ = TopHit.ImpactPoint.Z;
-		}
+		// ObstacleTopZ resolved from filtered downward trace.
 	}
 
 	if (ObstacleTopZ <= -MAX_FLT + 1.f)
@@ -1010,6 +1164,10 @@ bool USPParkourComponent::ResolveParkourVaultTargets(
 	{
 		GroundSample.Z = StartCenter.Z;
 	}
+	else if (!ValidateParkourLandingLocation(StartTransform, StartFeetZ, GroundSample, nullptr))
+	{
+		GroundSample.Z = StartCenter.Z;
+	}
 	OutEndLocation = GroundSample;
 
 	if (!ValidateParkourLandingLocation(StartTransform, StartFeetZ, OutEndLocation, nullptr))
@@ -1167,6 +1325,14 @@ bool USPParkourComponent::ValidateParkourLandingLocation(
 		return false;
 	}
 
+	const float Rise = LandingFeetZ - EffectiveStartFeetZ;
+	const float MaxLandingRise = MaxObstacleHeight * 0.35f + ParkourClearanceOverObstacle;
+	if (Rise > MaxLandingRise)
+	{
+		SetFail(FString::Printf(TEXT("Landing rise too large (%.0f > %.0f)"), Rise, MaxLandingRise));
+		return false;
+	}
+
 	return true;
 }
 
@@ -1280,7 +1446,16 @@ FVector USPParkourComponent::BuildParkourVaultLocation(float MontageAlpha) const
 	Location.X = FMath::Lerp(Start.X, End.X, GatedForwardAlpha);
 	Location.Y = FMath::Lerp(Start.Y, End.Y, GatedForwardAlpha);
 
+	const ACharacter* Character = GetParkourCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	const float HalfHeight = Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 88.f;
+	const float ReferenceFeetZ = ParkourStartFeetZ > 0.f
+		? ParkourStartFeetZ
+		: Start.Z - HalfHeight;
+	const float MaxGroundCenterZ = ReferenceFeetZ + MaxObstacleHeight + ParkourClearanceOverObstacle + HalfHeight;
+
 	float GroundZ = bParkourVaultEndValid ? ParkourVaultEndGroundZ : End.Z;
+	GroundZ = FMath::Min(GroundZ, MaxGroundCenterZ);
 	if (bParkourFeetOnGround)
 	{
 		FVector GroundSample = Location;
@@ -1440,10 +1615,12 @@ bool USPParkourComponent::SampleParkourGroundCenterZ(
 	}
 
 	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
-	const float PeakZ = PeakCenterZOverride >= 0.f ? PeakCenterZOverride : ParkourVaultPeakCenterZ;
-	const float TraceHighZ = FMath::Max(InOutCenterLocation.Z, PeakZ) + HalfHeight + 120.f;
+	const float ReferenceFeetZ = ParkourStartFeetZ > 0.f
+		? ParkourStartFeetZ
+		: Character->GetActorLocation().Z - HalfHeight;
+	const float TraceHighZ = ReferenceFeetZ + MaxObstacleHeight + HalfHeight + 120.f;
 	const FVector TraceStart(InOutCenterLocation.X, InOutCenterLocation.Y, TraceHighZ);
-	const FVector TraceEnd(InOutCenterLocation.X, InOutCenterLocation.Y, InOutCenterLocation.Z - 400.f);
+	const FVector TraceEnd(InOutCenterLocation.X, InOutCenterLocation.Y, ReferenceFeetZ - ParkourMaxLandingDrop - 40.f);
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ParkourLandSample), false, Character);
 	if (bIgnoreParkourObstacle)
@@ -1459,19 +1636,18 @@ bool USPParkourComponent::SampleParkourGroundCenterZ(
 	}
 
 	FHitResult GroundHit;
-	const ECollisionChannel GroundChannels[] = { ECC_Visibility, ECC_WorldStatic, ECC_WorldDynamic };
-	for (const ECollisionChannel Channel : GroundChannels)
+	if (SPParkour::FindBestDownwardGroundHit(
+		GetWorld(),
+		TraceStart,
+		TraceEnd,
+		Params,
+		ReferenceFeetZ,
+		MaxObstacleHeight,
+		ParkourMaxLandingDrop,
+		GroundHit))
 	{
-		if (GetWorld()->LineTraceSingleByChannel(
-			GroundHit,
-			TraceStart,
-			TraceEnd,
-			Channel,
-			Params))
-		{
-			InOutCenterLocation.Z = GroundHit.ImpactPoint.Z + HalfHeight;
-			return true;
-		}
+		InOutCenterLocation.Z = GroundHit.ImpactPoint.Z + HalfHeight;
+		return true;
 	}
 
 	return false;
