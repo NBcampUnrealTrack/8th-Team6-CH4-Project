@@ -16,7 +16,7 @@ class SPACH4_API ACharacterBase : public ACharacter
 	GENERATED_BODY()
 
 public:
-	ACharacterBase();
+	ACharacterBase(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 	UFUNCTION(BlueprintPure, Category = "SP|Camera")
 	UCameraComponent* GetCameraComponent() const { return Camera; }
 

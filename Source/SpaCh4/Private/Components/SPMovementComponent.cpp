@@ -8,9 +8,127 @@
 #include "Systems/Data/SurvivorData.h"
 #include "TimerManager.h"
 
+namespace SPMovementPrediction
+{
+	class FSavedMove_Survivor final : public FSavedMove_Character
+	{
+	public:
+		typedef FSavedMove_Character Super;
+
+		virtual void Clear() override
+		{
+			Super::Clear();
+			bSavedWantsToRun = false;
+		}
+
+		virtual uint8 GetCompressedFlags() const override
+		{
+			uint8 Flags = Super::GetCompressedFlags();
+			if (bSavedWantsToRun)
+			{
+				Flags |= FLAG_Custom_0;
+			}
+			return Flags;
+		}
+
+		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const override
+		{
+			const FSavedMove_Survivor* NewSurvivorMove = static_cast<const FSavedMove_Survivor*>(NewMove.Get());
+			if (!NewSurvivorMove || bSavedWantsToRun != NewSurvivorMove->bSavedWantsToRun)
+			{
+				return false;
+			}
+			return Super::CanCombineWith(NewMove, InCharacter, MaxDelta);
+		}
+
+		virtual void SetMoveFor(
+			ACharacter* Character,
+			float InDeltaTime,
+			const FVector& NewAcceleration,
+			FNetworkPredictionData_Client_Character& ClientData) override
+		{
+			Super::SetMoveFor(Character, InDeltaTime, NewAcceleration, ClientData);
+			if (const USPSurvivorCharacterMovementComponent* MoveComp =
+				Cast<USPSurvivorCharacterMovementComponent>(Character->GetCharacterMovement()))
+			{
+				bSavedWantsToRun = MoveComp->WantsToRun();
+			}
+		}
+
+		virtual void PrepMoveFor(ACharacter* Character) override
+		{
+			Super::PrepMoveFor(Character);
+			if (USPSurvivorCharacterMovementComponent* MoveComp =
+				Cast<USPSurvivorCharacterMovementComponent>(Character->GetCharacterMovement()))
+			{
+				MoveComp->SetWantsToRun(bSavedWantsToRun);
+			}
+		}
+
+	private:
+		uint8 bSavedWantsToRun : 1 = false;
+	};
+
+	class FNetworkPredictionData_Client_Survivor final : public FNetworkPredictionData_Client_Character
+	{
+	public:
+		using Super = FNetworkPredictionData_Client_Character;
+
+		explicit FNetworkPredictionData_Client_Survivor(const UCharacterMovementComponent& ClientMovement)
+			: Super(ClientMovement)
+		{
+		}
+
+		virtual FSavedMovePtr AllocateNewMove() override
+		{
+			return MakeShared<FSavedMove_Survivor>();
+		}
+	};
+}
+
+void USPSurvivorCharacterMovementComponent::SetWantsToRun(bool bNewWantsToRun)
+{
+	if (bWantsToRun == bNewWantsToRun)
+	{
+		return;
+	}
+
+	bWantsToRun = bNewWantsToRun;
+	ApplyWantsToRun();
+}
+
+void USPSurvivorCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
+{
+	Super::UpdateFromCompressedFlags(Flags);
+	bWantsToRun = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
+	ApplyWantsToRun();
+}
+
+FNetworkPredictionData_Client* USPSurvivorCharacterMovementComponent::GetPredictionData_Client() const
+{
+	if (!ClientPredictionData)
+	{
+		USPSurvivorCharacterMovementComponent* MutableThis =
+			const_cast<USPSurvivorCharacterMovementComponent*>(this);
+		MutableThis->ClientPredictionData =
+			new SPMovementPrediction::FNetworkPredictionData_Client_Survivor(*this);
+	}
+	return ClientPredictionData;
+}
+
+void USPSurvivorCharacterMovementComponent::ApplyWantsToRun()
+{
+	ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(GetOwner());
+	USPMovementComponent* SurvivorMovementState = Survivor ? Survivor->GetSPMovementComponent() : nullptr;
+	if (SurvivorMovementState)
+	{
+		SurvivorMovementState->SetWantsToRun(bWantsToRun && Survivor->CanMove());
+	}
+}
+
 USPMovementComponent::USPMovementComponent()
 {
-	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
 }
 
@@ -18,9 +136,11 @@ void USPMovementComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(USPMovementComponent, bWantsToRun);
+	DOREPLIFETIME_CONDITION(USPMovementComponent, bWantsToRun, COND_SkipOwner);
 	DOREPLIFETIME(USPMovementComponent, SpeedPotionPhase);
 	DOREPLIFETIME(USPMovementComponent, bDeliveryMovePenaltyActive);
+	DOREPLIFETIME(USPMovementComponent, bHitEscapeSprintActive);
+	DOREPLIFETIME(USPMovementComponent, HitEscapeSprintSpeed);
 }
 
 void USPMovementComponent::BeginPlay()
@@ -33,38 +153,6 @@ void USPMovementComponent::BeginPlay()
 bool USPMovementComponent::IsRunning() const
 {
 	return bWantsToRun || bHitEscapeSprintActive;
-}
-
-void USPMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	if (bHitEscapeSprintActive)
-	{
-		HitEscapeSprintRemaining -= DeltaTime;
-		if (HitEscapeSprintRemaining <= 0.f)
-		{
-			bHitEscapeSprintActive = false;
-			HitEscapeSprintRemaining = 0.f;
-		}
-	}
-
-	const ASurvivorCharacter* Survivor = GetSurvivor();
-	UCharacterMovementComponent* MoveComp = Survivor ? Survivor->GetCharacterMovement() : nullptr;
-	if (!MoveComp)
-	{
-		return;
-	}
-
-	const float Target = ComputeTargetMoveSpeed();
-	if (MoveComp->IsCrouching())
-	{
-		MoveComp->MaxWalkSpeedCrouched = FMath::FInterpTo(MoveComp->MaxWalkSpeedCrouched, Target, DeltaTime, MoveSpeedInterpSpeed);
-	}
-	else
-	{
-		MoveComp->MaxWalkSpeed = FMath::FInterpTo(MoveComp->MaxWalkSpeed, Target, DeltaTime, MoveSpeedInterpSpeed);
-	}
 }
 
 void USPMovementComponent::SnapToTargetSpeed()
@@ -86,7 +174,18 @@ void USPMovementComponent::SnapToTargetSpeed()
 
 void USPMovementComponent::SetWantsToRun(bool bNewWantsToRun)
 {
+	if (bWantsToRun == bNewWantsToRun)
+	{
+		return;
+	}
+
 	bWantsToRun = bNewWantsToRun;
+	SnapToTargetSpeed();
+
+	if (ASurvivorCharacter* Survivor = GetSurvivor(); Survivor && Survivor->HasAuthority())
+	{
+		Survivor->ForceNetUpdate();
+	}
 }
 
 void USPMovementComponent::SetDeliveryMovePenaltyActive(const bool bNewActive)
@@ -103,6 +202,21 @@ void USPMovementComponent::SetDeliveryMovePenaltyActive(const bool bNewActive)
 }
 
 void USPMovementComponent::OnRep_DeliveryMovePenaltyActive()
+{
+	SnapToTargetSpeed();
+}
+
+void USPMovementComponent::OnRep_WantsToRun()
+{
+	SnapToTargetSpeed();
+}
+
+void USPMovementComponent::OnRep_SpeedPotionPhase()
+{
+	SnapToTargetSpeed();
+}
+
+void USPMovementComponent::OnRep_HitEscapeSprintState()
 {
 	SnapToTargetSpeed();
 }
@@ -125,6 +239,18 @@ float USPMovementComponent::GetTargetMoveSpeed() const
 
 float USPMovementComponent::ComputeTargetMoveSpeed() const
 {
+	const ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor)
+	{
+		return 0.f;
+	}
+
+	const ESurvivorState State = Survivor->GetSurvivorState();
+	if (State != ESurvivorState::Healthy && State != ESurvivorState::Injured && State != ESurvivorState::Downed)
+	{
+		return 0.f;
+	}
+
 	const float BaseSpeed = bHitEscapeSprintActive ? HitEscapeSprintSpeed : GetBaseWalkSpeed();
 	return BaseSpeed * GetCarryMoveSpeedMultiplier() * GetDeliveryMoveSpeedMultiplier() * GetSpeedPotionMultiplier();
 }
@@ -261,6 +387,7 @@ bool USPMovementComponent::TryActivateSpeedPotion(const bool bSkipFatigue)
 
 	bSkipSpeedPotionFatigue = bSkipFatigue;
 	SpeedPotionPhase = ESpeedPotionPhase::Boost;
+	SnapToTargetSpeed();
 	Survivor->ForceNetUpdate();
 	GetWorld()->GetTimerManager().SetTimer(
 		SpeedPotionTimer, this, &USPMovementComponent::FinishSpeedPotionBoost, Data->SpeedBoostDuration, false);
@@ -280,11 +407,13 @@ void USPMovementComponent::FinishSpeedPotionBoost()
 	{
 		SpeedPotionPhase = ESpeedPotionPhase::None;
 		bSkipSpeedPotionFatigue = false;
+		SnapToTargetSpeed();
 		Survivor->ForceNetUpdate();
 		return;
 	}
 
 	SpeedPotionPhase = ESpeedPotionPhase::Fatigue;
+	SnapToTargetSpeed();
 	Survivor->ForceNetUpdate();
 	GetWorld()->GetTimerManager().SetTimer(
 		SpeedPotionTimer, this, &USPMovementComponent::FinishSpeedPotionFatigue, Data->SpeedFatigueDuration, false);
@@ -296,6 +425,7 @@ void USPMovementComponent::FinishSpeedPotionFatigue()
 	{
 		SpeedPotionPhase = ESpeedPotionPhase::None;
 		bSkipSpeedPotionFatigue = false;
+		SnapToTargetSpeed();
 		Survivor->ForceNetUpdate();
 	}
 }
@@ -321,21 +451,50 @@ void USPMovementComponent::HandleStateTransition(ESurvivorState OldState, ESurvi
 		(OldState == ESurvivorState::Healthy && NewState == ESurvivorState::Injured) ||
 		(OldState == ESurvivorState::Injured && NewState == ESurvivorState::Downed);
 
-	if (bHitDowngrade)
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (bHitDowngrade && Survivor && Survivor->HasAuthority())
 	{
 		StartHitEscapeSprint(OldState);
 	}
+
+	SnapToTargetSpeed();
 }
 
 void USPMovementComponent::StartHitEscapeSprint(ESurvivorState PreviousState)
 {
+	ASurvivorCharacter* Survivor = GetSurvivor();
 	const USurvivorData* Data = GetSurvivorData();
-	if (!Data)
+	UWorld* World = GetWorld();
+	if (!Survivor || !Survivor->HasAuthority() || !Data || !World)
 	{
 		return;
 	}
 
 	HitEscapeSprintSpeed = GetSprintSpeedForState(PreviousState);
-	HitEscapeSprintRemaining = Data->HitEscapeSprintDuration;
 	bHitEscapeSprintActive = true;
+	SnapToTargetSpeed();
+	Survivor->ForceNetUpdate();
+	if (Data->HitEscapeSprintDuration <= 0.f)
+	{
+		FinishHitEscapeSprint();
+		return;
+	}
+
+	World->GetTimerManager().SetTimer(
+		HitEscapeSprintTimer, this, &USPMovementComponent::FinishHitEscapeSprint,
+		Data->HitEscapeSprintDuration, false);
+}
+
+void USPMovementComponent::FinishHitEscapeSprint()
+{
+	ASurvivorCharacter* Survivor = GetSurvivor();
+	if (!Survivor || !Survivor->HasAuthority())
+	{
+		return;
+	}
+
+	bHitEscapeSprintActive = false;
+	HitEscapeSprintSpeed = 0.f;
+	SnapToTargetSpeed();
+	Survivor->ForceNetUpdate();
 }
