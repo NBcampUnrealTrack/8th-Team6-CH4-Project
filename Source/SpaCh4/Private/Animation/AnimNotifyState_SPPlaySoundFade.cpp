@@ -8,7 +8,9 @@
 
 UAnimNotifyState_SPPlaySoundFade::UAnimNotifyState_SPPlaySoundFade()
 {
+#if WITH_EDITORONLY_DATA
 	bShouldFireInEditor = true;
+#endif
 }
 
 void UAnimNotifyState_SPPlaySoundFade::NotifyBegin(

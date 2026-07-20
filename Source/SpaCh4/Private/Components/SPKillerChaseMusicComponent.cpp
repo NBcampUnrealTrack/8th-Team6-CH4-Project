@@ -115,7 +115,11 @@ void USPKillerChaseMusicComponent::UpdateDetectionSphereVisuals()
 	}
 
 	DetectionSphere->SetHiddenInGame(!bShowDetectionSphereInGame);
+	
+#if WITH_EDITORONLY_DATA
 	DetectionSphere->bVisualizeComponent = bShowDetectionSphereInEditor;
+#endif
+	
 	DetectionSphere->ShapeColor = FColor(255, 165, 0);
 }
 

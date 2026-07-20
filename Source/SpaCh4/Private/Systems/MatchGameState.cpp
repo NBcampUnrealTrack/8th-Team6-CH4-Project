@@ -391,7 +391,7 @@ void AMatchGameState::SetSurvivorState(const int32 SurvivorPlayerId, const ESurv
 	{
 		if (MatchPlayer.PlayerRole == ELobbyPlayerRole::Survivor && MatchPlayer.PlayerId == SurvivorPlayerId)
 		{
-			const UEnum* CharStateEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("ESurvivorState"), true);
+			const UEnum* CharStateEnum = StaticEnum<ESurvivorState>();
 			if (CharStateEnum)
 			{
 				FString EnumToString = CharStateEnum->GetNameStringByValue((int64)NewSurvivorState);
@@ -415,7 +415,7 @@ void AMatchGameState::OnRep_MatchPhase()
 
 void AMatchGameState::OnRep_MatchResult()
 {			
-	const UEnum* CharStateEnum = FindObject<UEnum>(ANY_PACKAGE, TEXT("EMatchResult"), true);
+	const UEnum* CharStateEnum = StaticEnum<ESurvivorState>();
 	if (CharStateEnum)
 	{
 		FString EnumToString = CharStateEnum->GetNameStringByValue((int64)MatchResult);
