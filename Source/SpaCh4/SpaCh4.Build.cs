@@ -13,7 +13,20 @@ public class SpaCh4 : ModuleRules
 			"Engine",
 			"InputCore",
 			"UMG",
-			"EnhancedInput"
+			"EnhancedInput",
+			"GameplayTags",
+			"MediaAssets",
+			"OnlineBase",
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils",
+			"Niagara"
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"Slate",
+			"SlateCore",
+			"OnlineSubsystemEOS"
 		});
 	}
 }

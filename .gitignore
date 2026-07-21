@@ -11,6 +11,7 @@
 # change them to "**" or a source "Build/" folder would be swallowed again.
 /Binaries/
 /Build/
+/_build/
 /DerivedDataCache/
 /Intermediate/
 /Saved/
@@ -82,6 +83,8 @@ _ReSharper*/
 # Claude Code — commit .claude/settings.json, ignore local overrides
 .claude/settings.local.json
 CLAUDE.local.md
+.claude/
+.agents/
 
 # Other agents' local caches
 .cursor/
@@ -99,3 +102,6 @@ Thumbs.db
 desktop.ini
 *.log
 *.tmp
+
+# Local source art (authoring PNGs; imported assets live under Content/)
+/SourceArt/

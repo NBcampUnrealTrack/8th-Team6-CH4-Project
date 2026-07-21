@@ -300,7 +300,7 @@ FMcpToolResult UImportAssetsTool::Execute(const TSharedPtr<FJsonObject>& Argumen
 			continue;
 		}
 
-		UAssetImportTask* ImportTask = NewObject<UAssetImportTask>();
+		UAssetImportTask* ImportTask = NewObject<UAssetImportTask>(GetTransientPackage());
 		ImportTask->Filename = SourceFile;
 		ImportTask->DestinationPath = DestinationPath;
 		ImportTask->DestinationName = DestinationName;

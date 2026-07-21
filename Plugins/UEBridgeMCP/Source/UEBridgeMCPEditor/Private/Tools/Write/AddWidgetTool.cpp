@@ -15,6 +15,7 @@
 #include "Components/ProgressBar.h"
 #include "Components/Border.h"
 #include "Components/Overlay.h"
+#include "Components/SizeBox.h"
 #include "ScopedTransaction.h"
 
 FString UAddWidgetTool::GetToolDescription() const
@@ -126,6 +127,10 @@ FMcpToolResult UAddWidgetTool::Execute(
 	else if (WidgetClass.Equals(TEXT("Overlay"), ESearchCase::IgnoreCase))
 	{
 		WClass = UOverlay::StaticClass();
+	}
+	else if (WidgetClass.Equals(TEXT("SizeBox"), ESearchCase::IgnoreCase))
+	{
+		WClass = USizeBox::StaticClass();
 	}
 	else
 	{

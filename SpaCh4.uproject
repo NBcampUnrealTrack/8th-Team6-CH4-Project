@@ -1,37 +1,77 @@
-﻿{
-    "FileVersion":  3,
-    "EngineAssociation":  "5.5",
-    "Category":  "",
-    "Description":  "",
-    "Modules":  [
-                    {
-                        "Name":  "SpaCh4",
-                        "Type":  "Runtime",
-                        "LoadingPhase":  "Default"
-                    }
-                ],
-    "Plugins":  [
-                    {
-                        "Name":  "ModelingToolsEditorMode",
-                        "Enabled":  true,
-                        "TargetAllowList":  [
-                                                "Editor"
-                                            ]
-                    },
-                    {
-                        "TargetAllowList":  [
-                                                "Editor"
-                                            ],
-                        "Name":  "UEBridgeMCP",
-                        "Enabled":  false
-                    },
-                    {
-                        "TargetAllowList":  [
-                                                "Editor"
-                                            ],
-                        "Name":  "PythonScriptPlugin",
-                        "Enabled":  true
-                    }
-                ]
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.5",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "SpaCh4",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"UMG"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"TargetAllowList": [
+				"Editor"
+			],
+			"Name": "UEBridgeMCP",
+			"Enabled": true
+		},
+		{
+			"TargetAllowList": [
+				"Editor"
+			],
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "PoseSearch",
+			"Enabled": true
+		},
+		{
+			"Name": "Chooser",
+			"Enabled": true
+		},
+		{
+			"Name": "MotionTrajectory",
+			"Enabled": true
+		},
+		{
+			"Name": "EOSOverlayInputProvider",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineServicesEOS",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineServicesEOSGS",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineSubsystemEOS",
+			"Enabled": true
+		},
+		{
+			"Name": "SocketSubsystemEOS",
+			"Enabled": true
+		},
+		{
+			"Name": "RMFixTool",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/63784b32c0b44fe6ad5e814b52c8e75e"
+		}
+	]
 }
-
